@@ -1,0 +1,11 @@
+{
+  "locale-en-US": {
+    "defaultMessage": "English"
+  },
+  "locale-de-DE": {
+    "defaultMessage": "German"
+  },
+  "locale-fr-FR": {
+    "defaultMessage": "Français"
+  }
+}

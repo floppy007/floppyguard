@@ -1,0 +1,45 @@
+.card {
+	width: min(420px, calc(100vw - 2rem));
+	margin: 0 auto;
+	border: 1px solid rgba(var(--tblr-border-color-rgb), 0.7);
+	border-radius: 1.25rem;
+	background: var(--tblr-bg-surface);
+	box-shadow: 0 24px 48px -16px rgba(10, 20, 40, 0.18);
+	overflow: hidden;
+}
+
+.cardHeader {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 1.5rem 1.5rem 0;
+}
+
+.logo {
+	width: 180px;
+	height: auto;
+}
+
+.tools {
+	display: flex;
+	align-items: center;
+	gap: 0.25rem;
+}
+
+.cardBody {
+	padding: 1.75rem 1.5rem 1.5rem;
+}
+
+.heading {
+	font-size: 1.25rem;
+	font-weight: 600;
+	margin: 0 0 1.25rem;
+}
+
+.cardFooter {
+	padding: 0.75rem 1.5rem;
+	border-top: 1px solid rgba(var(--tblr-border-color-rgb), 0.5);
+	font-size: 0.78rem;
+	color: var(--tblr-secondary);
+	text-align: right;
+}

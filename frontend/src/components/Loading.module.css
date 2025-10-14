@@ -1,0 +1,10 @@
+.logo {
+	width: 220px;
+	max-width: min(80vw, 220px);
+	height: auto;
+	filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.18));
+}
+
+:global([data-bs-theme="dark"]) .logo {
+	filter: drop-shadow(0 0 26px rgba(28, 182, 54, 0.28));
+}

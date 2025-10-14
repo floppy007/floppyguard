@@ -1,0 +1,80 @@
+.locationCard {
+	border-color: rgba(var(--tblr-border-color-rgb), 0.76) !important;
+	border-radius: 1rem;
+	background:
+		radial-gradient(circle at top right, rgba(var(--tblr-primary-rgb), 0.08), transparent 36%),
+		linear-gradient(180deg, rgba(var(--tblr-bg-surface-rgb), 0.97), rgba(var(--tblr-bg-surface-secondary-rgb), 0.92));
+	box-shadow: 0 22px 38px -34px rgba(10, 20, 40, 0.36);
+}
+
+.locationHeader {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+	margin-bottom: 1rem;
+}
+
+.locationTitle {
+	margin: 0;
+	font-size: 0.92rem;
+	font-weight: 700;
+	letter-spacing: 0.02em;
+	text-transform: uppercase;
+	color: color-mix(in srgb, var(--tblr-secondary) 82%, var(--tblr-body-color));
+}
+
+.settingsButton {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 2.5rem;
+	height: 2.5rem;
+	border: 1px solid rgba(var(--tblr-border-color-rgb), 0.74);
+	border-radius: 0.9rem;
+	background: rgba(var(--tblr-bg-surface-secondary-rgb), 0.75);
+	color: var(--tblr-secondary);
+	transition:
+		border-color 160ms ease,
+		background-color 160ms ease,
+		color 160ms ease,
+		transform 160ms ease;
+}
+
+.settingsButton:hover {
+	color: var(--tblr-body-color);
+	border-color: rgba(var(--tblr-primary-rgb), 0.26);
+	background: rgba(var(--tblr-primary-rgb), 0.1);
+	transform: translateY(-1px);
+}
+
+.advancedPanel {
+	margin-top: 0.75rem;
+	padding: 0.9rem;
+	border: 1px solid rgba(var(--tblr-border-color-rgb), 0.74);
+	border-radius: 1rem;
+	background: rgba(var(--tblr-bg-surface-secondary-rgb), 0.66);
+}
+
+.editorShell {
+	border: 1px solid rgba(var(--tblr-border-color-rgb), 0.8);
+	border-radius: 0.95rem;
+	overflow: hidden;
+	background:
+		radial-gradient(circle at top, rgba(var(--tblr-primary-rgb), 0.08), transparent 48%),
+		rgba(var(--tblr-bg-surface-rgb), 0.88);
+}
+
+.deleteAction {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35rem;
+	margin-top: 0.4rem;
+	font-weight: 600;
+}
+
+.addRow {
+	display: flex;
+	justify-content: center;
+	margin-top: 0.25rem;
+}

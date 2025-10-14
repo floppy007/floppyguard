@@ -1,0 +1,55 @@
+# Staging stack for the FloppyGuard platform fork.
+# Separate ports, separate DB, no reuse of the live /opt/npm stack.
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: ./docker/dev/Dockerfile
+    container_name: floppyguard-staging-app
+    working_dir: /app
+    ports:
+      - "4080:80"
+      - "4081:81"
+      - "4443:443"
+    environment:
+      TZ: "${TZ:-UTC}"
+      FORCE_COLOR: 1
+      DEBUG: "true"
+      DEVELOPMENT: "true"
+      DB_MYSQL_HOST: "db"
+      DB_MYSQL_PORT: "3306"
+      DB_MYSQL_USER: "npm"
+      DB_MYSQL_PASSWORD: "npm"
+      DB_MYSQL_NAME: "npm"
+      WG_CONF_DIR: "/host/etc/wireguard"
+      IP_BIN: "/usr/sbin/ip"
+      WG_BIN: "/usr/bin/wg"
+    volumes:
+      - floppyguard_stage_data:/data
+      - floppyguard_stage_letsencrypt:/etc/letsencrypt
+      - ../backend:/app
+      - ../frontend:/frontend
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/wireguard:/host/etc/wireguard:ro
+      - /sys/class/net:/sys/class/net:ro
+    depends_on:
+      - db
+
+  db:
+    image: jc21/mariadb-aria:latest
+    container_name: floppyguard-staging-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: "npm"
+      MYSQL_DATABASE: "npm"
+      MYSQL_USER: "npm"
+      MYSQL_PASSWORD: "npm"
+    volumes:
+      - floppyguard_stage_db:/var/lib/mysql
+      - /etc/localtime:/etc/localtime:ro
+
+volumes:
+  floppyguard_stage_data:
+  floppyguard_stage_letsencrypt:
+  floppyguard_stage_db:
