@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>FloppyGuard Platform</title>
+		<meta
+			name="description"
+			content="Manage reverse proxies, WireGuard tunnels, and gateway status from one platform"
+		/>
+		<link rel="preload" href="/images/logo-no-text.svg" as="image" type="image/svg+xml" fetchPriority="high">
+		<link
+			rel="apple-touch-icon"
+			sizes="180x180"
+			href="/images/favicon/apple-touch-icon.png" />
+		<link
+			rel="icon"
+			type="image/png"
+			sizes="32x32"
+			href="/images/favicon/favicon-32x32.png" />
+		<link
+			rel="icon"
+			type="image/png"
+			sizes="16x16"
+			href="/images/favicon/favicon-16x16.png" />
+		<link rel="manifest" href="/images/favicon/site.webmanifest" />
+		<link
+			rel="mask-icon"
+			href="/images/favicon/safari-pinned-tab.svg"
+			color="#5bbad5" />
+		<link rel="shortcut icon" href="/images/favicon/favicon.ico" />
+		<meta name="msapplication-TileColor" content="#4a4a4a" />
+		<meta
+			name="msapplication-config"
+			content="/images/favicon/browserconfig.xml" />
+		<meta name="theme-color" content="#0b1220" />
+		<style>
+			body { margin: 0; background: linear-gradient(180deg, #08101d 0%, #0b1220 100%); color: #e5edf7; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+			#boot-splash { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: radial-gradient(circle at top, rgba(46, 204, 113, 0.12), transparent 38%), linear-gradient(180deg, #08101d 0%, #0b1220 100%); z-index: 9999; transition: opacity .28s ease; }
+			#boot-splash.boot-hidden { opacity: 0; pointer-events: none; }
+			.boot-card { width: min(92vw, 420px); padding: 32px 28px; border-radius: 24px; background: rgba(12, 18, 32, 0.86); border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 24px 60px rgba(0,0,0,0.35); text-align: center; backdrop-filter: blur(10px); }
+			.boot-logo { width: 210px; max-width: 72vw; margin: 0 auto 18px; display: block; filter: drop-shadow(0 0 24px rgba(34, 197, 94, 0.22)); }
+			.boot-title { font-size: 15px; font-weight: 600; letter-spacing: 0.02em; margin-bottom: 6px; }
+			.boot-copy { font-size: 13px; color: rgba(226, 232, 240, 0.72); margin-bottom: 18px; }
+			.boot-progress { position: relative; height: 8px; border-radius: 999px; overflow: hidden; background: rgba(255,255,255,0.08); }
+			.boot-progress::before { content: ""; position: absolute; inset: 0; width: 42%; background: linear-gradient(90deg, #22c55e 0%, #38bdf8 100%); border-radius: inherit; animation: boot-slide 1.15s ease-in-out infinite; }
+			@keyframes boot-slide { 0% { transform: translateX(-110%); } 100% { transform: translateX(320%); } }
+		</style>
+	</head>
+	<body>
+		<noscript>You need to enable JavaScript to run this app.</noscript>
+		<div id="boot-splash">
+			<div class="boot-card">
+				<img class="boot-logo" src="/images/floppyguard-logo-dark.png" alt="FloppyGuard" />
+				<div class="boot-title">FloppyGuard Platform wird geladen</div>
+				<div class="boot-copy">Initialisiere Oberfläche, Gateway und WireGuard-Daten...</div>
+				<div class="boot-progress"></div>
+			</div>
+		</div>
+		<div id="root"></div>
+		<script type="module" src="/src/main.tsx"></script>
+		<script>
+			if (typeof window.global === "undefined") {
+				window.global = window;
+			}
+			window.__hideBootSplash = function () {
+				const el = document.getElementById("boot-splash");
+				if (!el) return;
+				el.classList.add("boot-hidden");
+				window.setTimeout(() => el.remove(), 320);
+			};
+		</script>
+	</body>
+</html>
