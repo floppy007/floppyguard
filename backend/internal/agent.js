@@ -1,0 +1,867 @@
+import { createHash, randomBytes } from "node:crypto";
+import * as http from "node:http";
+import * as https from "node:https";
+import { createConnection } from "node:net";
+import { exec } from "node:child_process";
+import error from "../lib/error.js";
+import Agent from "../models/agent.js";
+
+/**
+ * Generate a random hex token of `byteLength` bytes (returns 2*byteLength hex chars).
+ *
+ * @param {number} byteLength
+ * @returns {string}
+ */
+const randomToken = (byteLength = 32) => randomBytes(byteLength).toString("hex");
+
+/**
+ * Compute SHA-256 hex digest of a string. Returns null if input is falsy.
+ *
+ * @param {string|null|undefined} text
+ * @returns {string|null}
+ */
+const hashConfig = (text) => {
+	if (!text) return null;
+	return createHash("sha256").update(text).digest("hex");
+};
+
+/**
+ * Parse agent.services JSON string into array. Returns [] on failure.
+ * @param {Object} agent
+ * @returns {Object}
+ */
+const parseAgentServices = (agent) => {
+	if (!agent.services) {
+		agent.services = [];
+	} else if (typeof agent.services === "string") {
+		try {
+			agent.services = JSON.parse(agent.services);
+		} catch {
+			agent.services = [];
+		}
+	}
+	return agent;
+};
+
+// Known port → default label
+const KNOWN_PORTS = [
+	{ port: 8080, label: "Web UI" },
+	{ port: 8443, label: "Web UI", https: true },
+	{ port: 9000, label: "Portainer" },
+	{ port: 9443, label: "Portainer", https: true },
+	{ port: 8888, label: "Management UI" },
+	{ port: 3000, label: "Grafana" },
+	{ port: 9090, label: "Prometheus" },
+	{ port: 1880, label: "Node-RED" },
+	{ port: 10000, label: "Webmin" },
+	{ port: 8000, label: "Web UI" },
+];
+
+/**
+ * Check if a TCP port is open on a host. Resolves true/false in ~1s.
+ */
+const tcpProbe = (host, port) => new Promise((resolve) => {
+	const sock = createConnection({ host, port, timeout: 1000 });
+	sock.once("connect", () => { sock.destroy(); resolve(true); });
+	sock.once("timeout", () => { sock.destroy(); resolve(false); });
+	sock.once("error", () => resolve(false));
+});
+
+/**
+ * Try to fetch the <title> from a URL. Returns null on failure.
+ */
+/**
+ * Fetch a URL via curl (handles self-signed certs, redirects, timeouts reliably).
+ * Returns { title, finalUrl } or null on failure/404.
+ */
+const fetchTitle = (url) => new Promise((resolve) => {
+	// curl: follow redirects, ignore cert errors, 4s timeout, write final URL to stdout after body
+	const cmd = `curl -skL --max-time 4 --write-out '\\n__FINALURL__%{url_effective}' '${url.replace(/'/g, "'\\''")}' 2>/dev/null`;
+	exec(cmd, { timeout: 5000 }, (err, stdout) => {
+		if (err) { resolve(null); return; }
+		const sep = stdout.lastIndexOf("\n__FINALURL__");
+		const body = sep >= 0 ? stdout.slice(0, sep) : stdout;
+		const finalUrl = sep >= 0 ? stdout.slice(sep + 13).trim() : url;
+		if (!body.includes("<title") || /not found|404/i.test(body.slice(0, 200))) { resolve(null); return; }
+		const m = body.match(/<title[^>]*>([^<]{1,80})<\/title>/i);
+		resolve({ title: m ? m[1].trim() : null, finalUrl });
+	});
+});
+
+/**
+ * Extract the first Address IP from a wg-quick config string.
+ * e.g. "Address = 10.10.0.2/32" → "10.10.0.2"
+ */
+const extractWgIp = (configText) => {
+	if (!configText) return null;
+	const m = configText.match(/^\s*Address\s*=\s*([\d.]+)/im);
+	return m ? m[1] : null;
+};
+
+/**
+ * Scan known management ports on `ip` and return [{name, url}].
+ */
+const scanIp = async (ip) => {
+	const found = [];
+	const seenUrls = new Set();
+
+	for (const { port, label, https: useHttps } of KNOWN_PORTS) {
+		const open = await tcpProbe(ip, port);
+		if (!open) continue;
+		const scheme = useHttps ? "https" : "http";
+		const probeUrl = `${scheme}://${ip}:${port}`;
+		const result = await fetchTitle(probeUrl);
+		if (result === null) continue;
+		// Store the clean base URL (scheme + host + port), not the redirect destination path
+		const parsed = new URL(result.finalUrl || probeUrl);
+		const storeUrl = `${parsed.protocol}//${parsed.hostname}:${parsed.port || (parsed.protocol === "https:" ? "443" : "80")}`;
+		const key = storeUrl;
+		if (seenUrls.has(key)) continue;
+		seenUrls.add(key);
+		seenUrls.add(probeUrl.replace(/\/$/, ""));
+		const name = result.title ?? label;
+		found.push({ name, url: storeUrl });
+	}
+	return found;
+};
+
+/**
+ * Extract a dotted-decimal IP from a string (e.g. agent name "VM-Docker (192.168.10.7)").
+ * Returns null if none found.
+ */
+const extractIpFromText = (text) => {
+	if (!text) return null;
+	const m = text.match(/(\d{1,3}(?:\.\d{1,3}){3})/);
+	return m ? m[1] : null;
+};
+
+/**
+ * Scan all active agents and update their services field.
+ * Called on startup and once daily.
+ */
+const scanAllAgentServices = async () => {
+	const agents = await Agent.query().where("is_deleted", 0).where("status", "active");
+	for (const agent of agents) {
+		// Prefer LAN IP (from hostname or name) — browser-clickable.
+		// Only use WireGuard IP as fallback if no LAN IP found.
+		const lanIp = extractIpFromText(agent.hostname) || extractIpFromText(agent.name);
+		const wgIp = extractWgIp(agent.config_text);
+		const scanIps = lanIp ? [lanIp] : (wgIp ? [wgIp] : []);
+		if (scanIps.length === 0) continue;
+		try {
+			// Scan all candidate IPs, merge results (prefer LAN IP URLs)
+			let services = [];
+			for (const ip of scanIps) {
+				const found = await scanIp(ip);
+				for (const svc of found) {
+					if (!services.some((s) => s.url === svc.url)) {
+						services.push(svc);
+					}
+				}
+			}
+			await Agent.query().patchAndFetchById(agent.id, {
+				services: JSON.stringify(services),
+			});
+		} catch {
+			// ignore per-agent errors
+		}
+	}
+};
+
+// Run once on startup (after a short delay) then once a day
+setTimeout(() => {
+	scanAllAgentServices().catch(() => {});
+	setInterval(() => scanAllAgentServices().catch(() => {}), 24 * 60 * 60 * 1000);
+}, 5000);
+
+const internalAgent = {
+	// ─── Admin methods (JWT-authenticated) ──────────────────────────────────────
+
+	/**
+	 * Returns all non-deleted agents (without agent_token for security).
+	 *
+	 * @returns {Promise<Agent[]>}
+	 */
+	async getAll() {
+		const agents = await Agent.query()
+			.where("is_deleted", 0)
+			.select(
+				"id",
+				"name",
+				"hostname",
+				"wg_interface",
+				"config_text",
+				"config_hash",
+				"mgmt_url",
+				"services",
+				"wg_link_name",
+				"reg_token",
+				"last_seen",
+				"status",
+				"created_on",
+				"modified_on",
+			)
+			.orderBy("created_on", "asc");
+		return agents.map(parseAgentServices);
+	},
+
+	/**
+	 * Returns a single agent by id (without agent_token).
+	 *
+	 * @param {number} id
+	 * @returns {Promise<Agent>}
+	 */
+	async getById(id) {
+		const agent = await Agent.query()
+			.where("id", id)
+			.where("is_deleted", 0)
+			.select(
+				"id",
+				"name",
+				"hostname",
+				"wg_interface",
+				"config_text",
+				"config_hash",
+				"mgmt_url",
+				"services",
+				"wg_link_name",
+				"reg_token",
+				"last_seen",
+				"status",
+				"created_on",
+				"modified_on",
+			)
+			.first();
+
+		if (!agent) {
+			throw new error.ItemNotFoundError(id);
+		}
+
+		return parseAgentServices(agent);
+	},
+
+	/**
+	 * Creates a new agent with a fresh reg_token. Returns the full record
+	 * including reg_token (shown once).
+	 *
+	 * @param {Object} data
+	 * @returns {Promise<Agent>}
+	 */
+	async create(data) {
+		const reg_token = randomToken(32);
+		const config_hash = hashConfig(data.config_text);
+
+		const agent = await Agent.query().insertAndFetch({
+			name: data.name,
+			mode: data.mode || "native",
+			reg_token,
+			agent_token: null,
+			hostname: data.hostname || null,
+			wg_interface: data.wg_interface || "wg0",
+			config_text: data.config_text || null,
+			config_hash,
+			mgmt_url: data.mgmt_url || null,
+			wg_link_name: data.wg_link_name || null,
+			unifi_url: data.unifi_url || null,
+			unifi_user: data.unifi_user || null,
+			unifi_pass: data.unifi_pass || null,
+			unifi_site: data.unifi_site || "default",
+			last_seen: null,
+			status: "pending",
+			is_deleted: false,
+		});
+
+		return agent;
+	},
+
+	/**
+	 * Updates name, wg_interface, and/or config_text. Recalculates config_hash
+	 * when config_text changes.
+	 *
+	 * @param {number}  id
+	 * @param {Object}  data
+	 * @returns {Promise<Agent>}
+	 */
+	async update(id, data) {
+		const existing = await Agent.query()
+			.where("id", id)
+			.where("is_deleted", 0)
+			.first();
+
+		if (!existing) {
+			throw new error.ItemNotFoundError(id);
+		}
+
+		const patch = {};
+
+		if (typeof data.name !== "undefined") {
+			patch.name = data.name;
+		}
+		if (typeof data.wg_interface !== "undefined") {
+			patch.wg_interface = data.wg_interface;
+		}
+		if (typeof data.mode !== "undefined") patch.mode = data.mode;
+		if (typeof data.config_text !== "undefined") {
+			patch.config_text = data.config_text;
+			patch.config_hash = hashConfig(data.config_text);
+		}
+		if (typeof data.mgmt_url !== "undefined") patch.mgmt_url = data.mgmt_url || null;
+		if (typeof data.wg_link_name !== "undefined") patch.wg_link_name = data.wg_link_name || null;
+		if (typeof data.unifi_url !== "undefined") patch.unifi_url = data.unifi_url;
+		if (typeof data.unifi_user !== "undefined") patch.unifi_user = data.unifi_user;
+		if (typeof data.unifi_pass !== "undefined") patch.unifi_pass = data.unifi_pass;
+		if (typeof data.unifi_site !== "undefined") patch.unifi_site = data.unifi_site;
+
+		await Agent.query()
+			.patchAndFetchById(id, patch);
+
+		return this.getById(id);
+	},
+
+	/**
+	 * Soft-deletes an agent.
+	 *
+	 * @param {number} id
+	 * @returns {Promise<boolean>}
+	 */
+	async delete(id) {
+		const existing = await Agent.query()
+			.where("id", id)
+			.where("is_deleted", 0)
+			.first();
+
+		if (!existing) {
+			throw new error.ItemNotFoundError(id);
+		}
+
+		await Agent.query().patchAndFetchById(id, { is_deleted: true });
+		return true;
+	},
+
+	/**
+	 * Generates a fresh reg_token for an existing agent so it can be reinstalled.
+	 * Clears agent_token and resets status to pending.
+	 *
+	 * @param {number} id
+	 * @returns {Promise<{ reg_token: string }>}
+	 */
+	async resetToken(id) {
+		const existing = await Agent.query()
+			.where("id", id)
+			.where("is_deleted", 0)
+			.first();
+
+		if (!existing) {
+			throw new error.ItemNotFoundError(id);
+		}
+
+		const reg_token = randomToken(32);
+		await Agent.query().patchAndFetchById(id, {
+			reg_token,
+			agent_token: null,
+			status: "pending",
+		});
+
+		return this.getById(id);
+	},
+
+	/**
+	 * Returns a bash install script for the agent as a plain-text string.
+	 *
+	 * @param {number} id
+	 * @param {string} publicUrl   e.g. "https://proxy.example.com"
+	 * @param {string} tunnelUrl   e.g. "http://10.8.0.1:3300"
+	 * @returns {Promise<string>}
+	 */
+	async getInstallScript(id, publicUrl, tunnelUrl) {
+		const agent = await Agent.query()
+			.where("id", id)
+			.where("is_deleted", 0)
+			.first();
+
+		if (!agent) {
+			throw new error.ItemNotFoundError(id);
+		}
+
+		const regToken = agent.reg_token || "";
+		const wgInterface = agent.wg_interface || "wg0";
+		const mode = agent.mode || "native";
+		const unifiUrl = agent.unifi_url || "";
+		const unifiUser = agent.unifi_user || "";
+		const unifiPass = agent.unifi_pass || "";
+		const unifiSite = agent.unifi_site || "default";
+
+		// ── apply_config function: mode-specific ──────────────────────────────
+		// native: write wg-quick config file and apply via wg syncconf / wg-quick
+		// unifi:  push peer config to UniFi Network Application API
+		const applyFunctionNative = `\
+apply_config() {
+  local cfg="$1" iface="$2"
+  printf '%s' "$cfg" > /tmp/fg_new_wg.conf
+  if ip link show "$iface" > /dev/null 2>&1; then
+    wg syncconf "$iface" <(wg-quick strip /tmp/fg_new_wg.conf 2>/dev/null || grep -vE "^(Address|PostUp|PostDown|DNS|MTU|Table|PreUp|PreDown)=" /tmp/fg_new_wg.conf)
+    cp /tmp/fg_new_wg.conf "/etc/wireguard/$iface.conf"
+    log "Applied config update to $iface (syncconf, no downtime)"
+  else
+    cp /tmp/fg_new_wg.conf "/etc/wireguard/$iface.conf"
+    wg-quick up "$iface" && log "Brought up $iface with new config"
+  fi
+}`;
+
+		// For UniFi mode, config_text is a JSON blob:
+		// { "server_public_key": "...", "endpoint": "host:port",
+		//   "local_address": "10.x.x.x/32", "allowed_ips": ["..."],
+		//   "persistent_keepalive": 25, "private_key": "..." }
+		// The agent authenticates with UniFi controller and creates/updates the
+		// WireGuard VPN client entry. It also adds firewall rules for the allowed_ips.
+		const applyFunctionUnifi = `\
+# UniFi helper: authenticate and get session cookie
+unifi_login() {
+  curl -sk -c /tmp/fg_unifi_cookie -b /tmp/fg_unifi_cookie \\
+    -X POST -H "Content-Type: application/json" \\
+    -d "{\\"username\\":\\"$UNIFI_USER\\",\\"password\\":\\"$UNIFI_PASS\\"}" \\
+    "$UNIFI_URL/api/auth/login" > /dev/null 2>&1
+}
+
+# UniFi helper: find existing VPN client by name, returns ID or empty
+unifi_find_vpn() {
+  local name="$1"
+  curl -sk -b /tmp/fg_unifi_cookie \\
+    "$UNIFI_URL/proxy/network/api/s/$UNIFI_SITE/rest/vpnclient" 2>/dev/null |
+    python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+items = data.get('data', [])
+for item in items:
+    if item.get('name') == sys.argv[1]:
+        print(item.get('_id',''))
+        sys.exit(0)
+" "$name" 2>/dev/null || echo ""
+}
+
+apply_config() {
+  local cfg="$1"  # JSON blob from FloppyGuard
+  # Parse peer config from JSON
+  SERVER_PUB=$(python3 -c "import sys,json; d=json.loads(sys.argv[1]); print(d.get('server_public_key',''))" "$cfg" 2>/dev/null || echo "")
+  ENDPOINT=$(python3   -c "import sys,json; d=json.loads(sys.argv[1]); print(d.get('endpoint',''))" "$cfg" 2>/dev/null || echo "")
+  LOCAL_ADDR=$(python3 -c "import sys,json; d=json.loads(sys.argv[1]); print(d.get('local_address',''))" "$cfg" 2>/dev/null || echo "")
+  PRIV_KEY=$(python3   -c "import sys,json; d=json.loads(sys.argv[1]); print(d.get('private_key',''))" "$cfg" 2>/dev/null || echo "")
+  ALLOWED=$(python3    -c "import sys,json; d=json.loads(sys.argv[1]); print(','.join(d.get('allowed_ips',[])))" "$cfg" 2>/dev/null || echo "")
+  KEEPALIVE=$(python3  -c "import sys,json; d=json.loads(sys.argv[1]); print(d.get('persistent_keepalive',25))" "$cfg" 2>/dev/null || echo "25")
+
+  if [ -z "$SERVER_PUB" ] || [ -z "$ENDPOINT" ]; then
+    log "UniFi apply: missing server_public_key or endpoint in config, skipping"
+    return 1
+  fi
+
+  unifi_login
+
+  local payload
+  payload=$(python3 -c "
+import json, sys
+d = {
+  'name': 'FloppyGuard',
+  'vpn_type': 'wireguard-client',
+  'private_key': sys.argv[1],
+  'server_public_key': sys.argv[2],
+  'server_address': sys.argv[3],
+  'local_wg_address': sys.argv[4],
+  'allowed_ips': sys.argv[5].split(',') if sys.argv[5] else [],
+  'persistent_keepalive': int(sys.argv[6]),
+  'enabled': True
+}
+print(json.dumps(d))
+" "$PRIV_KEY" "$SERVER_PUB" "$ENDPOINT" "$LOCAL_ADDR" "$ALLOWED" "$KEEPALIVE" 2>/dev/null)
+
+  # Check if a FloppyGuard VPN entry already exists
+  VPN_ID=$(unifi_find_vpn "FloppyGuard")
+
+  if [ -n "$VPN_ID" ]; then
+    # Update existing entry
+    curl -sk -b /tmp/fg_unifi_cookie -X PUT \\
+      -H "Content-Type: application/json" \\
+      -d "$payload" \\
+      "$UNIFI_URL/proxy/network/api/s/$UNIFI_SITE/rest/vpnclient/$VPN_ID" > /dev/null 2>&1 && \\
+      log "Updated UniFi WireGuard VPN client (id: $VPN_ID)" || \\
+      log "Warning: UniFi VPN update failed"
+  else
+    # Create new entry
+    curl -sk -b /tmp/fg_unifi_cookie -X POST \\
+      -H "Content-Type: application/json" \\
+      -d "$payload" \\
+      "$UNIFI_URL/proxy/network/api/s/$UNIFI_SITE/rest/vpnclient" > /dev/null 2>&1 && \\
+      log "Created UniFi WireGuard VPN client" || \\
+      log "Warning: UniFi VPN create failed"
+  fi
+
+  # Add firewall rules for each allowed_ip network (traffic policy: accept on WAN_IN)
+  # This ensures return traffic from the WireGuard networks is allowed through the firewall
+  if [ -n "$ALLOWED" ]; then
+    IFS=',' read -ra NETS <<< "$ALLOWED"
+    for net in "\${NETS[@]}"; do
+      net=$(echo "$net" | tr -d ' ')
+      # Check if rule already exists
+      EXISTING_RULE=$(curl -sk -b /tmp/fg_unifi_cookie \\
+        "$UNIFI_URL/proxy/network/api/s/$UNIFI_SITE/rest/firewallrule" 2>/dev/null |
+        python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+items = data.get('data', [])
+for item in items:
+    if item.get('name') == 'FG-WG-' + sys.argv[1]:
+        print(item.get('_id',''))
+        sys.exit(0)
+" "$net" 2>/dev/null || echo "")
+
+      if [ -z "$EXISTING_RULE" ]; then
+        FW_PAYLOAD=$(python3 -c "
+import json, sys
+d = {
+  'name': 'FG-WG-' + sys.argv[1],
+  'ruleset': 'WAN_IN',
+  'rule_index': 4100,
+  'action': 'accept',
+  'enabled': True,
+  'protocol': 'all',
+  'src_firewallgroup_ids': [],
+  'dst_firewallgroup_ids': [],
+  'src_address': sys.argv[1],
+  'dst_address': '',
+  'state_new': True,
+  'state_established': True,
+  'state_related': True,
+  'icmp_typename': ''
+}
+print(json.dumps(d))
+" "$net" 2>/dev/null)
+        curl -sk -b /tmp/fg_unifi_cookie -X POST \\
+          -H "Content-Type: application/json" \\
+          -d "$FW_PAYLOAD" \\
+          "$UNIFI_URL/proxy/network/api/s/$UNIFI_SITE/rest/firewallrule" > /dev/null 2>&1 && \\
+          log "Added firewall rule for WireGuard network $net" || \\
+          log "Warning: firewall rule for $net could not be added"
+      fi
+    done
+  fi
+}`;
+
+		const applyFunction = mode === "unifi" ? applyFunctionUnifi : applyFunctionNative;
+
+		// Extra env vars for UniFi mode
+		const unifiEnvLines = mode === "unifi"
+			? `UNIFI_URL="${unifiUrl}"\nUNIFI_USER="${unifiUser}"\nUNIFI_PASS="${unifiPass}"\nUNIFI_SITE="${unifiSite}"\n`
+			: "";
+
+		// For UniFi mode, config applies using JSON; no wg_interface needed in apply call
+		const applyCallNative = `apply_config "$CFG" "$IFACE"`;
+		const applyCallUnifi  = `apply_config "$CFG"`;
+		const applyCall = mode === "unifi" ? applyCallUnifi : applyCallNative;
+
+		const installScript = `#!/bin/bash
+set -euo pipefail
+
+echo "[floppyguard-agent] Installing FloppyGuard agent (mode: ${mode}, ID: ${id})..."
+
+# ── 1. Directories ──────────────────────────────────────────────────────────────
+mkdir -p /etc/floppyguard-agent /var/lib/floppyguard-agent
+
+# ── 2. config.env ───────────────────────────────────────────────────────────────
+cat > /etc/floppyguard-agent/config.env << 'ENVEOF'
+FGTOKEN="${regToken}"
+PRIMARY_URL="${tunnelUrl}"
+FALLBACK_URL="${publicUrl}"
+FGAGENT_ID="${id}"
+AGENT_MODE="${mode}"
+WG_INTERFACE="${wgInterface}"
+POLL_INTERVAL=30
+${unifiEnvLines}ENVEOF
+chmod 600 /etc/floppyguard-agent/config.env
+
+# ── 3. Initial registration ─────────────────────────────────────────────────────
+echo "[floppyguard-agent] Registering with FloppyGuard..."
+REGISTER_RESPONSE=$(curl -sf --max-time 15 \\
+  -X POST -H "Content-Type: application/json" \\
+  -d '{"reg_token":"${regToken}"}' \\
+  "${publicUrl}/api/agent/register" 2>/dev/null) || true
+
+if [ -n "$REGISTER_RESPONSE" ]; then
+  AGENT_TOKEN=$(python3 -c "import sys,json; print(json.loads(sys.argv[1]).get('agent_token',''))" "$REGISTER_RESPONSE" 2>/dev/null || echo "")
+  if [ -n "$AGENT_TOKEN" ]; then
+    sed -i "s|^FGTOKEN=.*|FGTOKEN=\\"$AGENT_TOKEN\\"|" /etc/floppyguard-agent/config.env
+    echo "[floppyguard-agent] Registration successful."
+  else
+    echo "[floppyguard-agent] Warning: no agent_token in response; will retry on first poll."
+  fi
+else
+  echo "[floppyguard-agent] Warning: registration unreachable; will retry on first poll."
+fi
+
+# ── 4. Agent loop script ────────────────────────────────────────────────────────
+cat > /usr/local/sbin/floppyguard-agent << 'SCRIPTEOF'
+#!/bin/bash
+set -euo pipefail
+source /etc/floppyguard-agent/config.env
+
+HASH_FILE="/var/lib/floppyguard-agent/last_hash"
+mkdir -p /var/lib/floppyguard-agent
+
+log() { echo "[$(date -Iseconds)] floppyguard-agent[$AGENT_MODE]: $*" >&2; }
+reach() { curl -sf --max-time 5 "$1/api" > /dev/null 2>&1; }
+get_server() {
+  if reach "$PRIMARY_URL"; then echo "$PRIMARY_URL"; return; fi
+  if reach "$FALLBACK_URL"; then echo "$FALLBACK_URL"; return; fi
+  echo ""
+}
+rotate_token() {
+  local new_token="$1"
+  FGTOKEN="$new_token"
+  sed -i "s|^FGTOKEN=.*|FGTOKEN=\\"$new_token\\"|" /etc/floppyguard-agent/config.env
+  log "Token rotated to permanent agent_token"
+}
+
+${applyFunction}
+
+# ── Service discovery ────────────────────────────────────────────────────────
+# port:scheme:fallback_name  (https ports use https scheme)
+SCAN_PORTS="80:http:Web 443:https:Web 3000:http:Grafana 8080:http:UniFi Network 8443:https:UniFi Network 8888:http:Management UI 9000:http:Portainer 9443:https:Portainer 9090:http:Prometheus 1880:http:Node-RED 10000:http:Webmin 8000:http:Web UI"
+
+SERVICES_JSON="[]"
+SERVICES_SCAN_INTERVAL=86400  # scan once a day
+LAST_SCAN=0
+
+scan_services() {
+  # Use only LAN IP (default route src) — browser-clickable, not WireGuard IP
+  local host_ip
+  host_ip=$(ip route get 8.8.8.8 2>/dev/null | grep -oP 'src \\K\\S+' | head -1 || true)
+  [ -z "$host_ip" ] && { log "Service scan: no LAN IP found, skipping"; return; }
+
+  local found="[]"
+  for entry in $SCAN_PORTS; do
+    local port scheme fallback_name
+    port=$(echo "$entry" | cut -d: -f1)
+    scheme=$(echo "$entry" | cut -d: -f2)
+    fallback_name=$(echo "$entry" | cut -d: -f3- | tr ':' ' ')
+    # Quick TCP check via curl timeout
+    code=$(curl -sk --max-time 2 -o /dev/null -w "%{http_code}" "$scheme://$host_ip:$port/" 2>/dev/null || echo "000")
+    [ "$code" = "000" ] && continue
+    # Fetch page title — skip if empty or 404-like
+    title=$(curl -skL --max-time 4 "$scheme://$host_ip:$port/" 2>/dev/null \
+      | grep -oP '(?<=<title>)[^<]+' | head -1 | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | cut -c1-60 || true)
+    [ -z "$title" ] && continue
+    echo "$title" | grep -qiE '^(404|not found|error|default page)' && continue
+    url="$scheme://$host_ip:$port"
+    found=$(python3 -c "
+import sys, json
+arr = json.loads(sys.argv[1])
+url, name = sys.argv[2], sys.argv[3]
+if not any(s['url'] == url for s in arr):
+    arr.append({'name': name, 'url': url})
+print(json.dumps(arr))
+" "$found" "$url" "$title" 2>/dev/null || echo "$found")
+  done
+  SERVICES_JSON="$found"
+  log "Service scan: $(echo "$found" | python3 -c 'import sys,json; a=json.load(sys.stdin); print(len(a))' 2>/dev/null || echo 0) services found on $host_ip"
+}
+
+while true; do
+  # Periodic service scan
+  NOW=$(date +%s)
+  if [ $((NOW - LAST_SCAN)) -ge $SERVICES_SCAN_INTERVAL ]; then
+    scan_services
+    LAST_SCAN=$(date +%s)
+  fi
+
+  SERVER=$(get_server)
+  if [ -n "$SERVER" ]; then
+    RESPONSE=$(curl -sf --max-time 10 \\
+      -H "Authorization: Bearer $FGTOKEN" \\
+      "$SERVER/api/agent/config" 2>/dev/null) || true
+
+    if [ -n "$RESPONSE" ]; then
+      NEW_HASH=$(python3 -c "import sys,json; print(json.loads(sys.argv[1]).get('config_hash') or '')" "$RESPONSE" 2>/dev/null || echo "")
+      CURRENT_HASH=$(cat "$HASH_FILE" 2>/dev/null || echo "")
+      NEW_TOKEN=$(python3 -c "import sys,json; print(json.loads(sys.argv[1]).get('agent_token') or '')" "$RESPONSE" 2>/dev/null || echo "")
+
+      [ -n "$NEW_TOKEN" ] && [ "$NEW_TOKEN" != "$FGTOKEN" ] && rotate_token "$NEW_TOKEN"
+
+      if [ -n "$NEW_HASH" ] && [ "$NEW_HASH" != "$CURRENT_HASH" ]; then
+        CFG=$(python3 -c "import sys,json; print(json.loads(sys.argv[1]).get('config_text') or '')" "$RESPONSE" 2>/dev/null || echo "")
+        IFACE=$(python3 -c "import sys,json; print(json.loads(sys.argv[1]).get('wg_interface','wg0'))" "$RESPONSE" 2>/dev/null || echo "wg0")
+        if [ -n "$CFG" ]; then
+          ${applyCall}
+          echo "$NEW_HASH" > "$HASH_FILE"
+        fi
+      fi
+
+      MY_HOSTNAME=$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo "")
+      MY_LAN_IP=$(ip route get 8.8.8.8 2>/dev/null | grep -oP 'src \\K\\S+' | head -1 || echo "")
+      HEARTBEAT=$(python3 -c "
+import sys, json
+print(json.dumps({'hash': sys.argv[1], 'server': sys.argv[2], 'services': json.loads(sys.argv[3]), 'hostname': sys.argv[4], 'lan_ip': sys.argv[5]}))
+" "$NEW_HASH" "$SERVER" "$SERVICES_JSON" "$MY_HOSTNAME" "$MY_LAN_IP" 2>/dev/null || echo "{\\"hash\\":\\"$NEW_HASH\\",\\"server\\":\\"$SERVER\\"}")
+
+      curl -sf --max-time 5 -X POST \\
+        -H "Authorization: Bearer $FGTOKEN" \\
+        -H "Content-Type: application/json" \\
+        -d "$HEARTBEAT" \\
+        "$SERVER/api/agent/heartbeat" > /dev/null 2>&1 || true
+    fi
+  else
+    log "No server reachable (primary: $PRIMARY_URL, fallback: $FALLBACK_URL)"
+  fi
+  sleep "$POLL_INTERVAL"
+done
+SCRIPTEOF
+chmod +x /usr/local/sbin/floppyguard-agent
+
+# ── 5. Systemd unit ─────────────────────────────────────────────────────────────
+cat > /etc/systemd/system/floppyguard-agent.service << 'UNITEOF'
+[Unit]
+Description=FloppyGuard Remote Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/floppyguard-agent
+Restart=always
+RestartSec=15
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=floppyguard-agent
+
+[Install]
+WantedBy=multi-user.target
+UNITEOF
+
+# ── 6. Enable + start ───────────────────────────────────────────────────────────
+systemctl daemon-reload
+systemctl enable --now floppyguard-agent
+
+echo ""
+echo "[floppyguard-agent] Done. Mode: ${mode}"
+echo "[floppyguard-agent]   systemctl status floppyguard-agent"
+echo "[floppyguard-agent]   journalctl -u floppyguard-agent -f"
+`;
+
+		return installScript;
+	},
+
+	/**
+	 * Same as getInstallScript but looks up the agent by reg_token (no JWT needed).
+	 *
+	 * @param {string} regToken
+	 * @param {string} publicUrl
+	 * @param {string} tunnelUrl
+	 * @returns {Promise<string>}
+	 */
+	async getInstallScriptByToken(regToken, publicUrl, tunnelUrl) {
+		const agent = await Agent.query()
+			.where("reg_token", regToken)
+			.where("is_deleted", 0)
+			.first();
+
+		if (!agent) {
+			throw new error.AuthError("Invalid registration token", "error.auth");
+		}
+
+		return this.getInstallScript(agent.id, publicUrl, tunnelUrl);
+	},
+
+	// ─── Agent methods (agent-token-authenticated) ──────────────────────────────
+
+	/**
+	 * Exchanges a reg_token for a permanent agent_token. Nulls reg_token after use.
+	 * Returns { agent_token, config_hash }.
+	 *
+	 * @param {string} regToken
+	 * @returns {Promise<{ agent_token: string, config_hash: string|null }>}
+	 */
+	async register(regToken) {
+		const agent = await Agent.query()
+			.where("reg_token", regToken)
+			.where("is_deleted", 0)
+			.first();
+
+		if (!agent) {
+			throw new error.AuthError("Invalid registration token", "error.auth");
+		}
+
+		const agent_token = randomToken(32);
+
+		await Agent.query().patchAndFetchById(agent.id, {
+			agent_token,
+			reg_token: null,
+			status: "active",
+		});
+
+		return {
+			agent_token,
+			agent_id: agent.id,
+			config_hash: agent.config_hash || null,
+		};
+	},
+
+	/**
+	 * Returns config for the agent identified by agent_token.
+	 *
+	 * @param {string} agentToken
+	 * @returns {Promise<{ config_text: string|null, config_hash: string|null, wg_interface: string, poll_interval: number }>}
+	 */
+	async getConfig(agentToken) {
+		const agent = await Agent.query()
+			.where("agent_token", agentToken)
+			.where("is_deleted", 0)
+			.first();
+
+		if (!agent) {
+			throw new error.AuthError("Invalid agent token", "error.auth");
+		}
+
+		return {
+			config_text: agent.config_text || null,
+			config_hash: agent.config_hash || null,
+			wg_interface: agent.wg_interface || "wg0",
+			poll_interval: 30,
+		};
+	},
+
+	/**
+	 * Updates last_seen and status for the agent.
+	 *
+	 * @param {string} agentToken
+	 * @param {Object} data  — { hash, server }
+	 * @returns {Promise<{ ok: boolean }>}
+	 */
+	async heartbeat(agentToken, data) {
+		const agent = await Agent.query()
+			.where("agent_token", agentToken)
+			.where("is_deleted", 0)
+			.first();
+
+		if (!agent) {
+			throw new error.AuthError("Invalid agent token", "error.auth");
+		}
+
+		const patch = {
+			last_seen: Math.floor(Date.now() / 1000),
+			status: "active",
+		};
+
+		if (data && data.hostname) {
+			// Include LAN IP in hostname field if available (used for service discovery)
+			const lanIp = data.lan_ip ? ` (${data.lan_ip})` : "";
+			patch.hostname = `${data.hostname}${lanIp}`;
+		}
+
+		if (data && Array.isArray(data.services)) {
+			patch.services = JSON.stringify(data.services);
+		}
+
+		await Agent.query().patchAndFetchById(agent.id, patch);
+
+		return { ok: true };
+	},
+};
+
+export default internalAgent;
