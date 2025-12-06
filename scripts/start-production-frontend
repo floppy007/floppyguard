@@ -1,0 +1,95 @@
+#!/bin/bash -e
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "${DIR}/.." && pwd)"
+FRONTEND_PORT="${FRONTEND_PORT:-4173}"
+FRONTEND_HOST="${FRONTEND_HOST:-127.0.0.1}"
+DATA_DIR="${ROOT_DIR}/.local-data"
+LOG_DIR="${DATA_DIR}/logs"
+FRONTEND_PID_FILE="${DATA_DIR}/frontend-production.pid"
+FRONTEND_LOG="${LOG_DIR}/frontend-production.log"
+DIST_DIR="${ROOT_DIR}/frontend/dist"
+
+mkdir -p "${LOG_DIR}"
+
+process_matches() {
+	local pid=$1
+	local expected_cwd=$2
+	local expected_cmd=$3
+	local actual_cwd
+	local actual_cmd
+
+	if [ -z "${pid}" ] || [ ! -d "/proc/${pid}" ]; then
+		return 1
+	fi
+
+	actual_cwd="$(readlink -f "/proc/${pid}/cwd" 2>/dev/null || true)"
+	actual_cmd="$(tr '\0' ' ' <"/proc/${pid}/cmdline" 2>/dev/null || true)"
+
+	[ "${actual_cwd}" = "${expected_cwd}" ] && printf '%s' "${actual_cmd}" | grep -Fq "${expected_cmd}"
+}
+
+port_listener_pid() {
+	local port=$1
+	ss -ltnp 2>/dev/null | awk -v port=":${port}" '
+		$4 ~ port {
+			if (match($0, /pid=[0-9]+/)) {
+				print substr($0, RSTART + 4, RLENGTH - 4)
+				exit
+			}
+		}
+	'
+}
+
+wait_for_http() {
+	local url=$1
+	local label=$2
+	for _ in $(seq 1 60); do
+		if curl -fsS "${url}" >/dev/null 2>&1; then
+			echo "${label} ready: ${url}"
+			return 0
+		fi
+		sleep 1
+	done
+
+	echo "${label} did not become ready: ${url}" >&2
+	return 1
+}
+
+wait_for_frontend_routes() {
+	local base_url=$1
+	for route in / /gateway /wireguard; do
+		wait_for_http "${base_url}${route}" "Frontend route ${route}" || return 1
+	done
+}
+
+if [ ! -d "${DIST_DIR}" ]; then
+  echo "Missing frontend/dist" >&2
+  exit 1
+fi
+
+if [ -f "${FRONTEND_PID_FILE}" ]; then
+  pid="$(cat "${FRONTEND_PID_FILE}")"
+  if [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null; then
+    echo "Frontend production already running with PID ${pid}"
+    wait_for_frontend_routes "http://${FRONTEND_HOST}:${FRONTEND_PORT}"
+    exit 0
+  fi
+fi
+
+existing_pid="$(port_listener_pid "${FRONTEND_PORT}")"
+if [ -n "${existing_pid}" ]; then
+  if process_matches "${existing_pid}" "${ROOT_DIR}" "scripts/spa_http_server.py --host ${FRONTEND_HOST} --port ${FRONTEND_PORT}"; then
+    echo "${existing_pid}" > "${FRONTEND_PID_FILE}"
+    echo "Frontend production adopted existing PID ${existing_pid}"
+    wait_for_frontend_routes "http://${FRONTEND_HOST}:${FRONTEND_PORT}"
+    exit 0
+  fi
+  echo "Frontend port ${FRONTEND_PORT} already in use by PID ${existing_pid}" >&2
+  exit 1
+fi
+
+cd "${DIST_DIR}"
+setsid nohup python3 "${ROOT_DIR}/scripts/spa_http_server.py" --host "${FRONTEND_HOST}" --port "${FRONTEND_PORT}" --root "${DIST_DIR}" >"${FRONTEND_LOG}" 2>&1 &
+echo $! > "${FRONTEND_PID_FILE}"
+wait_for_frontend_routes "http://${FRONTEND_HOST}:${FRONTEND_PORT}"
+echo "Frontend production started on http://${FRONTEND_HOST}:${FRONTEND_PORT}"

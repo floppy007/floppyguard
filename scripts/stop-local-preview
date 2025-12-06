@@ -1,0 +1,46 @@
+#!/bin/bash -e
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="${DIR}/.."
+. "$DIR/.common.sh"
+
+DATA_DIR="${ROOT_DIR}/.local-data"
+BACKEND_PID_FILE="${DATA_DIR}/backend-preview.pid"
+FRONTEND_PID_FILE="${DATA_DIR}/frontend-preview.pid"
+
+stop_pid() {
+	local pid_file=$1
+	local label=$2
+
+	if [ ! -f "${pid_file}" ]; then
+		echo -e "${YELLOW}❯ ${label} preview is not running${RESET}"
+		return 0
+	fi
+
+	local pid
+	pid="$(cat "${pid_file}")"
+	if [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null; then
+		kill "${pid}"
+		echo -e "${GREEN}❯ Stopped ${label} preview (PID ${pid})${RESET}"
+	else
+		echo -e "${YELLOW}❯ ${label} preview PID file was stale${RESET}"
+	fi
+
+	rm -f "${pid_file}"
+}
+
+cleanup_stale_pid() {
+	local pid_file=$1
+	if [ -f "${pid_file}" ]; then
+		local pid
+		pid="$(cat "${pid_file}")"
+		if [ -z "${pid}" ] || ! kill -0 "${pid}" 2>/dev/null; then
+			rm -f "${pid_file}"
+		fi
+	fi
+}
+
+cleanup_stale_pid "${FRONTEND_PID_FILE}"
+cleanup_stale_pid "${BACKEND_PID_FILE}"
+stop_pid "${FRONTEND_PID_FILE}" "Frontend"
+stop_pid "${BACKEND_PID_FILE}" "Backend"
