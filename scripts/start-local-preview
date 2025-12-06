@@ -1,0 +1,121 @@
+#!/bin/bash -e
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="${DIR}/.."
+. "$DIR/.common.sh"
+
+BACKEND_PORT="${BACKEND_PORT:-3300}"
+FRONTEND_PORT="${FRONTEND_PORT:-5173}"
+FRONTEND_HOST="${FRONTEND_HOST:-0.0.0.0}"
+PREVIEW_EMAIL="${PREVIEW_EMAIL:-preview@example.com}"
+PREVIEW_PASSWORD="${PREVIEW_PASSWORD:-Preview123!}"
+DATA_DIR="${ROOT_DIR}/.local-data"
+LOG_DIR="${DATA_DIR}/logs"
+BACKEND_PID_FILE="${DATA_DIR}/backend-preview.pid"
+FRONTEND_PID_FILE="${DATA_DIR}/frontend-preview.pid"
+BACKEND_LOG="${LOG_DIR}/backend-preview.log"
+FRONTEND_LOG="${LOG_DIR}/frontend-preview.log"
+
+mkdir -p "${DATA_DIR}/backend" "${DATA_DIR}/frontend" "${LOG_DIR}"
+
+is_running() {
+	local pid_file=$1
+	if [ -f "${pid_file}" ]; then
+		local pid
+		pid="$(cat "${pid_file}")"
+		if [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null; then
+			return 0
+		fi
+	fi
+	return 1
+}
+
+port_listener_pid() {
+	local port=$1
+	ss -ltnp 2>/dev/null | awk -v port=":${port}" '
+		$4 ~ port {
+			if (match($0, /pid=[0-9]+/)) {
+				print substr($0, RSTART + 4, RLENGTH - 4);
+				exit;
+			}
+		}
+	'
+}
+
+wait_for_http() {
+	local url=$1
+	local label=$2
+	for _ in $(seq 1 30); do
+		if curl -fsS "${url}" >/dev/null 2>&1; then
+			echo -e "${GREEN}❯ ${label} ready: ${url}${RESET}"
+			return 0
+		fi
+		sleep 1
+	done
+
+	echo -e "${RED}❯ ${label} did not become ready: ${url}${RESET}"
+	return 1
+}
+
+if [ ! -d "${ROOT_DIR}/backend/node_modules" ] || [ ! -d "${ROOT_DIR}/frontend/node_modules" ]; then
+	echo -e "${RED}❯ Missing node_modules. Run:${RESET}"
+	echo "  (cd ${ROOT_DIR}/backend && corepack yarn install)"
+	echo "  (cd ${ROOT_DIR}/frontend && corepack yarn install)"
+	exit 1
+fi
+
+if is_running "${BACKEND_PID_FILE}"; then
+	echo -e "${YELLOW}❯ Backend preview already running with PID $(cat "${BACKEND_PID_FILE}")${RESET}"
+elif [ -n "$(port_listener_pid "${BACKEND_PORT}")" ]; then
+	echo -e "${YELLOW}❯ Backend port ${BACKEND_PORT} already in use by PID $(port_listener_pid "${BACKEND_PORT}")${RESET}"
+else
+	echo -e "${BLUE}❯ ${CYAN}Starting preview backend on ${BACKEND_PORT}${RESET}"
+	(
+		cd "${ROOT_DIR}/backend"
+		nohup env \
+			PORT="${BACKEND_PORT}" \
+			IP_RANGES_FETCH_ENABLED=false \
+			SKIP_CERTBOT_PLUGIN_SETUP=true \
+			INITIAL_ADMIN_EMAIL="${PREVIEW_EMAIL}" \
+			INITIAL_ADMIN_PASSWORD="${PREVIEW_PASSWORD}" \
+			DB_SQLITE_FILE="${DATA_DIR}/backend/database.sqlite" \
+			NPM_LETSENCRYPT_ROOT="/opt/npm/letsencrypt" \
+			NPM_CUSTOM_SSL_ROOT="/opt/npm/data/custom_ssl" \
+			DEBUG=true \
+			NODE_ENV=development \
+			node index.js >"${BACKEND_LOG}" 2>&1 &
+		echo $! > "${BACKEND_PID_FILE}"
+	)
+fi
+
+wait_for_http "http://127.0.0.1:${BACKEND_PORT}/" "Backend"
+
+if is_running "${FRONTEND_PID_FILE}"; then
+	echo -e "${YELLOW}❯ Frontend preview already running with PID $(cat "${FRONTEND_PID_FILE}")${RESET}"
+elif [ -n "$(port_listener_pid "${FRONTEND_PORT}")" ]; then
+	echo -e "${YELLOW}❯ Frontend port ${FRONTEND_PORT} already in use by PID $(port_listener_pid "${FRONTEND_PORT}")${RESET}"
+else
+	echo -e "${BLUE}❯ ${CYAN}Starting preview frontend on ${FRONTEND_PORT}${RESET}"
+	(
+		cd "${ROOT_DIR}/frontend"
+		nohup env \
+			VITE_BACKEND_PORT="${BACKEND_PORT}" \
+			ENABLE_LOCALE_WATCH=false \
+			ENABLE_TS_CHECKER=false \
+			corepack yarn dev --host "${FRONTEND_HOST}" --port "${FRONTEND_PORT}" >"${FRONTEND_LOG}" 2>&1 &
+		echo $! > "${FRONTEND_PID_FILE}"
+	)
+fi
+
+wait_for_http "http://127.0.0.1:${FRONTEND_PORT}/" "Frontend"
+
+echo ""
+echo -e "${CYAN}Preview UI:   http://127.0.0.1:${FRONTEND_PORT}${RESET}"
+echo -e "${CYAN}Remote UI:    http://$(hostname -f):${FRONTEND_PORT}${RESET}"
+echo -e "${CYAN}Preview API:  http://127.0.0.1:${BACKEND_PORT}${RESET}"
+echo -e "${CYAN}Login:        ${PREVIEW_EMAIL}${RESET}"
+echo -e "${CYAN}Password:     ${PREVIEW_PASSWORD}${RESET}"
+echo ""
+echo -e "${YELLOW}Logs:${RESET}"
+echo "  ${BACKEND_LOG}"
+echo "  ${FRONTEND_LOG}"

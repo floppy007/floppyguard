@@ -1,0 +1,160 @@
+#!/bin/bash -e
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "${DIR}/.." && pwd)"
+
+BACKEND_PORT="${BACKEND_PORT:-3300}"
+FRONTEND_PORT="${FRONTEND_PORT:-4173}"
+FRONTEND_HOST="${FRONTEND_HOST:-127.0.0.1}"
+PREVIEW_EMAIL="${PREVIEW_EMAIL:-preview@example.com}"
+PREVIEW_PASSWORD="${PREVIEW_PASSWORD:-Preview123!}"
+DATA_DIR="${ROOT_DIR}/.local-data"
+LOG_DIR="${DATA_DIR}/logs"
+BACKEND_PID_FILE="${DATA_DIR}/backend-production.pid"
+FRONTEND_PID_FILE="${DATA_DIR}/frontend-production.pid"
+BACKEND_LOG="${LOG_DIR}/backend-production.log"
+FRONTEND_LOG="${LOG_DIR}/frontend-production.log"
+
+mkdir -p "${DATA_DIR}/backend" "${DATA_DIR}/frontend" "${LOG_DIR}"
+
+is_running() {
+	local pid_file=$1
+	if [ -f "${pid_file}" ]; then
+		local pid
+		pid="$(cat "${pid_file}")"
+		if [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null; then
+			return 0
+		fi
+	fi
+	return 1
+}
+
+process_matches() {
+	local pid=$1
+	local expected_cwd=$2
+	local expected_cmd=$3
+	local actual_cwd
+	local actual_cmd
+
+	if [ -z "${pid}" ] || [ ! -d "/proc/${pid}" ]; then
+		return 1
+	fi
+
+	actual_cwd="$(readlink -f "/proc/${pid}/cwd" 2>/dev/null || true)"
+	actual_cmd="$(tr '\0' ' ' <"/proc/${pid}/cmdline" 2>/dev/null || true)"
+
+	[ "${actual_cwd}" = "${expected_cwd}" ] && printf '%s' "${actual_cmd}" | grep -Fq "${expected_cmd}"
+}
+
+port_listener_pid() {
+	local port=$1
+	ss -ltnp 2>/dev/null | awk -v port=":${port}" '
+		$4 ~ port {
+			if (match($0, /pid=[0-9]+/)) {
+				print substr($0, RSTART + 4, RLENGTH - 4)
+				exit
+			}
+		}
+	'
+}
+
+wait_for_http() {
+	local url=$1
+	local label=$2
+	for _ in $(seq 1 60); do
+		if curl -fsS "${url}" >/dev/null 2>&1; then
+			echo "${label} ready: ${url}"
+			return 0
+		fi
+		sleep 1
+	done
+
+	echo "${label} did not become ready: ${url}" >&2
+	return 1
+}
+
+wait_for_frontend_routes() {
+	local base_url=$1
+	for route in / /gateway /wireguard; do
+		wait_for_http "${base_url}${route}" "Frontend route ${route}" || return 1
+	done
+}
+
+if [ ! -d "${ROOT_DIR}/backend/node_modules" ] || [ ! -d "${ROOT_DIR}/frontend/node_modules" ]; then
+	echo "Missing node_modules. Run installs in backend and frontend first." >&2
+	exit 1
+fi
+
+if [ ! -d "${ROOT_DIR}/frontend/dist" ]; then
+	echo "Missing frontend/dist. Run: (cd ${ROOT_DIR}/frontend && corepack yarn build)" >&2
+	exit 1
+fi
+
+if is_running "${BACKEND_PID_FILE}"; then
+	echo "Backend production already running with PID $(cat "${BACKEND_PID_FILE}")"
+else
+	existing_backend_pid="$(port_listener_pid "${BACKEND_PORT}")"
+	if [ -n "${existing_backend_pid}" ] && [ "${existing_backend_pid}" != "$(cat "${BACKEND_PID_FILE}" 2>/dev/null || true)" ]; then
+		if process_matches "${existing_backend_pid}" "${ROOT_DIR}/backend" "node index.js"; then
+			echo "${existing_backend_pid}" > "${BACKEND_PID_FILE}"
+			echo "Backend production adopted existing PID ${existing_backend_pid}"
+		else
+			echo "Backend port ${BACKEND_PORT} already in use by PID ${existing_backend_pid}" >&2
+			exit 1
+		fi
+	else
+	(
+		cd "${ROOT_DIR}/backend"
+		setsid nohup env \
+			PORT="${BACKEND_PORT}" \
+			IP_RANGES_FETCH_ENABLED=false \
+			SKIP_CERTBOT_PLUGIN_SETUP=true \
+			INITIAL_ADMIN_EMAIL="${PREVIEW_EMAIL}" \
+			INITIAL_ADMIN_PASSWORD="${PREVIEW_PASSWORD}" \
+			DB_SQLITE_FILE="${DATA_DIR}/backend/database.sqlite" \
+			NPM_LETSENCRYPT_ROOT="/opt/npm/letsencrypt" \
+			NPM_CUSTOM_SSL_ROOT="/opt/npm/data/custom_ssl" \
+			DEBUG=false \
+			NODE_ENV=production \
+			node index.js >"${BACKEND_LOG}" 2>&1 &
+		echo $! > "${BACKEND_PID_FILE}"
+	)
+	fi
+fi
+
+wait_for_http "http://127.0.0.1:${BACKEND_PORT}/" "Backend"
+
+if is_running "${FRONTEND_PID_FILE}"; then
+	echo "Frontend production already running with PID $(cat "${FRONTEND_PID_FILE}")"
+else
+	existing_frontend_pid="$(port_listener_pid "${FRONTEND_PORT}")"
+	if [ -n "${existing_frontend_pid}" ] && [ "${existing_frontend_pid}" != "$(cat "${FRONTEND_PID_FILE}" 2>/dev/null || true)" ]; then
+		if process_matches "${existing_frontend_pid}" "${ROOT_DIR}" "scripts/spa_http_server.py --host ${FRONTEND_HOST} --port ${FRONTEND_PORT}"; then
+			echo "${existing_frontend_pid}" > "${FRONTEND_PID_FILE}"
+			echo "Frontend production adopted existing PID ${existing_frontend_pid}"
+		else
+			echo "Frontend port ${FRONTEND_PORT} already in use by PID ${existing_frontend_pid}" >&2
+			exit 1
+		fi
+	else
+	(
+		cd "${ROOT_DIR}/frontend"
+		setsid nohup env \
+			VITE_BACKEND_PORT="${BACKEND_PORT}" \
+			NODE_ENV=production \
+			python3 "${ROOT_DIR}/scripts/spa_http_server.py" --host "${FRONTEND_HOST}" --port "${FRONTEND_PORT}" --root "${ROOT_DIR}/frontend/dist" >"${FRONTEND_LOG}" 2>&1 &
+		echo $! > "${FRONTEND_PID_FILE}"
+	)
+	fi
+fi
+
+wait_for_frontend_routes "http://127.0.0.1:${FRONTEND_PORT}"
+
+UI_BASE="${UI_BASE:-https://127.0.0.1:81}" \
+API_BASE="http://127.0.0.1:${BACKEND_PORT}" \
+	"${ROOT_DIR}/scripts/check-production-routes"
+
+echo "Production UI:  http://${FRONTEND_HOST}:${FRONTEND_PORT}"
+echo "Production API: http://127.0.0.1:${BACKEND_PORT}"
+echo "Login:          ${PREVIEW_EMAIL}"
+echo "Logs:           ${BACKEND_LOG} ${FRONTEND_LOG}"

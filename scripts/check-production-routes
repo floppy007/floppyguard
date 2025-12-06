@@ -1,0 +1,38 @@
+#!/bin/bash -e
+
+UI_BASE="${UI_BASE:-https://127.0.0.1:81}"
+API_BASE="${API_BASE:-http://127.0.0.1:3300}"
+
+check_http_ok() {
+	local url=$1
+	local label=$2
+	local status
+
+	status="$(curl -k -sS -o /dev/null -w '%{http_code}' "${url}")"
+	if [ "${status}" != "200" ]; then
+		echo "FAIL ${label}: ${url} returned ${status}" >&2
+		exit 1
+	fi
+
+	echo "OK   ${label}: ${url}"
+}
+
+check_api_health() {
+	local url="${API_BASE}/"
+	local body
+
+	body="$(curl -sS "${url}")"
+	if ! printf '%s' "${body}" | grep -Eq '"status"[[:space:]]*:[[:space:]]*"OK"'; then
+		echo "FAIL API health: ${url} did not return status OK" >&2
+		echo "${body}" >&2
+		exit 1
+	fi
+
+	echo "OK   API health: ${url}"
+}
+
+check_http_ok "${UI_BASE}/" "UI root"
+check_http_ok "${UI_BASE}/gateway" "UI gateway"
+check_http_ok "${UI_BASE}/wireguard" "UI wireguard"
+check_http_ok "${UI_BASE}/platform" "UI platform"
+check_api_health

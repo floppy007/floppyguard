@@ -1,0 +1,53 @@
+#!/bin/bash -e
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "${DIR}/.." && pwd)"
+
+BACKEND_PORT="${BACKEND_PORT:-3300}"
+FRONTEND_PORT="${FRONTEND_PORT:-4173}"
+DATA_DIR="${ROOT_DIR}/.local-data"
+BACKEND_PID_FILE="${DATA_DIR}/backend-production.pid"
+FRONTEND_PID_FILE="${DATA_DIR}/frontend-production.pid"
+
+port_listener_pid() {
+	local port=$1
+	ss -ltnp 2>/dev/null | awk -v port=":${port}" '
+		$4 ~ port {
+			if (match($0, /pid=[0-9]+/)) {
+				print substr($0, RSTART + 4, RLENGTH - 4)
+				exit
+			}
+		}
+	'
+}
+
+show_pid_status() {
+	local label=$1
+	local pid_file=$2
+	local port=$3
+	local stored_pid=""
+	local listener_pid=""
+
+	if [ -f "${pid_file}" ]; then
+		stored_pid="$(cat "${pid_file}")"
+	fi
+
+	listener_pid="$(port_listener_pid "${port}")"
+
+	echo "${label}:"
+	echo "  pid file: ${stored_pid:-missing}"
+	echo "  listener on ${port}: ${listener_pid:-none}"
+
+	if [ -n "${stored_pid}" ] && [ -d "/proc/${stored_pid}" ]; then
+		echo "  process: $(tr '\0' ' ' <"/proc/${stored_pid}/cmdline" 2>/dev/null || true)"
+	else
+		echo "  process: not running from stored pid"
+	fi
+}
+
+show_pid_status "Backend" "${BACKEND_PID_FILE}" "${BACKEND_PORT}"
+show_pid_status "Frontend" "${FRONTEND_PID_FILE}" "${FRONTEND_PORT}"
+echo ""
+UI_BASE="${UI_BASE:-https://127.0.0.1:81}" \
+API_BASE="${API_BASE:-http://127.0.0.1:${BACKEND_PORT}}" \
+	"${ROOT_DIR}/scripts/check-production-routes"
