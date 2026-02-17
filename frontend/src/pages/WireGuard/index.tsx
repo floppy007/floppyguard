@@ -1,0 +1,1664 @@
+import {
+	IconPlugConnected,
+	IconRoute,
+	IconShieldHalfFilled,
+	IconTopologyStar3,
+} from "@tabler/icons-react";
+import { useEffect, useState } from "react";
+import { Loading } from "src/components";
+import {
+	useAgents,
+	useApplyWireGuardMetadata,
+	useCreateAgent,
+	useUpdateAgent,
+	usePreviewWireGuardPlan,
+	useRestoreWireGuardMetadata,
+	useWireGuardApplyState,
+	useWireGuardStatus,
+} from "src/hooks";
+import { buildInstallOneliner, resetAgentToken } from "src/api/backend";
+import type {
+	Agent,
+	WireGuardInterface,
+	WireGuardInterfaceRole,
+	WireGuardLink,
+	WireGuardManagementMode,
+	WireGuardMetadataPatch,
+	WireGuardPlanPreviewResponse,
+	WireGuardRemoteManagementMode,
+	WireGuardReturnPathMode,
+	WireGuardRouteHint,
+} from "src/api/backend";
+import styles from "./index.module.css";
+
+// ── Utilities ──────────────────────────────────────────────────────────────────
+
+const byteFmt = (value?: number) => {
+	const bytes = Number(value) || 0;
+	if (bytes < 1024) return `${bytes} B`;
+	const units = ["KB", "MB", "GB", "TB"];
+	let v = bytes;
+	let i = -1;
+	do {
+		v /= 1024;
+		i++;
+	} while (v >= 1024 && i < 3);
+	return `${v < 10 ? v.toFixed(2) : v < 100 ? v.toFixed(1) : Math.round(v)} ${units[i]}`;
+};
+
+const shortKey = (value?: string | null) => (value ? `${value.slice(0, 8)}…` : "—");
+const splitCsv = (value: string) => value.split(",").map((s) => s.trim()).filter(Boolean);
+
+const parseMgmt = (v: string): WireGuardRemoteManagementMode =>
+	(["none", "ssh", "agent"] as const).includes(v as never) ? (v as WireGuardRemoteManagementMode) : "unknown";
+const parseReturn = (v: string): WireGuardReturnPathMode =>
+	(["auto", "static-route", "nat", "routed"] as const).includes(v as never) ? (v as WireGuardReturnPathMode) : "unknown";
+const parseIfaceRole = (v: string): WireGuardInterfaceRole =>
+	(["client-hub", "site-to-site", "hub-link", "auxiliary", "unknown"] as const).includes(v as never)
+		? (v as WireGuardInterfaceRole)
+		: "unknown";
+const parseIfaceMgmt = (v: string): WireGuardManagementMode =>
+	(["local", "imported", "unknown"] as const).includes(v as never) ? (v as WireGuardManagementMode) : "unknown";
+
+const timeAgo = (ts: number) => {
+	if (!ts) return "never";
+	const s = Math.floor(Date.now() / 1000 - ts);
+	if (s < 60) return `${s}s ago`;
+	if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+	return `${Math.floor(s / 3600)}h ago`;
+};
+
+const typeBadge = (type: WireGuardLink["type"]) => {
+	switch (type) {
+		case "site-to-site":
+			return { label: "site-to-site", cls: "bg-indigo-lt text-indigo" };
+		case "hub-link":
+			return { label: "hub-link", cls: "bg-cyan-lt text-cyan" };
+		case "client":
+			return { label: "client", cls: "bg-emerald-lt text-emerald" };
+		default:
+			return { label: type || "unknown", cls: "bg-secondary-lt text-secondary" };
+	}
+};
+
+const planBadge = (state?: string | null) => {
+	switch (state) {
+		case "ready":
+			return { label: "Plan bereit", cls: "bg-green-lt text-green" };
+		case "validate":
+			return { label: "Prüfen", cls: "bg-yellow-lt text-yellow" };
+		case "shape":
+			return { label: "Gestalten", cls: "bg-blue-lt text-blue" };
+		default:
+			return { label: "Ungeplant", cls: "bg-secondary-lt text-secondary" };
+	}
+};
+
+const ifaceHealthBadge = (health?: string) => {
+	switch (health) {
+		case "healthy":
+			return "bg-green-lt text-green";
+		case "warning":
+			return "bg-yellow-lt text-yellow";
+		default:
+			return "bg-secondary-lt text-secondary";
+	}
+};
+
+const hasRouteHint = (link: WireGuardLink, hints: WireGuardRouteHint[]) =>
+	hints.some((h) => link.importedNetworks.includes(h.network));
+
+// ── Topology Map ───────────────────────────────────────────────────────────────
+
+type TopoPos = { x: number; y: number };
+
+function computePositions(links: WireGuardLink[], W: number, H: number): Record<string, TopoPos> {
+	const cx = W / 2;
+	const cy = H / 2;
+	const R = Math.min(W, H) * 0.38;
+
+	// Angle arcs per type (degrees, 0=right, 90=bottom)
+	const arcs: Record<string, [number, number]> = {
+		"site-to-site": [-140, -40],
+		"hub-link": [-40, 40],
+		"client": [60, 160],
+		"imported": [160, 220],
+		"unknown": [160, 220],
+	};
+
+	const byType: Record<string, WireGuardLink[]> = {};
+	for (const link of links) {
+		const t = link.type || "unknown";
+		if (!byType[t]) byType[t] = [];
+		byType[t].push(link);
+	}
+
+	const positions: Record<string, TopoPos> = {};
+	for (const [type, tLinks] of Object.entries(byType)) {
+		const [start, end] = arcs[type] ?? arcs.unknown;
+		tLinks.forEach((link, i) => {
+			const t = tLinks.length === 1 ? 0.5 : i / (tLinks.length - 1);
+			const deg = start + t * (end - start);
+			const rad = (deg * Math.PI) / 180;
+			positions[link.id] = { x: cx + R * Math.cos(rad), y: cy + R * Math.sin(rad) };
+		});
+	}
+	return positions;
+}
+
+const TOPO_TYPE_META = [
+	{ type: "site-to-site", label: "Site to Site", color: "#6366f1", badgeCls: "bg-indigo-lt text-indigo" },
+	{ type: "hub-link", label: "Hub Link", color: "#06b6d4", badgeCls: "bg-cyan-lt text-cyan" },
+	{ type: "client", label: "Client", color: "#10b981", badgeCls: "bg-emerald-lt text-emerald" },
+] as const;
+
+function TopologyMap({ links, interfaces }: { links: WireGuardLink[]; interfaces: WireGuardInterface[] }) {
+	const W = 900;
+	const H = 380;
+	const cx = W / 2;
+	const cy = H / 2 - 10;
+	const positions = computePositions(links, W, H - 20);
+
+	const typeColorMap: Record<string, string> = {
+		"site-to-site": "#6366f1",
+		"hub-link": "#06b6d4",
+		"client": "#10b981",
+	};
+
+	const activeLinkCount = links.filter((l) => l.active).length;
+
+	return (
+		<div className={styles.topologyContainer}>
+			{/* Map SVG */}
+			<svg viewBox={`0 0 ${W} ${H - 80}`} className={styles.topologySvg} style={{ height: 300 }}>
+				{/* Connection lines */}
+				{links.map((link) => {
+					const pos = positions[link.id];
+					if (!pos) return null;
+					const color = typeColorMap[link.type] || "#94a3b8";
+					return (
+						<line
+							key={`line-${link.id}`}
+							x1={cx}
+							y1={cy}
+							x2={pos.x}
+							y2={pos.y}
+							stroke={color}
+							strokeWidth={link.active ? 2.5 : 1.5}
+							strokeOpacity={link.active ? 0.7 : 0.2}
+							strokeDasharray={link.active ? undefined : "7 5"}
+						/>
+					);
+				})}
+
+				{/* Central hub node */}
+				<circle cx={cx} cy={cy} r={30} fill="var(--tblr-primary)" fillOpacity={0.1} stroke="var(--tblr-primary)" strokeWidth={2} />
+				<text x={cx} y={cy - 7} textAnchor="middle" dominantBaseline="middle" className={styles.topoHubLabel} fontSize="12">
+					This
+				</text>
+				<text x={cx} y={cy + 8} textAnchor="middle" dominantBaseline="middle" className={styles.topoHubLabel} fontSize="12">
+					Hub
+				</text>
+
+				{/* Interface labels near center */}
+				{interfaces.slice(0, 4).map((iface, i) => {
+					const angle = ((i / Math.max(interfaces.length - 1, 1)) * 180 - 90) * (Math.PI / 180);
+					const lx = cx + 50 * Math.cos(angle);
+					const ly = cy + 50 * Math.sin(angle);
+					return (
+						<text key={iface.name} x={lx} y={ly} textAnchor="middle" dominantBaseline="middle" fontSize="9" fill="var(--tblr-secondary)" opacity="0.7">
+							{iface.name}
+						</text>
+					);
+				})}
+
+				{/* Link nodes */}
+				{links.map((link) => {
+					const pos = positions[link.id];
+					if (!pos) return null;
+					const color = typeColorMap[link.type] || "#94a3b8";
+					// Show custom name if different from auto-generated key-based name, otherwise show truncated
+					const displayName = link.name.length > 16 ? `${link.name.slice(0, 15)}…` : link.name;
+
+					return (
+						<g key={`node-${link.id}`}>
+							<circle
+								cx={pos.x}
+								cy={pos.y}
+								r={18}
+								fill={link.active ? color : "var(--tblr-bg-surface)"}
+								fillOpacity={link.active ? 0.15 : 1}
+								stroke={color}
+								strokeWidth={link.active ? 2 : 1.5}
+								strokeOpacity={link.active ? 0.9 : 0.35}
+							/>
+							{/* Active pulse dot */}
+							{link.active && <circle cx={pos.x + 13} cy={pos.y - 13} r={5} fill="#22c55e" />}
+							{/* Node label — link name */}
+							<text x={pos.x} y={pos.y + 28} textAnchor="middle" dominantBaseline="middle" fontSize="10" className={styles.topoLabel}>
+								{displayName}
+							</text>
+							{/* Traffic indicator */}
+							{link.active && (link.rxBytes > 0 || link.txBytes > 0) && (
+								<text x={pos.x} y={pos.y + 40} textAnchor="middle" dominantBaseline="middle" fontSize="8" fill="var(--tblr-secondary)">
+									{byteFmt(link.rxBytes + link.txBytes)}
+								</text>
+							)}
+						</g>
+					);
+				})}
+			</svg>
+
+			{/* Legend bar */}
+			<div className={styles.topoLegend}>
+				<div className={styles.topoLegendItems}>
+					{TOPO_TYPE_META.map(({ type, label, color }) => {
+						const count = links.filter((l) => l.type === type).length;
+						return (
+							<div key={type} className={styles.topoLegendItem}>
+								<svg width="28" height="12" style={{ flexShrink: 0 }}>
+									<line x1="0" y1="6" x2="28" y2="6" stroke={color} strokeWidth="2.5" />
+									<circle cx="14" cy="6" r="5" fill={color} fillOpacity="0.15" stroke={color} strokeWidth="1.5" />
+								</svg>
+								<span className={styles.topoLegendLabel}>{label}</span>
+								<span className={styles.topoLegendCount}>{count}</span>
+							</div>
+						);
+					})}
+					<div className={styles.topoLegendItem}>
+						<svg width="28" height="12" style={{ flexShrink: 0 }}>
+							<line x1="0" y1="6" x2="28" y2="6" stroke="#94a3b8" strokeWidth="1.5" strokeDasharray="5 3" />
+						</svg>
+						<span className={styles.topoLegendLabel}>inactive</span>
+					</div>
+					<div className={styles.topoLegendItem}>
+						<svg width="12" height="12" style={{ flexShrink: 0 }}>
+							<circle cx="6" cy="6" r="5" fill="#22c55e" />
+						</svg>
+						<span className={styles.topoLegendLabel}>active</span>
+						<span className={styles.topoLegendCount}>{activeLinkCount} / {links.length}</span>
+					</div>
+				</div>
+			</div>
+		</div>
+	);
+}
+
+// ── Preview Result ─────────────────────────────────────────────────────────────
+
+function PreviewResult({
+	preview,
+	current,
+}: { preview: WireGuardPlanPreviewResponse; current: boolean }) {
+	const cls = !current
+		? "bg-yellow-lt text-yellow"
+		: preview.valid
+			? "bg-green-lt text-green"
+			: "bg-red-lt text-red";
+	const label = !current ? "veraltet" : preview.valid ? "gültig" : "Fehler";
+	return (
+		<div className="border rounded p-3 mt-3">
+			<span className={`badge ${cls} mb-2`}>{label}</span>
+			{preview.errors.map((e) => (
+				<div key={e} className="small text-danger">
+					✗ {e}
+				</div>
+			))}
+			{preview.warnings.slice(0, 3).map((w) => (
+				<div key={w} className="small text-warning">
+					⚠ {w}
+				</div>
+			))}
+			{preview.apply.canApply && current && (
+				<div className="small text-success mt-1">Bereit zum Anwenden (nur Metadaten).</div>
+			)}
+			{!preview.apply.canApply && preview.apply.blockedBy.length > 0 && (
+				<div className="small text-danger mt-1">Blockiert: {preview.apply.blockedBy[0]}</div>
+			)}
+			{preview.apply.changeScope === "metadata-with-config-intent" && (
+				<div className="small text-warning mt-1">Config-Intent-Änderung — benötigt Write-Layer (noch nicht verfügbar).</div>
+			)}
+		</div>
+	);
+}
+
+// ── Agent Section ──────────────────────────────────────────────────────────────
+
+function AgentSection({ link, agents }: { link: WireGuardLink; agents: Agent[] }) {
+	const existingAgent = agents.find((a) => a.wgLinkName === link.name)
+		?? agents.find((a) => a.name === link.name)
+		?? agents.find((a) => link.tunnelAddresses.some((addr) => {
+			const ip = addr.replace(/\/\d+$/, "");
+			return (a.hostname ?? "").includes(ip) || a.name.includes(ip);
+		}));
+	const createAgent = useCreateAgent();
+	const updateAgent = useUpdateAgent();
+
+	const [publicUrl, setPublicUrl] = useState(() => window.location.origin);
+	const [tunnelUrl, setTunnelUrl] = useState(() => {
+		const ip = (link.tunnelAddresses || [])[0]?.replace(/\/\d+$/, "");
+		return ip ? `http://${ip}:3300` : "";
+	});
+	const [copied, setCopied] = useState(false);
+	const [activeAgent, setActiveAgent] = useState<Agent | null>(existingAgent ?? null);
+	const [mgmtUrlEdit, setMgmtUrlEdit] = useState<string | null>(null);
+	const [showReinstall, setShowReinstall] = useState(false);
+	const [resetLoading, setResetLoading] = useState(false);
+
+	// Auto-create agent if none exists for this link
+	useEffect(() => {
+		if (!existingAgent && !activeAgent && !createAgent.isPending && !createAgent.isSuccess) {
+			createAgent.mutateAsync({
+				name: link.name,
+				mode: "native",
+				wgInterface: link.interfaceName,
+				wgLinkName: link.name,
+			}).then(setActiveAgent).catch(() => {});
+		}
+	}, []);
+
+	const handleCopy = (text: string) => {
+		navigator.clipboard.writeText(text);
+		setCopied(true);
+		setTimeout(() => setCopied(false), 2000);
+	};
+
+	const handleResetToken = async (agentId: number) => {
+		setResetLoading(true);
+		try {
+			const updated = await resetAgentToken(agentId);
+			setActiveAgent(updated);
+			setShowReinstall(true);
+		} finally {
+			setResetLoading(false);
+		}
+	};
+
+	const handleSaveMgmtUrl = async (agentId: number) => {
+		if (mgmtUrlEdit === null) return;
+		const updated = await updateAgent.mutateAsync({ id: agentId, data: { mgmtUrl: mgmtUrlEdit.trim() || undefined } });
+		setActiveAgent(updated);
+		setMgmtUrlEdit(null);
+	};
+
+	// Use the resolved agent (either pre-existing or just created)
+	const agent = activeAgent ?? existingAgent ?? null;
+
+	return (
+		<div className={styles.inlineSection}>
+			<div className="fw-medium mb-3 small text-uppercase text-secondary">Agent — {link.name}</div>
+
+			{!agent && (
+				<div className="text-secondary small">
+					{createAgent.isPending ? "Agent wird angelegt…" : "Kein Agent gefunden."}
+				</div>
+			)}
+
+			{agent && (
+				<>
+					{/* Status row — only shown when active */}
+					{agent.status === "active" && (
+						<div className="d-flex flex-wrap gap-3 mb-3">
+							<div className="small">
+								<span className="text-secondary me-1">Host</span>
+								{agent.hostname ?? "—"}
+							</div>
+							{agent.lastSeen && (
+								<div className="small">
+									<span className="text-secondary me-1">Zuletzt gesehen</span>
+									{timeAgo(agent.lastSeen)}
+								</div>
+							)}
+							{agent.services && agent.services.length > 0
+								? agent.services.map((svc) => (
+									<div key={svc.url} className="small">
+										<a href={svc.url} target="_blank" rel="noopener noreferrer" className="btn btn-sm btn-outline-success py-0 px-2">
+											{svc.name} ↗
+										</a>
+									</div>
+								))
+								: agent.mgmtUrl && (
+									<div className="small">
+										<a href={agent.mgmtUrl} target="_blank" rel="noopener noreferrer" className="btn btn-sm btn-outline-success py-0 px-2">
+											Öffnen ↗
+										</a>
+									</div>
+								)
+							}
+						</div>
+					)}
+
+					{/* Pending: show install hint */}
+					{agent.status === "pending" && (
+						<div className="alert alert-warning py-2 px-3 small mb-3">
+							Noch nicht installiert — führe das Install-Script auf dem Remote-Gateway aus.
+						</div>
+					)}
+
+
+					{/* Management URL — only show when a URL is actually set */}
+					{agent.status === "active" && agent.mgmtUrl && (
+						<div className="mb-3">
+							{mgmtUrlEdit === null ? (
+								<div className="d-flex align-items-center gap-2">
+									<span className="small text-secondary">Management-URL:</span>
+									<span className="small">{agent.mgmtUrl}</span>
+									<button
+										type="button"
+										className="btn btn-sm btn-link p-0 small"
+										onClick={() => setMgmtUrlEdit(agent.mgmtUrl ?? "")}
+									>
+										ändern
+									</button>
+								</div>
+							) : (
+								<div className="d-flex align-items-center gap-2">
+									<input
+										type="url"
+										className="form-control form-control-sm"
+										style={{ maxWidth: 320 }}
+										value={mgmtUrlEdit}
+										onChange={(e) => setMgmtUrlEdit(e.target.value)}
+										placeholder="http://192.168.10.7:8080"
+										autoFocus
+									/>
+									<button
+										type="button"
+										className="btn btn-sm btn-primary"
+										disabled={updateAgent.isPending}
+										onClick={() => handleSaveMgmtUrl(agent.id)}
+									>
+										Speichern
+									</button>
+									<button
+										type="button"
+										className="btn btn-sm btn-outline-secondary"
+										onClick={() => setMgmtUrlEdit(null)}
+									>
+										Abbrechen
+									</button>
+								</div>
+							)}
+						</div>
+					)}
+
+					{/* Reinstall toggle — only shown when active */}
+					{agent.status === "active" && !showReinstall && (
+						<button
+							type="button"
+							className="btn btn-sm btn-outline-secondary mb-2"
+							disabled={resetLoading}
+							onClick={() => handleResetToken(agent.id)}
+						>
+							{resetLoading ? "Token wird erneuert…" : "Neu installieren"}
+						</button>
+					)}
+
+					{/* Install one-liner — always shown when pending, toggled when active */}
+					{(agent.status !== "active" || showReinstall) && (() => {
+						const regToken = agent.regToken;
+						const oneliner = regToken && publicUrl.trim() && tunnelUrl.trim()
+							? buildInstallOneliner(regToken, publicUrl.trim(), tunnelUrl.trim())
+							: null;
+						return (
+							<>
+								<div className="row g-2 mb-2">
+									<div className="col-md-6">
+										<label className="form-label mb-1 small">
+											Public URL (Fallback)
+											<input
+												type="url"
+												className="form-control form-control-sm"
+												value={publicUrl}
+												onChange={(e) => setPublicUrl(e.target.value)}
+												placeholder="https://hub.example.com"
+											/>
+										</label>
+									</div>
+									<div className="col-md-6">
+										<label className="form-label mb-1 small">
+											Tunnel URL (WireGuard VPN)
+											<input
+												type="url"
+												className="form-control form-control-sm"
+												value={tunnelUrl}
+												onChange={(e) => setTunnelUrl(e.target.value)}
+												placeholder="http://10.10.0.1:3300"
+											/>
+										</label>
+									</div>
+								</div>
+								{oneliner ? (
+									<div className="d-flex align-items-center gap-2">
+										<code className="flex-grow-1 text-truncate small bg-dark text-white px-2 py-1 rounded" style={{ fontFamily: "monospace" }}>
+											{oneliner}
+										</code>
+										<button
+											className="btn btn-sm btn-outline-secondary flex-shrink-0"
+											type="button"
+											onClick={() => handleCopy(oneliner)}
+										>
+											{copied ? "Kopiert!" : "Kopieren"}
+										</button>
+										{agent.status === "active" && (
+											<button
+												className="btn btn-sm btn-ghost-secondary flex-shrink-0"
+												type="button"
+												onClick={() => setShowReinstall(false)}
+											>
+												Schließen
+											</button>
+										)}
+									</div>
+								) : (
+									<div className="text-secondary small">Kein Token verfügbar — Agent neu anlegen.</div>
+								)}
+							</>
+						);
+					})()}
+				</>
+			)}
+		</div>
+	);
+}
+
+// ── Link Card ──────────────────────────────────────────────────────────────────
+
+interface EnhancedInterface extends WireGuardInterface {
+	exportedNetworks: string[];
+	importedNetworks: string[];
+	routeTargets: string[];
+	notes: string[];
+}
+
+interface LinkCardProps {
+	link: WireGuardLink;
+	missingReturnRoutes: WireGuardRouteHint[];
+	natCandidates: WireGuardRouteHint[];
+	planningInterfaces: EnhancedInterface[];
+	agents: Agent[];
+}
+
+function LinkCard({ link, missingReturnRoutes, natCandidates, planningInterfaces, agents }: LinkCardProps) {
+	const [editorOpen, setEditorOpen] = useState(false);
+	const [plannerOpen, setPlannerOpen] = useState(false);
+	const [agentOpen, setAgentOpen] = useState(false);
+
+	// Editor state
+	const [draftName, setDraftName] = useState("");
+	const [draftImported, setDraftImported] = useState("");
+	const [draftExported, setDraftExported] = useState("");
+	const [draftMgmt, setDraftMgmt] = useState<WireGuardRemoteManagementMode>("none");
+	const [draftReturn, setDraftReturn] = useState<WireGuardReturnPathMode>("auto");
+	// Planner state
+	const [planExported, setPlanExported] = useState("");
+	const [planImported, setPlanImported] = useState("");
+	const [planReturn, setPlanReturn] = useState<WireGuardReturnPathMode>("auto");
+	const [planMgmt, setPlanMgmt] = useState<WireGuardRemoteManagementMode>("none");
+	const [planIntent, setPlanIntent] = useState("unknown");
+
+	const applyMetadata = useApplyWireGuardMetadata();
+
+	const tb = typeBadge(link.type);
+	const pb = planBadge(link.planState);
+	const missingReturn = hasRouteHint(link, missingReturnRoutes);
+	const natCandidate = hasRouteHint(link, natCandidates);
+
+	// Match agent by wgLinkName first, then by name, then by tunnel IP
+	const matchedAgent = agents.find((a) => a.wgLinkName === link.name)
+		?? agents.find((a) => a.name === link.name)
+		?? agents.find((a) => link.tunnelAddresses.some((addr) => {
+			const ip = addr.replace(/\/\d+$/, "");
+			return (a.hostname ?? "").includes(ip) || a.name.includes(ip);
+		}));
+	const agentServices = matchedAgent?.status === "active" ? (matchedAgent.services ?? []) : [];
+
+	const openEditor = () => {
+		setDraftName(link.name);
+		setDraftImported(link.importedNetworks.join(", "));
+		setDraftExported(link.exportedNetworks.join(", "));
+		setDraftMgmt(link.remoteManagementMode || "none");
+		setDraftReturn(link.returnPathMode || "auto");
+		setEditorOpen(true);
+		setPlannerOpen(false);
+	};
+
+	const openPlanner = () => {
+		const iface = planningInterfaces.find((i) => i.name === link.interfaceName);
+		setPlanExported((link.exportedNetworks.length ? link.exportedNetworks : iface?.exportedNetworks ?? []).join(", "));
+		setPlanImported(link.importedNetworks.join(", "));
+		setPlanReturn(link.returnPathMode || "auto");
+		setPlanMgmt(link.remoteManagementMode || "none");
+		setPlanIntent(link.planIntent || link.type || "unknown");
+		setPlannerOpen(true);
+		setEditorOpen(false);
+	};
+
+	// Only include fields that actually changed — avoids triggering metadata-with-config-intent
+	// for unchanged config-relevant fields whose stored value is simply undefined (default).
+	const editorLinkPatch: Record<string, unknown> = {};
+	const trimmedName = draftName.trim();
+	if (trimmedName !== (link.name || "")) editorLinkPatch.name = trimmedName || undefined;
+	const draftImportedArr = splitCsv(draftImported);
+	if (draftImportedArr.join(",") !== (link.importedNetworks || []).join(",")) editorLinkPatch.importedNetworks = draftImportedArr;
+	const draftExportedArr = splitCsv(draftExported);
+	if (draftExportedArr.join(",") !== (link.exportedNetworks || []).join(",")) editorLinkPatch.exportedNetworks = draftExportedArr;
+	if (draftMgmt !== (link.remoteManagementMode || "none")) editorLinkPatch.remoteManagementMode = draftMgmt;
+	if (draftReturn !== (link.returnPathMode || "auto")) editorLinkPatch.returnPathMode = draftReturn;
+
+	const editorPatch: WireGuardMetadataPatch = {
+		links: { [link.id]: editorLinkPatch },
+	};
+	const plannerPatch: WireGuardMetadataPatch = {
+		links: {
+			[link.id]: {
+				type: planIntent as WireGuardLink["type"],
+				exportedNetworks: splitCsv(planExported),
+				importedNetworks: splitCsv(planImported),
+				returnPathMode: planReturn,
+				remoteManagementMode: planMgmt,
+				planIntent,
+			},
+		},
+	};
+	return (
+		<div className={`card ${styles.linkCard}`}>
+			{/* Card header */}
+			<div className="card-header">
+				<div className="d-flex align-items-center gap-2 flex-wrap w-100">
+					<span className="fw-bold flex-grow-1">{link.name}</span>
+					<span className={`badge ${tb.cls}`}>{tb.label}</span>
+					<span className={`badge ${link.active ? "bg-green-lt text-green" : "bg-secondary-lt text-secondary"}`}>
+						{link.active ? "aktiv" : "inaktiv"}
+					</span>
+					<span className={`badge ${pb.cls}`}>{pb.label}</span>
+					{missingReturn && <span className="badge bg-red-lt text-red">Rückweg fehlt</span>}
+					{natCandidate && <span className="badge bg-yellow-lt text-yellow">NAT-Kandidat</span>}
+				</div>
+				<div className="text-secondary small mt-1">
+					{link.interfaceName} · {link.remoteEndpoint || "Endpoint unbekannt"} · letzter Handshake {timeAgo(link.latestHandshake)}
+				</div>
+			</div>
+
+			{/* Card body */}
+			<div className="card-body py-2">
+				<div className="d-flex flex-wrap gap-4 mb-2">
+					<div className="small">
+						<span className="text-secondary me-1">Traffic</span>
+						{byteFmt(link.rxBytes)} rx / {byteFmt(link.txBytes)} tx
+					</div>
+					<div className="small">
+						<span className="text-secondary me-1">Rückweg</span>
+						{link.returnPathMode}
+					</div>
+					<div className="small">
+						<span className="text-secondary me-1">Verwaltung</span>
+						{link.remoteManagementMode}
+					</div>
+					{link.tunnelAddresses.length > 0 && (
+						<div className="small">
+							<span className="text-secondary me-1">Tunnel</span>
+							{link.tunnelAddresses.join(", ")}
+						</div>
+					)}
+				</div>
+
+				{link.exportedNetworks.length > 0 && (
+					<div className="d-flex flex-wrap gap-1 align-items-center mb-1">
+						<span className="text-secondary small me-1">Export</span>
+						{link.exportedNetworks.map((n) => (
+							<span key={n} className="badge bg-azure-lt text-azure">
+								{n}
+							</span>
+						))}
+					</div>
+				)}
+				{link.importedNetworks.length > 0 && (
+					<div className="d-flex flex-wrap gap-1 align-items-center mb-1">
+						<span className="text-secondary small me-1">Import</span>
+						{link.importedNetworks.map((n) => (
+							<span key={n} className="badge bg-blue-lt text-blue">
+								{n}
+							</span>
+						))}
+					</div>
+				)}
+				{link.warnings.length > 0 && (
+					<div className="mt-2">
+						{link.warnings.slice(0, 2).map((w) => (
+							<div key={w} className="small text-warning">
+								⚠ {w}
+							</div>
+						))}
+					</div>
+				)}
+
+				{agentServices.length > 0 && (
+					<div className="d-flex flex-wrap gap-1 align-items-center mt-2 mb-1">
+						<span className="text-secondary small me-1">Apps</span>
+						{agentServices.map((svc) => (
+							<a
+								key={svc.url}
+								href={svc.url}
+								target="_blank"
+								rel="noopener noreferrer"
+								className="btn btn-sm btn-outline-success"
+								title={svc.url}
+							>
+								{svc.name} ↗
+							</a>
+						))}
+					</div>
+				)}
+
+				<div className="d-flex gap-2 mt-3">
+					<button
+						className={`btn btn-sm ${editorOpen ? "btn-primary" : "btn-outline-primary"}`}
+						type="button"
+						onClick={() => {
+							if (editorOpen) {
+								setEditorOpen(false);
+							} else {
+								openEditor();
+							}
+						}}
+					>
+						{editorOpen ? "Editor schließen" : "Metadaten bearbeiten"}
+					</button>
+					<button
+						className={`btn btn-sm ${plannerOpen ? "btn-secondary" : "btn-outline-secondary"}`}
+						type="button"
+						onClick={() => {
+							if (plannerOpen) {
+								setPlannerOpen(false);
+							} else {
+								openPlanner();
+							}
+						}}
+					>
+						{plannerOpen ? "Planer schließen" : "Link planen"}
+					</button>
+					{link.remoteManagementMode === "agent" && (
+						<button
+							className={`btn btn-sm ${agentOpen ? "btn-purple" : "btn-outline-purple"}`}
+							type="button"
+							onClick={() => setAgentOpen((v) => !v)}
+						>
+							{agentOpen ? "Agent schließen" : "Agent"}
+						</button>
+					)}
+				</div>
+			</div>
+
+			{/* Agent section */}
+			{agentOpen && link.remoteManagementMode === "agent" && (
+				<AgentSection link={link} agents={agents} />
+			)}
+
+			{/* Inline metadata editor */}
+			{editorOpen && (
+				<div className={styles.inlineSection}>
+					<div className="fw-medium mb-3 small text-uppercase text-secondary">Metadaten-Editor — {link.name}</div>
+					<div className="row g-3">
+						<div className="col-12">
+							<label className="form-label">
+								Anzeigename
+								<input
+									type="text"
+									className="form-control"
+									value={draftName}
+									onChange={(e) => setDraftName(e.target.value)}
+									placeholder={link.id}
+								/>
+								<div className="form-hint">Beliebiger Name, z.B. "Daniel Home" oder "Office Berlin"</div>
+							</label>
+						</div>
+						<div className="col-md-4">
+							<label className="form-label">
+								Importierte Netze
+								<textarea
+									className="form-control"
+									rows={3}
+									value={draftImported}
+									onChange={(e) => setDraftImported(e.target.value)}
+									placeholder="192.168.10.0/24, ..."
+								/>
+								<div className="form-hint">Netze die wir von dort nutzen</div>
+							</label>
+						</div>
+						<div className="col-md-4">
+							<label className="form-label">
+								Exportierte Netze
+								<textarea
+									className="form-control"
+									rows={3}
+									value={draftExported}
+									onChange={(e) => setDraftExported(e.target.value)}
+									placeholder="192.168.10.0/24, ..."
+								/>
+								<div className="form-hint">Netze die dieser Standort bereitstellt</div>
+							</label>
+						</div>
+						<div className="col-md-6">
+							<label className="form-label">
+								Fernverwaltung
+								<select
+									className="form-select"
+									value={draftMgmt}
+									onChange={(e) => setDraftMgmt(parseMgmt(e.target.value))}
+								>
+									<option value="none">keine</option>
+									<option value="ssh">ssh</option>
+									<option value="agent">agent</option>
+								</select>
+							</label>
+						</div>
+						<div className="col-md-6">
+							<label className="form-label">
+								Rückwegmodus
+								<select
+									className="form-select"
+									value={draftReturn}
+									onChange={(e) => setDraftReturn(parseReturn(e.target.value))}
+								>
+									<option value="auto">auto</option>
+									<option value="static-route">static-route</option>
+									<option value="nat">nat</option>
+								</select>
+							</label>
+						</div>
+					</div>
+					<div className="d-flex gap-2 mt-3">
+						<button
+							className="btn btn-sm btn-primary"
+							type="button"
+							disabled={
+								applyMetadata.isPending ||
+								Object.keys(editorLinkPatch).length === 0
+							}
+							onClick={async () => {
+								await applyMetadata.mutateAsync(editorPatch);
+								setEditorOpen(false);
+							}}
+						>
+							{applyMetadata.isPending ? "Speichern…" : "Speichern"}
+						</button>
+						<button
+							className="btn btn-sm btn-ghost-secondary"
+							type="button"
+							onClick={() => setEditorOpen(false)}
+						>
+							Abbrechen
+						</button>
+					</div>
+					{applyMetadata.isSuccess && (
+						<div className="alert alert-success mt-2 mb-0 py-2 small">Metadaten gespeichert.</div>
+					)}
+					{applyMetadata.isError && (
+						<div className="alert alert-danger mt-2 mb-0 py-2 small">Speichern fehlgeschlagen.</div>
+					)}
+				</div>
+			)}
+
+			{/* Inline link planner */}
+			{plannerOpen && (
+				<div className={styles.inlineSection}>
+					<div className="fw-medium mb-3 small text-uppercase text-secondary">Link-Planer — {link.name}</div>
+					<div className="row g-3">
+						<div className="col-md-3">
+							<label className="form-label">
+								Verbindungstyp
+								<select
+									className="form-select"
+									value={planIntent}
+									onChange={(e) => setPlanIntent(e.target.value)}
+								>
+									{["site-to-site", "hub-link", "client", "imported", "unknown"].map((o) => (
+										<option key={o} value={o}>
+											{o}
+										</option>
+									))}
+								</select>
+							</label>
+						</div>
+						<div className="col-md-3">
+							<label className="form-label">
+								Lokale Netze exportieren
+								<textarea
+									className="form-control"
+									rows={3}
+									value={planExported}
+									onChange={(e) => setPlanExported(e.target.value)}
+									placeholder="192.168.10.0/24, ..."
+								/>
+							</label>
+						</div>
+						<div className="col-md-3">
+							<label className="form-label">
+								Remote-Netze importieren
+								<textarea
+									className="form-control"
+									rows={3}
+									value={planImported}
+									onChange={(e) => setPlanImported(e.target.value)}
+									placeholder="192.168.200.0/24, ..."
+								/>
+							</label>
+						</div>
+						<div className="col-md-3">
+							<label className="form-label">
+								Rückwegmodus
+								<select
+									className="form-select"
+									value={planReturn}
+									onChange={(e) => setPlanReturn(parseReturn(e.target.value))}
+								>
+									<option value="auto">auto</option>
+									<option value="static-route">static-route</option>
+									<option value="nat">nat</option>
+								</select>
+							</label>
+							<label className="form-label mt-2">
+								Fernverwaltung
+								<select
+									className="form-select"
+									value={planMgmt}
+									onChange={(e) => setPlanMgmt(parseMgmt(e.target.value))}
+								>
+									<option value="none">keine</option>
+									<option value="ssh">ssh</option>
+									<option value="agent">agent</option>
+								</select>
+							</label>
+						</div>
+					</div>
+					<div className="d-flex gap-2 mt-3">
+						<button
+							className="btn btn-sm btn-primary"
+							type="button"
+							disabled={applyMetadata.isPending}
+							onClick={async () => {
+								await applyMetadata.mutateAsync(plannerPatch);
+								setPlannerOpen(false);
+								if (planMgmt === "agent") setAgentOpen(true);
+							}}
+						>
+							{applyMetadata.isPending ? "Speichern…" : "Plan speichern"}
+						</button>
+						<button
+							className="btn btn-sm btn-ghost-secondary"
+							type="button"
+							onClick={() => setPlannerOpen(false)}
+						>
+							Abbrechen
+						</button>
+					</div>
+					{applyMetadata.isSuccess && (
+						<div className="alert alert-success mt-2 mb-0 py-2 small">Plan gespeichert.</div>
+					)}
+				</div>
+			)}
+		</div>
+	);
+}
+
+// ── Interface Card ─────────────────────────────────────────────────────────────
+
+function InterfaceCard({
+	iface,
+	allLinks,
+}: { iface: EnhancedInterface; allLinks: WireGuardLink[] }) {
+	const [editorOpen, setEditorOpen] = useState(false);
+	const [draftRole, setDraftRole] = useState<WireGuardInterfaceRole>("unknown");
+	const [draftMgmt, setDraftMgmt] = useState<WireGuardManagementMode>("local");
+	const [draftExported, setDraftExported] = useState("");
+	const [draftImported, setDraftImported] = useState("");
+	const [draftRouteTargets, setDraftRouteTargets] = useState("");
+	const [draftNotes, setDraftNotes] = useState("");
+	const [preview, setPreview] = useState<WireGuardPlanPreviewResponse | null>(null);
+	const [previewKey, setPreviewKey] = useState("");
+
+	const applyMetadata = useApplyWireGuardMetadata();
+	const previewPlan = usePreviewWireGuardPlan();
+
+	const ifaceLinks = allLinks.filter((l) => l.interfaceName === iface.name);
+
+	const openEditor = () => {
+		setDraftRole(iface.role || "unknown");
+		setDraftMgmt(iface.managementMode || "local");
+		setDraftExported(iface.exportedNetworks.join(", "));
+		setDraftImported(iface.importedNetworks.join(", "));
+		setDraftRouteTargets(iface.routeTargets.join(", "));
+		setDraftNotes(iface.notes.join(", "));
+		setPreview(null);
+		setPreviewKey("");
+		setEditorOpen(true);
+	};
+
+	const patch: WireGuardMetadataPatch = {
+		interfaces: {
+			[iface.name]: {
+				role: draftRole,
+				managementMode: draftMgmt,
+				exportedNetworks: splitCsv(draftExported),
+				importedNetworks: splitCsv(draftImported),
+				routeTargets: splitCsv(draftRouteTargets),
+				notes: splitCsv(draftNotes),
+			},
+		},
+	};
+	const patchKey = JSON.stringify(patch);
+	const previewCurrent = Boolean(preview && previewKey === patchKey);
+
+	return (
+		<div className={styles.ifaceCard}>
+			<div className={styles.ifaceCardHeader}>
+				<div>
+					<div className="fw-bold">{iface.name}</div>
+					<div className="text-secondary small">{iface.addresses.join(", ") || "keine Adressen"}</div>
+				</div>
+				<div className="d-flex gap-2 flex-wrap align-items-center">
+					<span className={`badge ${iface.active ? "bg-green-lt text-green" : "bg-secondary-lt text-secondary"}`}>
+						{iface.active ? "aktiv" : "inaktiv"}
+					</span>
+					<span className={`badge ${ifaceHealthBadge(iface.health)}`}>{iface.health || "unbekannt"}</span>
+					<span className="badge bg-secondary-lt text-secondary">{iface.role || "unbekannt"}</span>
+					<button
+						className="btn btn-sm btn-outline-primary"
+						type="button"
+						onClick={() => {
+							if (editorOpen) {
+								setEditorOpen(false);
+							} else {
+								openEditor();
+							}
+						}}
+					>
+						{editorOpen ? "Schließen" : "Bearbeiten"}
+					</button>
+				</div>
+			</div>
+
+			<div className={styles.ifaceCardBody}>
+				<div className="d-flex flex-wrap gap-4 mb-2">
+					<div className="small">
+						<span className="text-secondary me-1">Peers</span>
+						{iface.activePeerCount} aktiv / {iface.peerCount}
+					</div>
+					<div className="small">
+						<span className="text-secondary me-1">Traffic</span>
+						{byteFmt(iface.rxBytes)} rx / {byteFmt(iface.txBytes)} tx
+					</div>
+					{iface.listenPort && (
+						<div className="small">
+							<span className="text-secondary me-1">Port</span>
+							{iface.listenPort}
+						</div>
+					)}
+					<div className="small">
+						<span className="text-secondary me-1">Schlüssel</span>
+						{shortKey(iface.publicKey)}
+					</div>
+				</div>
+
+				{iface.exportedNetworks.length > 0 && (
+					<div className="d-flex flex-wrap gap-1 align-items-center mb-1">
+						<span className="text-secondary small me-1">Export</span>
+						{iface.exportedNetworks.slice(0, 6).map((n) => (
+							<span key={n} className="badge bg-azure-lt text-azure">
+								{n}
+							</span>
+						))}
+					</div>
+				)}
+				{ifaceLinks.length > 0 && (
+					<div className="d-flex flex-wrap gap-1 align-items-center mt-1">
+						<span className="text-secondary small me-1">Links</span>
+						{ifaceLinks.map((l) => (
+							<span key={l.id} className={`badge ${typeBadge(l.type).cls}`}>
+								{l.name}
+							</span>
+						))}
+					</div>
+				)}
+			</div>
+
+			{editorOpen && (
+				<div className={styles.inlineSection}>
+					<div className="fw-medium mb-3 small text-uppercase text-secondary">Interface-Editor — {iface.name}</div>
+					<div className="row g-3">
+						<div className="col-md-3">
+							<label className="form-label">
+								Rolle
+								<select
+									className="form-select"
+									value={draftRole}
+									onChange={(e) => setDraftRole(parseIfaceRole(e.target.value))}
+								>
+									{(["client-hub", "site-to-site", "hub-link", "auxiliary", "unknown"] as const).map((o) => (
+										<option key={o} value={o}>
+											{o}
+										</option>
+									))}
+								</select>
+							</label>
+						</div>
+						<div className="col-md-3">
+							<label className="form-label">
+								Verwaltung
+								<select
+									className="form-select"
+									value={draftMgmt}
+									onChange={(e) => setDraftMgmt(parseIfaceMgmt(e.target.value))}
+								>
+									{(["local", "imported", "unknown"] as const).map((o) => (
+										<option key={o} value={o}>
+											{o}
+										</option>
+									))}
+								</select>
+							</label>
+						</div>
+						<div className="col-md-3">
+							<label className="form-label">
+								Exportierte Netze
+								<textarea
+									className="form-control"
+									rows={3}
+									value={draftExported}
+									onChange={(e) => setDraftExported(e.target.value)}
+								/>
+							</label>
+						</div>
+						<div className="col-md-3">
+							<label className="form-label">
+								Importierte Netze
+								<textarea
+									className="form-control"
+									rows={3}
+									value={draftImported}
+									onChange={(e) => setDraftImported(e.target.value)}
+								/>
+							</label>
+						</div>
+						<div className="col-md-6">
+							<label className="form-label">
+								Route-Ziele
+								<textarea
+									className="form-control"
+									rows={2}
+									value={draftRouteTargets}
+									onChange={(e) => setDraftRouteTargets(e.target.value)}
+									placeholder="z.B. 10.10.0.0/16"
+								/>
+							</label>
+						</div>
+						<div className="col-md-6">
+							<label className="form-label">
+								Notizen
+								<textarea
+									className="form-control"
+									rows={2}
+									value={draftNotes}
+									onChange={(e) => setDraftNotes(e.target.value)}
+									placeholder="Hub-Rolle, später prüfen, ..."
+								/>
+							</label>
+						</div>
+					</div>
+					{preview && <PreviewResult preview={preview} current={previewCurrent} />}
+					<div className="d-flex gap-2 mt-3">
+						<button
+							className="btn btn-sm btn-outline-primary"
+							type="button"
+							disabled={previewPlan.isPending}
+							onClick={async () => {
+								const result = await previewPlan.mutateAsync(patch);
+								setPreview(result);
+								setPreviewKey(patchKey);
+							}}
+						>
+							{previewPlan.isPending ? "Vorschau…" : "Vorschau"}
+						</button>
+						<button
+							className="btn btn-sm btn-primary"
+							type="button"
+							disabled={applyMetadata.isPending || !preview?.valid || !preview.apply.canApply || !previewCurrent}
+							onClick={async () => {
+								await applyMetadata.mutateAsync(patch);
+								setEditorOpen(false);
+								setPreview(null);
+							}}
+						>
+							{applyMetadata.isPending ? "Speichern…" : "Speichern"}
+						</button>
+						<button
+							className="btn btn-sm btn-ghost-secondary"
+							type="button"
+							onClick={() => setEditorOpen(false)}
+						>
+							Abbrechen
+						</button>
+					</div>
+					{applyMetadata.isSuccess && (
+						<div className="alert alert-success mt-2 mb-0 py-2 small">Interface gespeichert.</div>
+					)}
+					{applyMetadata.isError && (
+						<div className="alert alert-danger mt-2 mb-0 py-2 small">Speichern fehlgeschlagen.</div>
+					)}
+				</div>
+			)}
+		</div>
+	);
+}
+
+// ── Main Component ─────────────────────────────────────────────────────────────
+
+type Tab = "overview" | "links" | "interfaces" | "routing";
+
+const WireGuard = () => {
+	const { data, isLoading, isError, error } = useWireGuardStatus();
+	const applyState = useWireGuardApplyState();
+	const restoreMetadata = useRestoreWireGuardMetadata();
+	const agentsQuery = useAgents();
+	const [activeTab, setActiveTab] = useState<Tab>("overview");
+
+	if (isLoading) return <Loading />;
+	if (isError)
+		return <div className="alert alert-danger">WireGuard-Status konnte nicht geladen werden: {error.message}</div>;
+	if (!data?.available || !data.summary) {
+		return (
+			<div className="platform-page">
+				<div className="platform-page-header">
+					<div>
+						<div className="platform-kicker">Tunnel Inventory</div>
+						<h1 className="platform-title">WireGuard</h1>
+					</div>
+				</div>
+				<div className="alert alert-warning">WireGuard-Hostdaten sind in dieser Laufzeitumgebung noch nicht verfügbar.</div>
+			</div>
+		);
+	}
+
+	const summary = data.summary;
+	const hub = data.hub;
+	const links = data.links || [];
+	const interfaces = data.interfaces;
+	const missingReturnRoutes = data.routes.missingReturnRoutes || [];
+	const natCandidates = data.routes.natCandidates || [];
+	const nextActions = data.nextActions || [];
+	const activePeers = interfaces
+		.flatMap((iface) => iface.peers.map((peer) => ({ ...peer, iface: iface.name })))
+		.filter((peer) => peer.isActive);
+	const backups = applyState.data?.backups || [];
+
+	const planningInterfaces: EnhancedInterface[] = interfaces.map((iface) => ({
+		...iface,
+		exportedNetworks: iface.exportedNetworks ?? iface.peerNetworks ?? [],
+		importedNetworks: iface.importedNetworks ?? [],
+		routeTargets: iface.routeTargets ?? [],
+		notes: iface.notes ?? [],
+	}));
+
+	const groupedLinks = {
+		site: links.filter((l) => l.type === "site-to-site"),
+		hub: links.filter((l) => l.type === "hub-link"),
+		client: links.filter((l) => l.type === "client"),
+		other: links.filter((l) => !["site-to-site", "hub-link", "client"].includes(l.type)),
+	};
+
+	const agents = agentsQuery.data ?? [];
+	const linkCardProps = { missingReturnRoutes, natCandidates, planningInterfaces, agents };
+
+	const renderLinks = (items: WireGuardLink[], label: string, badgeCls: string) => {
+		if (items.length === 0) return null;
+		return (
+			<div className="mb-4">
+				<div className="d-flex align-items-center gap-2 mb-3">
+					<h3 className="m-0" style={{ fontSize: "1rem", fontWeight: 600 }}>
+						{label}
+					</h3>
+					<span className={`badge ${badgeCls}`}>{items.length}</span>
+				</div>
+				<div className="d-flex flex-column gap-3">
+					{items.map((link) => (
+						<LinkCard key={link.id} link={link} {...linkCardProps} />
+					))}
+				</div>
+			</div>
+		);
+	};
+
+	return (
+		<div className="platform-page">
+			<div className="platform-page-header">
+				<div>
+					<div className="platform-kicker">Tunnel Inventory</div>
+					<h1 className="platform-title">WireGuard</h1>
+				</div>
+				<div className="text-secondary small">{hub?.name || "Hub-Interface unbekannt"}</div>
+			</div>
+
+			{/* Stat cards */}
+			<div className="row row-deck row-cards my-4">
+				<div className="col-sm-6 col-xl-3">
+					<div className="card card-sm platform-stat-card">
+						<div className="card-body d-flex align-items-center gap-3">
+							<span className="bg-blue text-white avatar">
+								<IconShieldHalfFilled />
+							</span>
+							<div>
+								<div className="text-secondary">Interfaces</div>
+								<div className="platform-stat-value">
+									{summary.activeInterfaceCount} / {summary.interfaceCount}
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+				<div className="col-sm-6 col-xl-3">
+					<div className="card card-sm platform-stat-card">
+						<div className="card-body d-flex align-items-center gap-3">
+							<span className="bg-green text-white avatar">
+								<IconPlugConnected />
+							</span>
+							<div>
+								<div className="text-secondary">Aktive Peers</div>
+								<div className="platform-stat-value">
+									{summary.activePeers} / {summary.totalPeers}
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+				<div className="col-sm-6 col-xl-3">
+					<div className="card card-sm platform-stat-card">
+						<div className="card-body d-flex align-items-center gap-3">
+							<span className="bg-yellow text-white avatar">
+								<IconRoute />
+							</span>
+							<div>
+								<div className="text-secondary">Gateway-Routen</div>
+								<div className="platform-stat-value">{summary.wireguardRouteCount}</div>
+							</div>
+						</div>
+					</div>
+				</div>
+				<div className="col-sm-6 col-xl-3">
+					<div className="card card-sm platform-stat-card">
+						<div className="card-body d-flex align-items-center gap-3">
+							<span className="bg-cyan text-white avatar">
+								<IconTopologyStar3 />
+							</span>
+							<div>
+								<div className="text-secondary">Links</div>
+								<div className="platform-stat-value">{summary.linkCount}</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			{/* Tabs */}
+			<div className={styles.tabs}>
+				{(["overview", "links", "interfaces", "routing"] as const).map((tab) => (
+					<button
+						key={tab}
+						type="button"
+						className={`${styles.tab} ${activeTab === tab ? styles.tabActive : ""}`}
+						onClick={() => setActiveTab(tab)}
+					>
+						{{ overview: "Übersicht", links: "Links", interfaces: "Interfaces", routing: "Routing" }[tab]}
+						{tab === "links" && links.length > 0 && (
+							<span className="badge bg-secondary-lt text-secondary ms-2" style={{ fontSize: "0.7rem" }}>
+								{links.length}
+							</span>
+						)}
+						{tab === "routing" && (missingReturnRoutes.length > 0 || natCandidates.length > 0) && (
+							<span className="badge bg-yellow-lt text-yellow ms-2" style={{ fontSize: "0.7rem" }}>
+								{missingReturnRoutes.length + natCandidates.length}
+							</span>
+						)}
+					</button>
+				))}
+			</div>
+
+			{/* ── Overview ── */}
+			{activeTab === "overview" && (
+				<div>
+					<div className="card mb-4">
+						<div className="card-header">
+							<h3 className="card-title">Netzwerk-Topologie</h3>
+							<div className="card-options">
+								<div className="d-flex gap-2">
+									<span className="badge bg-emerald-lt text-emerald">
+										client {summary.clientLinkCount}
+									</span>
+									<span className="badge bg-indigo-lt text-indigo">
+										site {summary.siteLinkCount}
+									</span>
+									<span className="badge bg-cyan-lt text-cyan">
+										hub {summary.hubLinkCount}
+									</span>
+								</div>
+							</div>
+						</div>
+						<div className="card-body p-0">
+							{links.length > 0 ? (
+								<TopologyMap links={links} interfaces={interfaces} />
+							) : (
+								<div className="p-4 text-secondary small">Noch keine Links erkannt.</div>
+							)}
+						</div>
+					</div>
+
+					<div className="row row-cards mb-4">
+						{nextActions.length > 0 && (
+							<div className="col-md-6">
+								<div className="card h-100">
+									<div className="card-header">
+										<h3 className="card-title">Empfohlene nächste Schritte</h3>
+									</div>
+									<div className="card-body">
+										<div className="d-flex flex-column gap-2">
+											{nextActions.slice(0, 8).map((action) => (
+												<div key={action} className="small text-secondary">
+													• {action}
+												</div>
+											))}
+										</div>
+									</div>
+								</div>
+							</div>
+						)}
+
+						<div className={nextActions.length > 0 ? "col-md-6" : "col-12"}>
+							<div className="card h-100">
+								<div className="card-header">
+									<h3 className="card-title">Metadaten-Backups</h3>
+								</div>
+								<div className="card-body">
+									{backups.length === 0 && (
+										<div className="text-secondary small">Noch keine Backups vorhanden.</div>
+									)}
+									<div className="d-flex flex-column gap-2">
+										{backups.slice(0, 5).map((item) => (
+											<div key={item.path} className="d-flex justify-content-between align-items-center gap-2">
+												<span className="small text-secondary">{item.fileName}</span>
+												<button
+													className="btn btn-sm btn-outline-warning"
+													type="button"
+													disabled={restoreMetadata.isPending}
+													onClick={async () => {
+														await restoreMetadata.mutateAsync(item.path);
+													}}
+												>
+													{restoreMetadata.isPending ? "Wiederherstellen…" : "Wiederherstellen"}
+												</button>
+											</div>
+										))}
+									</div>
+									{restoreMetadata.isSuccess && (
+										<div className="alert alert-warning mt-3 mb-0 py-2 small">
+											Metadaten aus Backup wiederhergestellt.
+										</div>
+									)}
+									{restoreMetadata.isError && (
+										<div className="alert alert-danger mt-3 mb-0 py-2 small">
+											Wiederherstellung fehlgeschlagen.
+										</div>
+									)}
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			)}
+
+			{/* ── Links ── */}
+			{activeTab === "links" && (
+				<div>
+					{links.length === 0 && (
+						<div className="alert alert-secondary">Noch keine WireGuard-Links erkannt.</div>
+					)}
+					{renderLinks(groupedLinks.site, "Site-to-Site", "bg-indigo-lt text-indigo")}
+					{renderLinks(groupedLinks.hub, "Hub-Links", "bg-cyan-lt text-cyan")}
+					{renderLinks(groupedLinks.client, "Clients", "bg-emerald-lt text-emerald")}
+					{renderLinks(groupedLinks.other, "Nicht klassifiziert", "bg-secondary-lt text-secondary")}
+				</div>
+			)}
+
+			{/* ── Interfaces ── */}
+			{activeTab === "interfaces" && (
+				<div>
+					<div className={styles.ifaceGrid}>
+						{planningInterfaces.map((iface) => (
+							<InterfaceCard key={iface.name} iface={iface} allLinks={links} />
+						))}
+					</div>
+					{planningInterfaces.length === 0 && (
+						<div className="alert alert-secondary">Keine Interfaces erkannt.</div>
+					)}
+				</div>
+			)}
+
+			{/* ── Routing ── */}
+			{activeTab === "routing" && (
+				<div className="row row-cards">
+					<div className="col-md-6">
+						<div className="card">
+							<div className="card-header">
+								<h3 className="card-title">Fehlende Rückwegerouten</h3>
+								{missingReturnRoutes.length > 0 && (
+									<span className="badge bg-red-lt text-red ms-2">
+										{missingReturnRoutes.length}
+									</span>
+								)}
+							</div>
+							<div className="card-body">
+								{missingReturnRoutes.length === 0 ? (
+									<div className="text-secondary small">Keine fehlenden Rückwegerouten erkannt.</div>
+								) : (
+									<div className="d-flex flex-column gap-3">
+										{missingReturnRoutes.map((hint) => (
+											<div key={`${hint.network}-${hint.reason}`}>
+												<div className="fw-medium small">{hint.network}</div>
+												<div className="text-secondary small">{hint.reason}</div>
+											</div>
+										))}
+									</div>
+								)}
+							</div>
+						</div>
+					</div>
+
+					<div className="col-md-6">
+						<div className="card">
+							<div className="card-header">
+								<h3 className="card-title">NAT-Kandidaten</h3>
+								{natCandidates.length > 0 && (
+									<span className="badge bg-yellow-lt text-yellow ms-2">
+										{natCandidates.length}
+									</span>
+								)}
+							</div>
+							<div className="card-body">
+								{natCandidates.length === 0 ? (
+									<div className="text-secondary small">Keine NAT-Kandidaten erkannt.</div>
+								) : (
+									<div className="d-flex flex-column gap-3">
+										{natCandidates.map((hint) => (
+											<div key={`${hint.network}-${hint.reason}`}>
+												<div className="fw-medium small">{hint.network}</div>
+												<div className="text-secondary small">{hint.reason}</div>
+											</div>
+										))}
+									</div>
+								)}
+							</div>
+						</div>
+					</div>
+
+					<div className="col-12">
+						<div className="card platform-table-card">
+							<div className="card-header">
+								<h3 className="card-title">Aktive Peers</h3>
+								<span className="badge bg-green-lt text-green ms-2">{activePeers.length}</span>
+							</div>
+							<div className="table-responsive">
+								<table className={`table table-vcenter card-table ${styles.peerTable}`}>
+									<thead>
+										<tr>
+											<th>Interface</th>
+											<th>Public Key</th>
+											<th>Endpoint</th>
+											<th>Erlaubte IPs</th>
+											<th>Traffic</th>
+											<th>Letzter Handshake</th>
+										</tr>
+									</thead>
+									<tbody>
+										{activePeers.length === 0 ? (
+											<tr>
+												<td colSpan={6} className="text-secondary">
+													Keine Peers im aktiven Handshake-Fenster.
+												</td>
+											</tr>
+										) : (
+											activePeers.map((peer) => (
+												<tr key={`${peer.iface}-${peer.publicKey}`}>
+													<td>{peer.iface}</td>
+													<td className="text-secondary">{shortKey(peer.publicKey)}</td>
+													<td>{peer.endpoint || <span className="text-secondary">—</span>}</td>
+													<td>
+														{peer.allowedIps.length > 0 ? (
+															<div className="d-flex flex-wrap gap-1">
+																{peer.allowedIps.map((ip) => (
+																	<span key={ip} className="badge bg-secondary-lt text-secondary">
+																		{ip}
+																	</span>
+																))}
+															</div>
+														) : (
+															<span className="text-secondary">—</span>
+														)}
+													</td>
+													<td>
+														{byteFmt(peer.rxBytes)} / {byteFmt(peer.txBytes)}
+													</td>
+													<td className="text-secondary">{timeAgo(peer.latestHandshake)}</td>
+												</tr>
+											))
+										)}
+									</tbody>
+								</table>
+							</div>
+						</div>
+					</div>
+				</div>
+			)}
+		</div>
+	);
+};
+
+export default WireGuard;
