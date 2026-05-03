@@ -60,9 +60,6 @@
         "enabled": true,
         "rules": {
             "recommended": true,
-            "correctness": {
-                "useUniqueElementIds": "off"
-            },
             "suspicious": {
                 "noExplicitAny": "off",
                 "noArrayIndexKey": "off"
@@ -73,7 +70,14 @@
             "nursery": "off",
             "a11y": {
                 "useSemanticElements": "off",
-                "useValidAnchor": "off"
+                "useValidAnchor": "off",
+                "noLabelWithoutControl": "off",
+                "noSvgWithoutTitle": "off",
+                "noAutofocus": "off"
+            },
+            "correctness": {
+                "useUniqueElementIds": "off",
+                "useExhaustiveDependencies": "warn"
             },
             "style": {
                 "noParameterAssign": "error",

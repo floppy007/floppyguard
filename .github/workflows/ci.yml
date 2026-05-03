@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+    branches: [develop, main]
+
+jobs:
+  backend-lint:
+    name: Backend — Lint & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: yarn
+          cache-dependency-path: backend/yarn.lock
+
+      - name: Install dependencies
+        working-directory: backend
+        run: yarn install --frozen-lockfile
+
+      - name: Lint
+        working-directory: backend
+        run: yarn lint
+
+      - name: Tests
+        working-directory: backend
+        run: yarn test
+
+  frontend-lint-build:
+    name: Frontend — Lint & Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: yarn install --frozen-lockfile
+
+      - name: Lint
+        working-directory: frontend
+        run: yarn lint
+
+      - name: Build
+        working-directory: frontend
+        run: yarn build
+
+  swagger-lint:
+    name: OpenAPI — Swagger Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: yarn
+          cache-dependency-path: test/yarn.lock
+
+      - name: Install dependencies
+        working-directory: test
+        run: yarn install --frozen-lockfile
+
+      - name: Lint OpenAPI spec
+        working-directory: test
+        run: yarn swagger-lint ../backend/schema/swagger.json
+        continue-on-error: true

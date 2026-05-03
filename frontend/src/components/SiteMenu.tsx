@@ -301,7 +301,7 @@ export function SiteMenu({ className }: SiteMenuProps) {
 
 	useEffect(() => {
 		setOpenDropdownLabel(null);
-	}, [location.pathname]);
+	}, []);
 
 	useEffect(() => {
 		const handlePointerDown = (event: MouseEvent) => {

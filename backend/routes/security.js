@@ -31,10 +31,10 @@ function parseJailStatus(raw) {
 	};
 	const bannedRaw = get("Banned IP list");
 	return {
-		currentlyFailed: parseInt(get("Currently failed"), 10) || 0,
-		totalFailed:     parseInt(get("Total failed"),     10) || 0,
-		currentlyBanned: parseInt(get("Currently banned"), 10) || 0,
-		totalBanned:     parseInt(get("Total banned"),     10) || 0,
+		currentlyFailed: Number.parseInt(get("Currently failed"), 10) || 0,
+		totalFailed:     Number.parseInt(get("Total failed"),     10) || 0,
+		currentlyBanned: Number.parseInt(get("Currently banned"), 10) || 0,
+		totalBanned:     Number.parseInt(get("Total banned"),     10) || 0,
 		bannedIps:       bannedRaw ? bannedRaw.split(/\s+/).filter(Boolean) : [],
 	};
 }

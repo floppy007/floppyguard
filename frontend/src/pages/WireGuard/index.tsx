@@ -355,7 +355,7 @@ function AgentSection({ link, agents }: { link: WireGuardLink; agents: Agent[] }
 				wgLinkName: link.name,
 			}).then(setActiveAgent).catch(() => {});
 		}
-	}, []);
+	}, [activeAgent, createAgent.isPending, createAgent.isSuccess, createAgent.mutateAsync, existingAgent, link.interfaceName, link.name]);
 
 	const handleCopy = (text: string) => {
 		navigator.clipboard.writeText(text);
@@ -460,7 +460,6 @@ function AgentSection({ link, agents }: { link: WireGuardLink; agents: Agent[] }
 										value={mgmtUrlEdit}
 										onChange={(e) => setMgmtUrlEdit(e.target.value)}
 										placeholder="http://192.168.10.7:8080"
-										autoFocus
 									/>
 									<button
 										type="button"
