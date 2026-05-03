@@ -1,27 +1,127 @@
 # FloppyGuard
 
-Fork of [nginx-proxy-manager](https://github.com/NginxProxyManager/nginx-proxy-manager) v2.14.0, extended with WireGuard VPN management.
+> Fork of [nginx-proxy-manager](https://github.com/NginxProxyManager/nginx-proxy-manager) v2.14.0 — extended with WireGuard VPN management, a visual topology map, remote agent support and a hardened host-based runtime.
 
-Running host-based (no Docker for the app itself) on this server.
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-1.2.1-blue.svg)](CHANGELOG.md)
+[![Based on NPM](https://img.shields.io/badge/based%20on-nginx--proxy--manager%20v2.14.0-lightgrey)](https://github.com/NginxProxyManager/nginx-proxy-manager)
+
+---
+
+## Features
+
+**Inherited from nginx-proxy-manager**
+- Proxy hosts, redirection hosts, streams, 404/dead hosts
+- Let's Encrypt certificates (HTTP + DNS challenge)
+- Access lists, multiple users, audit log
+
+**Added by FloppyGuard**
+- WireGuard interface, peer and link management with visual topology map
+- Planning layer: links go through discover → shape → validate → ready stages
+- Remote agent system — push WireGuard configs to remote hosts (native Linux + UniFi-compatible mode)
+- Platform dashboard — proxy stats, WireGuard summary, gateway overview, fail2ban status in one view
+- Fail2Ban UI — view jails and banned IPs, unban with one click
+- nftables firewall hardening (strict INPUT policy, only required ports open)
+- Dark mode with correct CSS variable handling
+
+---
 
 ## Architecture
 
-```
-https://your-instance-domain  →  nginx (80/443)  →  proxy_host/58.conf
-                                                   →  port 81 (admin UI)
+FloppyGuard runs **host-based** — no Docker container for the application itself.
 
-Port 81  — nginx serves frontend/dist (SPA)        →  /api/ → backend :3300
-Port 3300 — FloppyGuard backend (Node.js, systemd)
-Port 8080 — wg-gui (legacy, being replaced)
+```
+Internet → nginx (80/443) → proxy host configs in /data/nginx/
+                          → port 81 (admin UI)
+
+Port 81   nginx serves frontend/dist (SPA) → /api/ → backend :3300
+Port 3300 FloppyGuard backend (Node.js, systemd unit: floppyguard-backend)
 ```
 
-- **Backend**: Express.js, `backend/index.js`, managed by systemd
+- **Backend**: Express.js (`backend/index.js`), managed by systemd
 - **Frontend**: React 19 + Vite, built to `frontend/dist`, served by nginx on port 81
-- **Database**: MySQL (`npm`/`npm` @ localhost:3306, same DB as legacy NPM)
-- **Nginx configs**: written to `/data/nginx/`, loaded by system nginx
-- **Certs**: Let's Encrypt via certbot virtualenv at `/opt/certbot/`, certs at `/opt/npm/letsencrypt/`
+- **Database**: MySQL, PostgreSQL or SQLite (configured via environment variables)
+- **Nginx configs**: generated and written to `/data/nginx/`, loaded by system nginx
+- **Certs**: Let's Encrypt via certbot, stored at `/opt/npm/letsencrypt/`
 
-## Production Operations
+---
+
+## Installation
+
+### Prerequisites
+
+- Debian 12/13 or Ubuntu 22.04+
+- Node.js 20+ and Yarn
+- nginx (system package)
+- WireGuard tools (`wireguard-tools`)
+- nftables
+- fail2ban (optional but recommended)
+- MySQL, PostgreSQL, or SQLite
+
+### Quick install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/floppy007/floppyguard/develop/scripts/install.sh | bash
+```
+
+The script will:
+1. Check and install missing prerequisites
+2. Clone the repository to `/opt/floppyguard`
+3. Install Node.js dependencies and build the frontend
+4. Create the systemd unit `floppyguard-backend`
+5. Write an nginx site config for the admin UI (port 81)
+6. Generate an `.env` file for DB configuration
+
+### Manual installation
+
+```bash
+# 1. Clone
+git clone https://github.com/floppy007/floppyguard.git /opt/floppyguard
+cd /opt/floppyguard
+
+# 2. Install dependencies
+cd backend && yarn install --frozen-lockfile && cd ..
+cd frontend && yarn install --frozen-lockfile && yarn build && cd ..
+
+# 3. Configure environment
+cp backend/.env.example backend/.env
+# Edit backend/.env — set DB_MYSQL_* or DB_SQLITE_FILE
+
+# 4. Create data directory
+mkdir -p /data/nginx /opt/npm/letsencrypt
+
+# 5. Install systemd service
+cp docs/examples/floppyguard-backend.service /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now floppyguard-backend
+
+# 6. Configure nginx
+cp docs/examples/floppyguard-nginx.conf /etc/nginx/sites-available/floppyguard
+ln -s /etc/nginx/sites-available/floppyguard /etc/nginx/sites-enabled/
+nginx -t && nginx -s reload
+```
+
+### Environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `DB_SQLITE_FILE` | `/data/database.sqlite` | SQLite file path (use if not MySQL/PG) |
+| `DB_MYSQL_HOST` | — | MySQL host |
+| `DB_MYSQL_PORT` | `3306` | MySQL port |
+| `DB_MYSQL_USER` | — | MySQL user |
+| `DB_MYSQL_PASSWORD` | — | MySQL password |
+| `DB_MYSQL_NAME` | — | MySQL database name |
+| `DB_POSTGRES_HOST` | — | PostgreSQL host |
+| `DB_POSTGRES_PORT` | `5432` | PostgreSQL port |
+| `DB_POSTGRES_USER` | — | PostgreSQL user |
+| `DB_POSTGRES_PASSWORD` | — | PostgreSQL password |
+| `DB_POSTGRES_NAME` | — | PostgreSQL database name |
+| `WG_CONF_DIR` | `/etc/wireguard` | WireGuard config directory |
+| `PORT` | `3300` | Backend listen port |
+
+---
+
+## Operations
 
 ```bash
 # Status
@@ -35,59 +135,78 @@ journalctl -u floppyguard-backend -f
 
 # nginx
 nginx -t && nginx -s reload
+
+# Check all routes
+./scripts/check-production-routes
 ```
 
 See [docs/OPERATIONS.md](docs/OPERATIONS.md) for the full runbook.
 
+---
+
 ## Development
 
-### Backend (`cd backend`)
-```bash
-yarn lint          # Biome linting
-yarn prettier      # Biome format --write
-yarn test          # Node built-in tests
-```
+### Prerequisites
 
-### Frontend (`cd frontend`)
-```bash
-yarn dev           # Vite dev server (port 5173)
-yarn build         # TypeScript check + production build → dist/
-yarn lint          # Biome linting
-yarn test          # Vitest
-```
+- Node.js 20+ and Yarn
+- Docker + Docker Compose (for the full dev stack)
 
-### Local Preview
-```bash
-./scripts/start-local-preview   # boots backend + Vite dev server
-./scripts/stop-local-preview
-```
-
-### Full Dev Stack (Docker)
-```bash
-./scripts/start-dev    # docker-compose.dev.yml: postgres, mariadb, step-ca, powerdns, authentik
-```
-
-## Deploying to Production
-
-After `yarn build` in `frontend/`:
+### Backend
 
 ```bash
-systemctl restart floppyguard-backend
-nginx -s reload
-./scripts/check-production-routes
+cd backend
+yarn install
+yarn dev        # nodemon auto-restart
+yarn lint       # Biome linting
+yarn test       # Node built-in tests
 ```
 
-The backend regenerates all nginx proxy-host configs from the DB on changes; reload nginx after.
+### Frontend
 
-## First-Time Setup (new server)
+```bash
+cd frontend
+yarn install
+yarn dev        # Vite dev server → http://localhost:5173
+yarn build      # TypeScript check + production build → dist/
+yarn lint       # Biome linting
+yarn test       # Vitest
+```
 
-See [docs/PRODUCTION_ARCHITECTURE.md](docs/PRODUCTION_ARCHITECTURE.md) for the full infrastructure setup including systemd unit, nginx config, certbot virtualenv, and data directory layout.
+### Full dev stack (Docker)
 
-For migrating from a legacy NPM Docker install: run `./scripts/cutover-production`.
+```bash
+./scripts/start-dev   # spins up: PostgreSQL, MariaDB, step-CA, PowerDNS, authentik
+./scripts/stop-dev
+```
 
-## Features
+See `docker/docker-compose.dev.yml` for the full service list.
 
-- Full nginx-proxy-manager v2.14.0 feature set (proxy hosts, redirects, streams, access lists, certificates)
-- WireGuard status dashboard, topology map, metadata editor, plan-preview, apply + restore
-- Gateway and Platform overview pages
-- Let's Encrypt DNS challenge support: Cloudflare, dns-multi (ipv64, name.com, etc.)
+> **Note**: A pre-built Docker image for FloppyGuard itself is not published yet. The `docker/` folder contains the dev environment compose files.
+
+---
+
+## Project structure
+
+```
+backend/          Express.js API (Node 18+, ES modules)
+frontend/         React 19 + TypeScript + Vite
+docker/           Docker Compose files for dev / CI environments
+scripts/          Operational scripts (install, start, stop, check)
+docs/             VitePress documentation + architecture notes
+test/             Cypress E2E + Vacuum OpenAPI contract tests
+```
+
+---
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md).
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+Upstream nginx-proxy-manager is also MIT licensed. © Jamie Curnow.
+FloppyGuard additions © Florian Hesse, [Comnic-IT](https://comnic-it.de).

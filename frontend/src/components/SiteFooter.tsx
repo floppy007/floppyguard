@@ -18,6 +18,11 @@ export function SiteFooter() {
 						© {new Date().getFullYear()} Florian Hesse |{" "}
 						<a href="https://comnic-it.de" target="_blank" rel="noopener">Comnic-IT</a>
 					</div>
+					<div className="text-secondary small" style={{ opacity: 0.6 }}>
+						Based on{" "}
+						<a href="https://github.com/NginxProxyManager/nginx-proxy-manager" target="_blank" rel="noopener">nginx-proxy-manager</a>
+						{" "}by Jamie Curnow · MIT License
+					</div>
 					<div className="text-secondary small">{getVersion()}</div>
 				</div>
 			</div>

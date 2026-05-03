@@ -1,8 +1,11 @@
 {
-	"name": "nginx-proxy-manager",
+	"name": "floppyguard",
 	"version": "1.2.1",
-	"description": "A beautiful interface for creating Nginx endpoints",
-	"author": "Jamie Curnow <jc@jc21.com>",
+	"description": "WireGuard VPN management + nginx reverse proxy in one platform",
+	"author": "Florian Hesse <f.hesse@comnic.de>",
+	"contributors": [
+		"Jamie Curnow <jc@jc21.com> (original nginx-proxy-manager)"
+	],
 	"license": "MIT",
 	"main": "index.js",
 	"type": "module",

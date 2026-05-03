@@ -1,8 +1,11 @@
 {
-	"name": "nginx-proxy-manager",
+	"name": "floppyguard",
 	"version": "1.2.1",
 	"type": "module",
-	"author": "Jamie Curnow <jc@jc21.com>",
+	"author": "Florian Hesse <f.hesse@comnic.de>",
+	"contributors": [
+		"Jamie Curnow <jc@jc21.com> (original nginx-proxy-manager)"
+	],
 	"license": "MIT",
 	"scripts": {
 		"dev": "vite",
