@@ -157,7 +157,7 @@ const setupLogrotation = () => {
 
 	const runLogrotate = async () => {
 		try {
-			await utils.exec("logrotate /etc/logrotate.d/nginx-proxy-manager");
+			await utils.exec("logrotate /etc/logrotate.d/floppyguard");
 			logger.info("Logrotate completed.");
 		} catch (e) {
 			logger.warn(e);
