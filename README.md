@@ -1,10 +1,14 @@
+<p align="center">
+  <img src="frontend/public/images/floppyguard-logo.png" alt="FloppyGuard" width="280" />
+</p>
+
 # FloppyGuard
 
-> Fork of [nginx-proxy-manager](https://github.com/NginxProxyManager/nginx-proxy-manager) v2.14.0 — extended with WireGuard VPN management, a visual topology map, remote agent support and a hardened host-based runtime.
+> Nginx reverse proxy manager with integrated WireGuard VPN management, a visual topology map, remote agent support and a hardened host-based runtime.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-1.2.1-blue.svg)](CHANGELOG.md)
-[![Based on NPM](https://img.shields.io/badge/based%20on-nginx--proxy--manager%20v2.14.0-lightgrey)](https://github.com/NginxProxyManager/nginx-proxy-manager)
+[![CI](https://github.com/floppy007/floppyguard/actions/workflows/ci.yml/badge.svg)](https://github.com/floppy007/floppyguard/actions/workflows/ci.yml)
 
 ---
 
@@ -174,14 +178,7 @@ yarn test       # Vitest
 
 ### Full dev stack (Docker)
 
-```bash
-./scripts/start-dev   # spins up: PostgreSQL, MariaDB, step-CA, PowerDNS, authentik
-./scripts/stop-dev
-```
-
-See `docker/docker-compose.dev.yml` for the full service list.
-
-> **Note**: A pre-built Docker image for FloppyGuard itself is not published yet. The `docker/` folder contains the dev environment compose files.
+> Docker support is planned but not yet available. FloppyGuard currently runs host-based only.
 
 ---
 
@@ -190,7 +187,6 @@ See `docker/docker-compose.dev.yml` for the full service list.
 ```
 backend/          Express.js API (Node 18+, ES modules)
 frontend/         React 19 + TypeScript + Vite
-docker/           Docker Compose files for dev / CI environments
 scripts/          Operational scripts (install, start, stop, check)
 docs/             VitePress documentation + architecture notes
 test/             Cypress E2E + Vacuum OpenAPI contract tests
@@ -208,5 +204,5 @@ See [CHANGELOG.md](CHANGELOG.md).
 
 MIT — see [LICENSE](LICENSE).
 
-Upstream nginx-proxy-manager is also MIT licensed. © Jamie Curnow.
-FloppyGuard additions © Florian Hesse, [Comnic-IT](https://comnic-it.de).
+FloppyGuard © Florian Hesse, [Comnic-IT](https://comnic-it.de).
+Built on top of [nginx-proxy-manager](https://github.com/NginxProxyManager/nginx-proxy-manager) by Jamie Curnow (MIT).

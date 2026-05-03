@@ -150,7 +150,7 @@ const scanAllAgentServices = async () => {
 		if (scanIps.length === 0) continue;
 		try {
 			// Scan all candidate IPs, merge results (prefer LAN IP URLs)
-			let services = [];
+			const services = [];
 			for (const ip of scanIps) {
 				const found = await scanIp(ip);
 				for (const svc of found) {

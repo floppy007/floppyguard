@@ -89,7 +89,6 @@ export default function Login() {
 									className="form-control"
 									value={identity}
 									onChange={(e) => setIdentity(e.target.value)}
-									autoFocus
 									autoComplete="username"
 								/>
 							</div>
@@ -117,7 +116,6 @@ export default function Login() {
 									className="form-control"
 									value={code}
 									onChange={(e) => setCode(e.target.value)}
-									autoFocus
 									autoComplete="one-time-code"
 								/>
 							</div>

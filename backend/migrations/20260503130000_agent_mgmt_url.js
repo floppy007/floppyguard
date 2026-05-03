@@ -2,7 +2,7 @@ import { migrate as logger } from "../logger.js";
 
 const migrateName = "agent_mgmt_url";
 
-const up = function (knex) {
+const up = (knex) => {
 	logger.info(`[${migrateName}] Migrating Up...`);
 	return knex.schema
 		.table("agent", (table) => {
@@ -13,7 +13,7 @@ const up = function (knex) {
 		});
 };
 
-const down = function (knex) {
+const down = (knex) => {
 	logger.info(`[${migrateName}] Migrating Down...`);
 	return knex.schema
 		.table("agent", (table) => {

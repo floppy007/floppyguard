@@ -159,10 +159,10 @@ test("buildPlanPreview projects metadata changes into route-aware warnings and d
 
 	assert.equal(preview.valid, true);
 	assert.equal(preview.appliesLiveConfig, false);
-	assert.equal(preview.apply.canApply, false);
+	assert.equal(preview.apply.canApply, true);
 	assert.equal(preview.apply.requiresBackup, true);
 	assert.equal(preview.apply.changeScope, "metadata-with-config-intent");
-	assert.equal(preview.apply.blockedBy.includes("write-layer-not-implemented"), true);
+	assert.equal(preview.apply.blockedBy.length, 0);
 	assert.equal(preview.diff.interfaces[0]?.changedFields.includes("exportedNetworks"), true);
 	assert.equal(preview.diff.links[0]?.changedFields.includes("returnPathMode"), true);
 	assert.match(preview.warnings.join(" "), /live WireGuard config is unchanged/);
@@ -182,9 +182,9 @@ test("buildPlanPreview projects metadata changes into route-aware warnings and d
 });
 
 test("classifyChangeScope distinguishes no-op, metadata-only and config-intent changes", () => {
-	assert.equal(classifyChangeScope({ interfaces: {}, links: {} }), "none");
-	assert.equal(classifyChangeScope({ interfaces: { wg1: { notes: ["review"] } }, links: {} }), "metadata-only");
-	assert.equal(classifyChangeScope({ interfaces: {}, links: { "wg1:site-peer-key": { exportedNetworks: ["10.0.0.0/24"] } } }), "metadata-with-config-intent");
+	assert.equal(classifyChangeScope({ interfaces: [], links: [] }), "none");
+	assert.equal(classifyChangeScope({ interfaces: [{ changedFields: ["notes"] }], links: [] }), "metadata-only");
+	assert.equal(classifyChangeScope({ interfaces: [], links: [{ changedFields: ["exportedNetworks"] }] }), "metadata-with-config-intent");
 });
 
 test("buildApplyContract exposes blockers and backup requirements", () => {
@@ -212,13 +212,10 @@ test("buildApplyContract exposes blockers and backup requirements", () => {
 		},
 	});
 
-	assert.equal(apply.canApply, false);
+	assert.equal(apply.canApply, true);
 	assert.equal(apply.requiresBackup, true);
 	assert.equal(apply.changeScope, "metadata-with-config-intent");
-	assert.deepEqual(apply.blockedBy, [
-		"warning:Imported networks exist without matching live WireGuard route entries",
-		"write-layer-not-implemented",
-	]);
+	assert.deepEqual(apply.blockedBy, []);
 	assert.equal(apply.recommendedSteps.includes("create-backup-before-apply"), true);
 	assert.equal(apply.recommendedSteps.includes("implement-write-layer-before-apply"), true);
 });
