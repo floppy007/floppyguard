@@ -7,6 +7,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.2.3] – 2026-05-04
+
+### Fixed
+
+- **Certificate renewal (HTTP challenge)** — `certbot renew` replaced with `certonly --force-renewal`; added missing `--webroot-path` and `--non-interactive` flags; uses virtualenv certbot at `/opt/certbot/bin/certbot` instead of system binary (which lacks DNS plugins)
+- **Certificate renewal (DNS challenge)** — fixed "unrecognized arguments" error by switching from `--authenticator dns-cloudflare` to `--dns-cloudflare`; credentials are now fetched directly from the database (bypassing the `omissions()` security filter that strips them from API responses)
+- **Certbot versioned lineage** — added `clearCertDirsForRenewal()` helper that removes `archive/`, `live/` and `renewal/` entries for a certificate before `certonly`, preventing certbot from creating suffixed lineages like `npm-116-0001` instead of `npm-116`
+- **New certificate request (DNS challenge)** — fixed same `--authenticator` → `--<plugin>` flag for initial issuance
+- **Modal header alignment** — fixed tab nav being pushed down in Redirection Host, Proxy Host, Dead Host and Stream modals; adjusted card-header padding and removed double-rendered `<Alert>` (replaced `show={!!errorMsg}` with conditional rendering)
+
+### Changed
+
+- Scripts (`check-production-routes`, `start-production`, `status-production`) — replaced hardcoded external URL default with `http://127.0.0.1:81`
+
+### Added
+
+- `ROADMAP.md` — documents planned DNS auto-provisioning feature (Cloudflare + IPv64)
+
+---
+
 ## [1.2.2] – 2026-05-04
 
 ### Added

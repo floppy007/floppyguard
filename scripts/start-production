@@ -150,7 +150,7 @@ fi
 
 wait_for_frontend_routes "http://127.0.0.1:${FRONTEND_PORT}"
 
-UI_BASE="${UI_BASE:-https://127.0.0.1:81}" \
+UI_BASE="${UI_BASE:-http://127.0.0.1:81}" \
 API_BASE="http://127.0.0.1:${BACKEND_PORT}" \
 	"${ROOT_DIR}/scripts/check-production-routes"
 

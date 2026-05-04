@@ -292,9 +292,13 @@ body:not(.auth) {
 	opacity: 1 !important;
 }
 
+.platform-solid-modal .modal-body {
+	padding: 0 !important;
+}
+
 .platform-solid-modal .card-header {
 	background: rgb(var(--tblr-bg-surface-secondary-rgb)) !important;
-	padding-top: 1rem !important;
+	padding: 0.5rem 1.2rem !important;
 	overflow: visible !important;
 }
 

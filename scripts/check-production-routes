@@ -1,6 +1,6 @@
 #!/bin/bash -e
 
-UI_BASE="${UI_BASE:-https://127.0.0.1:81}"
+UI_BASE="${UI_BASE:-http://127.0.0.1:81}"
 API_BASE="${API_BASE:-http://127.0.0.1:3300}"
 
 check_http_ok() {
