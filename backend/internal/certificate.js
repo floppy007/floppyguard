@@ -20,7 +20,7 @@ import internalHost from "./host.js";
 import internalNginx from "./nginx.js";
 
 const letsencryptConfig = "/etc/letsencrypt/cli.ini";
-const certbotCommand = "certbot";
+const certbotCommand = "/opt/certbot/bin/certbot";
 const certbotLogsDir = "/data/logs";
 const certbotWorkDir = "/tmp/letsencrypt-lib";
 // Preview/staging can point at imported live certificate trees instead of the
@@ -794,6 +794,9 @@ const internalCertificate = {
 			"--agree-tos",
 			"--authenticator",
 			"webroot",
+			"--webroot-path",
+			"/data/letsencrypt-acme-challenge",
+			"--non-interactive",
 			"-m",
 			email,
 			"--preferred-challenges",
@@ -853,8 +856,7 @@ const internalCertificate = {
 			"dns",
 			"--domains",
 			certificate.domain_names.join(","),
-			"--authenticator",
-			dnsPlugin.full_plugin_name,
+			`--${dnsPlugin.full_plugin_name}`,
 		];
 
 		if (hasConfigArg) {
@@ -930,13 +932,46 @@ const internalCertificate = {
 	 * @param   {Object}  certificate   the certificate row
 	 * @returns {Promise}
 	 */
+	/**
+	 * Remove all certbot dirs and configs for a given certificate ID before
+	 * running certonly --force-renewal, so certbot always creates a clean
+	 * npm-<id> lineage without versioned suffixes like npm-<id>-0001.
+	 */
+	clearCertDirsForRenewal: (certificateId) => {
+		const letsencryptDir = "/etc/letsencrypt";
+		const prefix = `npm-${certificateId}`;
+
+		for (const subdir of ["archive", "live"]) {
+			const base = `${letsencryptDir}/${subdir}`;
+			if (!fs.existsSync(base)) continue;
+			for (const entry of fs.readdirSync(base)) {
+				if (entry === prefix || entry.startsWith(`${prefix}-`)) {
+					fs.rmSync(`${base}/${entry}`, { recursive: true, force: true });
+					logger.info(`Cleared ${subdir}/${entry} for renewal`);
+				}
+			}
+		}
+
+		const renewalDir = `${letsencryptDir}/renewal`;
+		if (fs.existsSync(renewalDir)) {
+			for (const entry of fs.readdirSync(renewalDir)) {
+				if ((entry === `${prefix}.conf` || entry.startsWith(`${prefix}-`)) && entry.endsWith(".conf")) {
+					fs.unlinkSync(`${renewalDir}/${entry}`);
+					logger.info(`Cleared renewal config ${entry}`);
+				}
+			}
+		}
+	},
+
 	renewLetsEncryptSsl: async (certificate) => {
 		logger.info(
 			`Renewing LetsEncrypt certificates for Cert #${certificate.id}: ${certificate.domain_names.join(", ")}`,
 		);
 
+		internalCertificate.clearCertDirsForRenewal(certificate.id);
+
 		const args = [
-			"renew",
+			"certonly",
 			"--force-renewal",
 			"--config",
 			letsencryptConfig,
@@ -946,10 +981,16 @@ const internalCertificate = {
 			certbotLogsDir,
 			"--cert-name",
 			`npm-${certificate.id}`,
+			"--agree-tos",
+			"--authenticator",
+			"webroot",
+			"--webroot-path",
+			"/data/letsencrypt-acme-challenge",
+			"--non-interactive",
 			"--preferred-challenges",
 			"http",
-			"--no-random-sleep-on-renew",
-			"--disable-hook-validation",
+			"--domains",
+			certificate.domain_names.join(","),
 		];
 
 		// Add key-type parameter if specified
@@ -981,8 +1022,25 @@ const internalCertificate = {
 			`Renewing LetsEncrypt certificates via ${dnsPlugin.name} for Cert #${certificate.id}: ${certificate.domain_names.join(", ")}`,
 		);
 
+		internalCertificate.clearCertDirsForRenewal(certificate.id);
+
+		await installPlugin(certificate.meta.dns_provider);
+
+		// Credentials are stripped by omissions() in get(), fetch directly from DB
+		const fullCert = await certificateModel.query().findById(certificate.id);
+		const dnsCredentials = fullCert?.meta?.dns_provider_credentials;
+		if (!dnsCredentials) {
+			throw new error.ValidationError("DNS provider credentials not found for this certificate");
+		}
+
+		const credentialsLocation = `${letsencryptRoot}/credentials/credentials-${certificate.id}`;
+		fs.mkdirSync(`${letsencryptRoot}/credentials`, { recursive: true });
+		fs.writeFileSync(credentialsLocation, dnsCredentials, { mode: 0o600 });
+
+		const hasConfigArg = certificate.meta.dns_provider !== "route53";
+
 		const args = [
-			"renew",
+			"certonly",
 			"--force-renewal",
 			"--config",
 			letsencryptConfig,
@@ -992,11 +1050,23 @@ const internalCertificate = {
 			certbotLogsDir,
 			"--cert-name",
 			`npm-${certificate.id}`,
+			"--agree-tos",
 			"--preferred-challenges",
 			"dns",
-			"--disable-hook-validation",
-			"--no-random-sleep-on-renew",
+			"--domains",
+			certificate.domain_names.join(","),
+			`--${dnsPlugin.full_plugin_name}`,
 		];
+
+		if (hasConfigArg) {
+			args.push(`--${dnsPlugin.full_plugin_name}-credentials`, credentialsLocation);
+		}
+		if (certificate.meta.propagation_seconds !== undefined) {
+			args.push(
+				`--${dnsPlugin.full_plugin_name}-propagation-seconds`,
+				certificate.meta.propagation_seconds.toString(),
+			);
+		}
 
 		// Add key-type parameter if specified
 		if (certificate.meta?.key_type) {
@@ -1008,9 +1078,14 @@ const internalCertificate = {
 
 		logger.info(`Command: ${certbotCommand} ${args ? args.join(" ") : ""}`);
 
-		const result = await utils.execFile(certbotCommand, args, adds.opts);
-		logger.info(result);
-		return result;
+		try {
+			const result = await utils.execFile(certbotCommand, args, adds.opts);
+			logger.info(result);
+			return result;
+		} catch (err) {
+			fs.unlink(credentialsLocation, () => {});
+			throw err;
+		}
 	},
 
 	/**

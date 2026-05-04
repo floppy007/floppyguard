@@ -48,6 +48,6 @@ show_pid_status() {
 show_pid_status "Backend" "${BACKEND_PID_FILE}" "${BACKEND_PORT}"
 show_pid_status "Frontend" "${FRONTEND_PID_FILE}" "${FRONTEND_PORT}"
 echo ""
-UI_BASE="${UI_BASE:-https://127.0.0.1:81}" \
+UI_BASE="${UI_BASE:-http://127.0.0.1:81}" \
 API_BASE="${API_BASE:-http://127.0.0.1:${BACKEND_PORT}}" \
 	"${ROOT_DIR}/scripts/check-production-routes"
