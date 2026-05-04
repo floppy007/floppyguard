@@ -1,3 +1,4 @@
+import { IconBrandGithub } from "@tabler/icons-react";
 import { useHealth } from "src/hooks";
 import type { HealthResponse } from "src/api/backend";
 
@@ -18,11 +19,17 @@ export function SiteFooter() {
 						© {new Date().getFullYear()} Florian Hesse |{" "}
 						<a href="https://comnic-it.de" target="_blank" rel="noopener">Comnic-IT</a>
 					</div>
-					<div className="text-secondary small" style={{ opacity: 0.6 }}>
-						Based on{" "}
-						<a href="https://github.com/NginxProxyManager/nginx-proxy-manager" target="_blank" rel="noopener">nginx-proxy-manager</a>
-						{" "}by Jamie Curnow · MIT License
-					</div>
+					<a
+						href="https://github.com/floppy007/floppyguard"
+						target="_blank"
+						rel="noopener"
+						className="d-flex align-items-center gap-1 text-secondary small text-decoration-none"
+						style={{ opacity: 0.7 }}
+					>
+						<IconBrandGithub size={14} stroke={1.5} />
+						<span>FloppyGuard</span>
+						<span className="text-muted">· AGPL-3.0</span>
+					</a>
 					<div className="text-secondary small">{getVersion()}</div>
 				</div>
 			</div>

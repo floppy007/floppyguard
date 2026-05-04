@@ -6,7 +6,7 @@
 
 > Nginx reverse proxy manager with integrated WireGuard VPN management, a visual topology map, remote agent support and a hardened host-based runtime.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-1.2.3-blue.svg)](CHANGELOG.md)
 [![CI](https://github.com/floppy007/floppyguard/actions/workflows/ci.yml/badge.svg)](https://github.com/floppy007/floppyguard/actions/workflows/ci.yml)
 
@@ -203,7 +203,9 @@ See [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+AGPL-3.0 — see [LICENSE](LICENSE).
+
+**Additional Term (§7 AGPL-3.0):** Any deployment of this software over a network must retain a visible "Powered by FloppyGuard" notice with a link to this repository in the UI footer.
 
 FloppyGuard © Florian Hesse, [Comnic-IT](https://comnic-it.de).
 Built on top of [nginx-proxy-manager](https://github.com/NginxProxyManager/nginx-proxy-manager) by Jamie Curnow (MIT).
