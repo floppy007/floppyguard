@@ -768,9 +768,14 @@ function LinkCard({ link, missingReturnRoutes, natCandidates, planningInterfaces
 	return (
 		<div className={`card ${styles.linkCard}`}>
 			{/* Card header */}
-			<div className="card-header">
-				<div className="d-flex align-items-center gap-2 flex-wrap w-100">
-					<span className="fw-bold flex-grow-1">{link.name}</span>
+			<div className="card-header d-flex align-items-center gap-3">
+				<div className="flex-grow-1 overflow-hidden">
+					<div className="fw-bold text-truncate">{link.name}</div>
+					<div className="text-secondary small text-truncate">
+						{link.interfaceName} · {link.remoteEndpoint || intl.formatMessage({ id: "wireguard.link.endpoint-unknown" })} · {intl.formatMessage({ id: "wireguard.link.last-handshake" })} {timeAgo(link.latestHandshake)}
+					</div>
+				</div>
+				<div className="d-flex align-items-center gap-2 flex-shrink-0">
 					<span className={`badge ${tb.cls}`}>{tb.label}</span>
 					<span className={`badge ${link.active ? "bg-green-lt text-green" : "bg-secondary-lt text-secondary"}`}>
 						{link.active
@@ -780,9 +785,6 @@ function LinkCard({ link, missingReturnRoutes, natCandidates, planningInterfaces
 					<span className={`badge ${pb.cls}`}>{pb.label}</span>
 					{missingReturn && <span className="badge bg-red-lt text-red">{intl.formatMessage({ id: "wireguard.link.missing-return" })}</span>}
 					{natCandidate && <span className="badge bg-yellow-lt text-yellow">{intl.formatMessage({ id: "wireguard.link.nat-candidate" })}</span>}
-				</div>
-				<div className="text-secondary small mt-1">
-					{link.interfaceName} · {link.remoteEndpoint || intl.formatMessage({ id: "wireguard.link.endpoint-unknown" })} · {intl.formatMessage({ id: "wireguard.link.last-handshake" })} {timeAgo(link.latestHandshake)}
 				</div>
 			</div>
 

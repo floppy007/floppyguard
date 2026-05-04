@@ -6,7 +6,7 @@
 	"contributors": [
 		"Jamie Curnow <jc@jc21.com> (original nginx-proxy-manager)"
 	],
-	"license": "MIT",
+	"license": "AGPL-3.0",
 	"main": "index.js",
 	"type": "module",
 	"scripts": {
