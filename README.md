@@ -7,7 +7,7 @@
 > Nginx reverse proxy manager with integrated WireGuard VPN management, a visual topology map, remote agent support and a hardened host-based runtime.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.2.2-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.2.3-blue.svg)](CHANGELOG.md)
 [![CI](https://github.com/floppy007/floppyguard/actions/workflows/ci.yml/badge.svg)](https://github.com/floppy007/floppyguard/actions/workflows/ci.yml)
 
 ---
@@ -26,6 +26,7 @@
 - Platform dashboard — proxy stats, WireGuard summary, gateway overview, fail2ban status in one view
 - Fail2Ban UI — view jails and banned IPs, unban with one click
 - nftables firewall hardening (strict INPUT policy, only required ports open)
+- Multilanguage UI — English, German, French
 - Dark mode with correct CSS variable handling
 
 ---
