@@ -149,6 +149,25 @@ router.route("/agent/install")
 	});
 
 /**
+ * GET /api/agent/loop-script
+ * Authorization: Bearer <agent_token>
+ * Returns the current loop script for the agent (used for self-update).
+ */
+router.route("/agent/loop-script")
+	.options((_, res) => { res.sendStatus(204); })
+	.get(async (req, res, next) => {
+		try {
+			const agentToken = extractBearerToken(req);
+			if (!agentToken) return next(new error.AuthError("Bearer token required", "error.auth"));
+			const script = await internalAgent.getLoopScript(agentToken);
+			res.status(200).type("text/plain").send(script);
+		} catch (err) {
+			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
+			next(err);
+		}
+	});
+
+/**
  * POST /api/agent/register
  * Body: { reg_token: string }
  */

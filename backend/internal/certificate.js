@@ -19,7 +19,7 @@ import internalAuditLog from "./audit-log.js";
 import internalHost from "./host.js";
 import internalNginx from "./nginx.js";
 
-const letsencryptConfig = "/etc/letsencrypt.ini";
+const letsencryptConfig = "/etc/letsencrypt/cli.ini";
 const certbotCommand = "certbot";
 const certbotLogsDir = "/data/logs";
 const certbotWorkDir = "/tmp/letsencrypt-lib";

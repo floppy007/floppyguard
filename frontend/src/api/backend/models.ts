@@ -416,11 +416,27 @@ export interface WireGuardPlanPreviewResponse {
 	};
 }
 
+export interface WireGuardHubSyncResult {
+	synced: boolean;
+	changes?: Array<{ peer: string; allowedIPs: string[] }>;
+	reason?: string;
+}
+
+export interface WireGuardAgentSyncResult {
+	agentId: number;
+	name: string;
+	changed: boolean;
+	newAllowedIPs?: string[];
+	reason?: string;
+}
+
 export interface WireGuardApplyMetadataResponse {
 	applied: true;
 	backupPath: string;
 	auditEntry: WireGuardApplyAuditEntry;
 	apply: WireGuardPlanPreviewResponse["apply"];
+	hubSync: WireGuardHubSyncResult | null;
+	agentSync: WireGuardAgentSyncResult[] | null;
 	metadata: {
 		interfaces: Record<string, WireGuardMetadataInterfacePatch>;
 		links: Record<string, WireGuardMetadataLinkPatch>;

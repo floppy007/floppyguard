@@ -1,3 +1,4 @@
+import internalAgent from "./agent.js";
 import internalWireGuard, {
 	buildRouteAnalysis,
 	buildTopology,
@@ -7,6 +8,7 @@ import internalWireGuard, {
 	enrichLinkRecord,
 	sanitizeInterfaceMetadataPatch,
 	sanitizeLinkMetadataPatch,
+	syncHubConf,
 } from "./wireguard.js";
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -252,6 +254,26 @@ function buildPlanPreview(status, patch = {}) {
 
 	const projectedInterfacesBase = (status.interfaces || []).map((item) => buildProjectedInterface(item, nextMetadata.interfaces[item.name] || {}));
 	const projectedLinksBase = (status.links || []).map((item) => buildProjectedLink(item, nextMetadata.links[item.id] || {}));
+
+	// Validate that link names are unique — duplicate names cause silent agent misconfiguration
+	// because syncAgentConfigs indexes links by name and last-writer wins
+	{
+		const seenNames = new Map(); // name → first link id
+		const duplicateNames = new Set();
+		for (const link of projectedLinksBase) {
+			if (link.name) {
+				if (seenNames.has(link.name)) {
+					duplicateNames.add(link.name);
+				} else {
+					seenNames.set(link.name, link.id);
+				}
+			}
+		}
+		for (const name of duplicateNames) {
+			errors.push(`Duplicate link name "${name}" — link names must be unique for agent assignment`);
+		}
+	}
+
 	const topology = buildTopology(projectedInterfacesBase, projectedLinksBase);
 	const routeAnalysis = buildRouteAnalysis(
 		{
@@ -322,6 +344,25 @@ async function applyMetadata(patch = {}) {
 	const currentMetadata = (await internalWireGuard.getStatus()).metadata || { interfaces: {}, links: {} };
 	const backupPath = await internalWireGuard.backupMetadataStore(currentMetadata);
 	const metadata = await internalWireGuard.applyMetadataPatch(preview.patch);
+
+	// Sync hub wg0.conf AllowedIPs and ip routes from the new metadata.
+	// Also sync agent config_text so remote gateways pick up routing changes on next poll.
+	// This ensures the live WireGuard config never drifts from what is defined in the UI.
+	let hubSync = null;
+	let agentSync = null;
+	if (preview.apply.changeScope === "metadata-with-config-intent") {
+		try {
+			hubSync = await syncHubConf(metadata, "wg0");
+		} catch (err) {
+			hubSync = { synced: false, reason: err.message };
+		}
+		try {
+			agentSync = await internalAgent.syncAgentConfigs(metadata);
+		} catch (err) {
+			agentSync = { error: err.message };
+		}
+	}
+
 	const status = await internalWireGuard.getStatus();
 	const auditEntry = await appendApplyAudit({
 		at: new Date().toISOString(),
@@ -329,6 +370,7 @@ async function applyMetadata(patch = {}) {
 		changeScope: preview.apply.changeScope,
 		changeCount: preview.apply.changeCount,
 		patchSummary: buildPatchSummary(preview.patch),
+		hubSync,
 	});
 
 	return {
@@ -336,6 +378,8 @@ async function applyMetadata(patch = {}) {
 		backupPath,
 		auditEntry,
 		apply: preview.apply,
+		hubSync,
+		agentSync,
 		metadata,
 		status,
 	};

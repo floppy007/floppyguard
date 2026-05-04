@@ -7,7 +7,7 @@
 > Nginx reverse proxy manager with integrated WireGuard VPN management, a visual topology map, remote agent support and a hardened host-based runtime.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.2.1-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.2.2-blue.svg)](CHANGELOG.md)
 [![CI](https://github.com/floppy007/floppyguard/actions/workflows/ci.yml/badge.svg)](https://github.com/floppy007/floppyguard/actions/workflows/ci.yml)
 
 ---

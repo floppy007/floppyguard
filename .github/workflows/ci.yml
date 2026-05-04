@@ -29,7 +29,10 @@ jobs:
 
       - name: Tests
         working-directory: backend
-        run: yarn test
+        run: |
+          sudo mkdir -p /data
+          sudo chmod 777 /data
+          yarn test
 
   frontend-lint-build:
     name: Frontend — Lint & Build

@@ -1,6 +1,6 @@
 # FloppyGuard Operations Runbook
 
-Stand: 2026-05-03
+Stand: 2026-05-04
 
 ## Daily Commands
 
@@ -48,7 +48,7 @@ tail -f /var/log/nginx/error.log
 ## Rebuild Frontend
 
 ```bash
-cd /var/www/nginx-proxy-manager-fork-base/frontend
+cd /var/www/floppyguard/frontend
 corepack yarn build
 # nginx serves dist/ immediately — no reload needed
 ```
@@ -61,23 +61,33 @@ curl -s http://127.0.0.1:3300/ | head -3
 
 # Admin UI
 curl -so /dev/null -w "%{http_code}" http://127.0.0.1:81/
-
-# Domain
-curl -so /dev/null -w "%{http_code}" https://your-instance-domain/
 ```
 
 ## Agent Management
 
 Agents are managed via `/wireguard` — open a link card and click "Agent".
 
-Agent logs on remote hosts:
+**Install on a new host:**
+```bash
+curl -fsSL "<publicUrl>/api/agent/install?reg_token=TOKEN&public_url=URL&tunnel_url=URL" | bash
+```
+
+**Agent logs on remote hosts:**
 ```bash
 journalctl -u floppyguard-agent -f
 systemctl status floppyguard-agent
 systemctl restart floppyguard-agent
 ```
 
-List agents via API:
+**Agent self-update:**
+Agents compare their local `SCRIPT_VERSION` against `script_version` in the config response
+on every 30s poll. If the version changed, they automatically download the new script from
+`GET /api/agent/loop-script` and `exec` it — zero-downtime, no systemd restart required.
+
+To trigger a self-update on all agents: bump `AGENT_SCRIPT_VERSION` in
+`backend/internal/agent.js`, rebuild the frontend and restart the backend.
+
+**List agents via API:**
 ```bash
 TOKEN=$(curl -s -X POST http://127.0.0.1:3300/api/tokens \
   -H 'Content-Type: application/json' \
@@ -85,6 +95,19 @@ TOKEN=$(curl -s -X POST http://127.0.0.1:3300/api/tokens \
   | python3 -c 'import sys,json; print(json.load(sys.stdin)["token"])')
 curl -s http://127.0.0.1:3300/api/agents -H "Authorization: Bearer $TOKEN"
 ```
+
+## WireGuard Routing Automation
+
+When you click Apply in the WireGuard planner (scope `metadata-with-config-intent`):
+
+1. **Hub sync** — `wg0.conf` AllowedIPs and ip-route PostUp/PostDown are rewritten from metadata;
+   changes go live immediately via `wg set` + `ip route add` (no wg0 restart)
+2. **Agent sync** — every connected agent's peer AllowedIPs are updated via the config API;
+   agents pick up the new AllowedIPs on their next 30s config poll and run `wg syncconf`
+3. **Kernel routes on agents** — after `wg syncconf`, the agent's `sync_routes()` function
+   adds any missing kernel ip routes (wg syncconf never touches the kernel routing table)
+
+The apply result panel in the UI shows which peers were updated and which agents were synced.
 
 ## SSL Certificate Renewal
 

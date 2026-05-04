@@ -1,4 +1,61 @@
 {
+	"2fa.backup-codes-remaining": {
+		"defaultMessage": "Codes de secours restants : {count}"
+	},
+	"2fa.backup-warning": {
+		"defaultMessage": "Sauvegardez ces codes de secours dans un endroit sûr. Chaque code ne peut être utilisé qu'une seule fois."
+	},
+	"2fa.disable": {
+		"defaultMessage": "Désactiver l'authentification à deux facteurs"
+	},
+	"2fa.disable-confirm": {
+		"defaultMessage": "Désactiver 2FA"
+	},
+	"2fa.disable-warning": {
+		"defaultMessage": "La désactivation de l'authentification à deux facteurs rendra votre compte moins sécurisé."
+	},
+	"2fa.disabled": {
+		"defaultMessage": "Désactivé"
+	},
+	"2fa.done": {
+		"defaultMessage": "J'ai sauvegardé mes codes de secours"
+	},
+	"2fa.enable": {
+		"defaultMessage": "Activer l'authentification à deux facteurs"
+	},
+	"2fa.enabled": {
+		"defaultMessage": "Activé"
+	},
+	"2fa.enter-code": {
+		"defaultMessage": "Saisir le code de vérification"
+	},
+	"2fa.enter-code-disable": {
+		"defaultMessage": "Saisir le code de vérification pour désactiver"
+	},
+	"2fa.regenerate": {
+		"defaultMessage": "Régénérer"
+	},
+	"2fa.regenerate-backup": {
+		"defaultMessage": "Régénérer les codes de secours"
+	},
+	"2fa.regenerate-instructions": {
+		"defaultMessage": "Saisissez un code de vérification pour générer de nouveaux codes de secours. Vos anciens codes seront invalidés."
+	},
+	"2fa.secret-key": {
+		"defaultMessage": "Clé secrète"
+	},
+	"2fa.setup-instructions": {
+		"defaultMessage": "Scannez ce QR code avec votre application d'authentification, ou saisissez le secret manuellement."
+	},
+	"2fa.status": {
+		"defaultMessage": "Statut"
+	},
+	"2fa.title": {
+		"defaultMessage": "Authentification à deux facteurs"
+	},
+	"2fa.verify-enable": {
+		"defaultMessage": "Vérifier et activer"
+	},
 	"access-list": {
 		"defaultMessage": "Liste d'accès"
 	},
@@ -23,11 +80,14 @@
 	"access-list.public.subtitle": {
 		"defaultMessage": "Aucune authentification de base requise"
 	},
+	"access-list.rule-source.placeholder": {
+		"defaultMessage": "192.168.1.100 ou 192.168.1.0/24 ou 2001:0db8::/32"
+	},
 	"access-list.satisfy-any": {
-		"defaultMessage": "Valide n'importe quelle règle"
+		"defaultMessage": "N'importe quelle condition"
 	},
 	"access-list.subtitle": {
-		"defaultMessage": "{utilisateurs} {utilisateurs, plural, one {Utilisateur} other {Utilisateurs}}, {règles} {règles, plural, one {Règle} other {Règles}} - Crée : {date}"
+		"defaultMessage": "{utilisateurs} {utilisateurs, plural, one {Utilisateur} other {Utilisateurs}}, {règles} {règles, plural, one {Règle} other {Règles}} - Crée : {date}"
 	},
 	"access-lists": {
 		"defaultMessage": "Listes d'accès"
@@ -38,11 +98,20 @@
 	"action.add-location": {
 		"defaultMessage": "Ajouter localisation"
 	},
+	"action.allow": {
+		"defaultMessage": "Autoriser"
+	},
 	"action.close": {
 		"defaultMessage": "Fermer"
 	},
+	"action.open": {
+		"defaultMessage": "Ouvrir"
+	},
 	"action.delete": {
 		"defaultMessage": "Supprimer"
+	},
+	"action.deny": {
+		"defaultMessage": "Refuser"
 	},
 	"action.disable": {
 		"defaultMessage": "Désactiver"
@@ -65,8 +134,14 @@
 	"action.view-details": {
 		"defaultMessage": "Voir les Détails"
 	},
+	"agents": {
+		"defaultMessage": "Agents"
+	},
 	"auditlogs": {
 		"defaultMessage": "Journaux d'audit"
+	},
+	"auto": {
+		"defaultMessage": "Auto"
 	},
 	"cancel": {
 		"defaultMessage": "Annuler"
@@ -117,7 +192,7 @@
 		"defaultMessage": "Ce plugin nécessite un fichier de configuration contenant un jeton d'API ou d'autres informations d'identification pour votre fournisseur."
 	},
 	"certificates.dns.credentials-warning": {
-		"defaultMessage": "Ces données seront stockées en clair dans la base de données et dans un fichier !"
+		"defaultMessage": "Ces données seront stockées en clair dans la base de données et dans un fichier !"
 	},
 	"certificates.dns.propagation-seconds": {
 		"defaultMessage": "Propagation Seconds"
@@ -127,6 +202,9 @@
 	},
 	"certificates.dns.provider": {
 		"defaultMessage": "Fournisseur DNS"
+	},
+	"certificates.dns.provider.placeholder": {
+		"defaultMessage": "Sélectionner un fournisseur…"
 	},
 	"certificates.dns.warning": {
 		"defaultMessage": "Cette section requiert une certaine connaissance de Certbot et de ses plugins DNS. Veuillez consulter la documentation des plugins correspondants."
@@ -144,16 +222,28 @@
 		"defaultMessage": "Votre serveur est accessible et la création de certificats devrait être possible."
 	},
 	"certificates.http.reachability-other": {
-		"defaultMessage": "Un serveur a été trouvé sur ce domaine, mais il a renvoyé un code d'état inattendu {code}. S'agit-il du serveur FloppyGuard ? Veuillez vérifier que votre domaine pointe bien vers l'adresse IP où votre instance FloppyGuard est exécutée."
+		"defaultMessage": "Un serveur a été trouvé sur ce domaine, mais il a renvoyé un code d'état inattendu {code}. S'agit-il du serveur FloppyGuard ? Veuillez vérifier que votre domaine pointe bien vers l'adresse IP où votre instance FloppyGuard est exécutée."
 	},
 	"certificates.http.reachability-wrong-data": {
-		"defaultMessage": "Un serveur a été trouvé sur ce domaine, mais il a renvoyé des données inattendues. S'agit-il du serveur FloppyGuard ? Veuillez vérifier que votre domaine pointe bien vers l'adresse IP où votre instance FloppyGuard est exécutée."
+		"defaultMessage": "Un serveur a été trouvé sur ce domaine, mais il a renvoyé des données inattendues. S'agit-il du serveur FloppyGuard ? Veuillez vérifier que votre domaine pointe bien vers l'adresse IP où votre instance FloppyGuard est exécutée."
 	},
 	"certificates.http.test-results": {
 		"defaultMessage": "Résultats du test"
 	},
 	"certificates.http.warning": {
 		"defaultMessage": "Ces domaines doivent déjà être configurés pour pointer vers cette installation."
+	},
+	"certificates.key-type": {
+		"defaultMessage": "Type de clé"
+	},
+	"certificates.key-type-description": {
+		"defaultMessage": "RSA est largement compatible, ECDSA est plus rapide et plus sécurisé mais peut ne pas être pris en charge par les anciens systèmes"
+	},
+	"certificates.key-type-ecdsa": {
+		"defaultMessage": "ECDSA 256"
+	},
+	"certificates.key-type-rsa": {
+		"defaultMessage": "RSA 2048"
 	},
 	"certificates.request.subtitle": {
 		"defaultMessage": "avec Let's Encrypt"
@@ -210,13 +300,13 @@
 		"defaultMessage": "Règles"
 	},
 	"column.satisfy": {
-		"defaultMessage": "Valide"
+		"defaultMessage": "Condition"
 	},
 	"column.satisfy-all": {
-		"defaultMessage": "All"
+		"defaultMessage": "Tout"
 	},
 	"column.satisfy-any": {
-		"defaultMessage": "Any"
+		"defaultMessage": "N'importe lequel"
 	},
 	"column.scheme": {
 		"defaultMessage": "Schéma"
@@ -263,6 +353,9 @@
 	"domain-names.wildcards-not-supported": {
 		"defaultMessage": "Les Wildcards ne sont pas prises en charge par cette autorité de certification."
 	},
+	"domains.advanced": {
+		"defaultMessage": "Avancé"
+	},
 	"domains.force-ssl": {
 		"defaultMessage": "Forcer SSL"
 	},
@@ -274,6 +367,9 @@
 	},
 	"domains.http2-support": {
 		"defaultMessage": "Prise en charge de HTTP/2"
+	},
+	"domains.trust-forwarded-proto": {
+		"defaultMessage": "Faire confiance aux en-têtes de protocole transférés"
 	},
 	"domains.use-dns": {
 		"defaultMessage": "Utiliser le challenge DNS"
@@ -300,7 +396,7 @@
 		"defaultMessage": "Adresse eMail ou mot de passe invalide"
 	},
 	"error.invalid-domain": {
-		"defaultMessage": "Domaine invalide : {domain}"
+		"defaultMessage": "Domaine invalide : {domain}"
 	},
 	"error.invalid-email": {
 		"defaultMessage": "Adresse eMail invalide"
@@ -327,10 +423,13 @@
 		"defaultMessage": "Ceci est obligatoire"
 	},
 	"expires.on": {
-		"defaultMessage": "Expire : {date}"
+		"defaultMessage": "Expire : {date}"
 	},
 	"footer.github-fork": {
 		"defaultMessage": "Visiter FloppyGuard"
+	},
+	"gateway": {
+		"defaultMessage": "Gateway"
 	},
 	"host.flags.block-exploits": {
 		"defaultMessage": "Bloquer les exploits courants"
@@ -371,6 +470,21 @@
 	"loading": {
 		"defaultMessage": "Chargement…"
 	},
+	"login.2fa-code": {
+		"defaultMessage": "Code de vérification"
+	},
+	"login.2fa-code-placeholder": {
+		"defaultMessage": "Saisir le code"
+	},
+	"login.2fa-description": {
+		"defaultMessage": "Saisissez le code de votre application d'authentification"
+	},
+	"login.2fa-title": {
+		"defaultMessage": "Authentification à deux facteurs"
+	},
+	"login.2fa-verify": {
+		"defaultMessage": "Vérifier"
+	},
 	"login.title": {
 		"defaultMessage": "Connectez-vous à votre compte"
 	},
@@ -378,7 +492,7 @@
 		"defaultMessage": "Configuration Nginx personnalisée"
 	},
 	"nginx-config.placeholder": {
-		"defaultMessage": "# Mettez ici votre configuration Nginx personnalisé à vos risques et périls !"
+		"defaultMessage": "# Mettez ici votre configuration Nginx personnalisé à vos risques et périls !"
 	},
 	"no-permission-error": {
 		"defaultMessage": "Vous n'avez pas la permission de voir ce contenu."
@@ -423,7 +537,7 @@
 		"defaultMessage": "Supprimer {object}"
 	},
 	"object.delete.content": {
-		"defaultMessage": "Êtes-vous sûr de vouloir supprimer {object} ?"
+		"defaultMessage": "Êtes-vous sûr de vouloir supprimer {object} ?"
 	},
 	"object.edit": {
 		"defaultMessage": "Modifier {object}"
@@ -488,6 +602,9 @@
 	"permissions.visibility.user": {
 		"defaultMessage": "Éléments créés uniquement"
 	},
+	"platform": {
+		"defaultMessage": "Plateforme"
+	},
 	"proxy-host": {
 		"defaultMessage": "Hôte proxy"
 	},
@@ -517,6 +634,24 @@
 	},
 	"redirection-hosts.count": {
 		"defaultMessage": "{count} {count, plural, one {Hôte de redirection} other {Hôtes de redirection}}"
+	},
+	"redirection-hosts.http-code.300": {
+		"defaultMessage": "300 Choix multiples"
+	},
+	"redirection-hosts.http-code.301": {
+		"defaultMessage": "301 Déplacement permanent"
+	},
+	"redirection-hosts.http-code.302": {
+		"defaultMessage": "302 Déplacement temporaire"
+	},
+	"redirection-hosts.http-code.303": {
+		"defaultMessage": "303 Voir autre"
+	},
+	"redirection-hosts.http-code.307": {
+		"defaultMessage": "307 Redirection temporaire"
+	},
+	"redirection-hosts.http-code.308": {
+		"defaultMessage": "308 Redirection permanente"
 	},
 	"role.admin": {
 		"defaultMessage": "Administrateur"
@@ -561,7 +696,7 @@
 		"defaultMessage": "Commencez par créer votre compte administrateur."
 	},
 	"setup.title": {
-		"defaultMessage": "Bienvenue !"
+		"defaultMessage": "Bienvenue !"
 	},
 	"sign-in": {
 		"defaultMessage": "Se connecter"
@@ -574,6 +709,9 @@
 	},
 	"stream.forward-host": {
 		"defaultMessage": "Hôte destinataire"
+	},
+	"stream.forward-host.placeholder": {
+		"defaultMessage": "exemple.com ou 10.0.0.1 ou 2001:db8:3333:4444:5555:6666:7777:8888"
 	},
 	"stream.incoming-port": {
 		"defaultMessage": "Port d'entrée"
@@ -594,7 +732,7 @@
 		"defaultMessage": "Test"
 	},
 	"update-available": {
-		"defaultMessage": "Mise à jour de la plateforme disponible : {latestVersion}"
+		"defaultMessage": "Mise à jour de la plateforme disponible : {latestVersion}"
 	},
 	"user": {
 		"defaultMessage": "Utilisateur"
@@ -638,10 +776,706 @@
 	"user.switch-light": {
 		"defaultMessage": "Passer au mode Lumineux"
 	},
+	"user.two-factor": {
+		"defaultMessage": "Auth à deux facteurs"
+	},
 	"username": {
 		"defaultMessage": "Nom d'utilisateur"
 	},
 	"users": {
 		"defaultMessage": "Utilisateurs"
+	},
+	"wireguard": {
+		"defaultMessage": "WireGuard"
+	},
+	"wireguard.agent.change": {
+		"defaultMessage": "modifier"
+	},
+	"wireguard.agent.copied": {
+		"defaultMessage": "Copié !"
+	},
+	"wireguard.agent.copy": {
+		"defaultMessage": "Copier"
+	},
+	"wireguard.agent.creating": {
+		"defaultMessage": "Création de l'agent…"
+	},
+	"wireguard.agent.last-seen": {
+		"defaultMessage": "Dernière activité"
+	},
+	"wireguard.agent.mgmt-url": {
+		"defaultMessage": "URL de gestion :"
+	},
+	"wireguard.agent.no-token": {
+		"defaultMessage": "Aucun jeton disponible — recréer l'agent."
+	},
+	"wireguard.agent.not-found": {
+		"defaultMessage": "Aucun agent trouvé."
+	},
+	"wireguard.agent.not-installed": {
+		"defaultMessage": "Pas encore installé — exécutez le script d'installation sur la passerelle distante."
+	},
+	"wireguard.agent.reinstall": {
+		"defaultMessage": "Réinstaller"
+	},
+	"wireguard.agent.renewing-token": {
+		"defaultMessage": "Renouvellement du jeton…"
+	},
+	"wireguard.apply.agents": {
+		"defaultMessage": "Agents :"
+	},
+	"wireguard.apply.hub-config": {
+		"defaultMessage": "Config Hub :"
+	},
+	"wireguard.apply.no-change": {
+		"defaultMessage": "aucune modification"
+	},
+	"wireguard.apply.peers-updated": {
+		"defaultMessage": "{count, plural, one {# pair mis à jour} other {# pairs mis à jour}}"
+	},
+	"wireguard.apply.saved": {
+		"defaultMessage": "Enregistré."
+	},
+	"wireguard.apply.saved-live": {
+		"defaultMessage": "Enregistré & appliqué en direct."
+	},
+	"wireguard.apply.skipped": {
+		"defaultMessage": "ignoré"
+	},
+	"wireguard.hub.unknown": {
+		"defaultMessage": "Interface hub inconnue"
+	},
+	"wireguard.iface.editor-title": {
+		"defaultMessage": "Éditeur d'interface"
+	},
+	"wireguard.iface.key": {
+		"defaultMessage": "Clé"
+	},
+	"wireguard.iface.no-addresses": {
+		"defaultMessage": "aucune adresse"
+	},
+	"wireguard.iface.notes": {
+		"defaultMessage": "Notes"
+	},
+	"wireguard.iface.peers": {
+		"defaultMessage": "Pairs"
+	},
+	"wireguard.iface.placeholder-notes": {
+		"defaultMessage": "Rôle hub, vérifier plus tard, ..."
+	},
+	"wireguard.iface.placeholder-routes": {
+		"defaultMessage": "ex. 10.10.0.0/16"
+	},
+	"wireguard.iface.preview": {
+		"defaultMessage": "Aperçu"
+	},
+	"wireguard.iface.preview-loading": {
+		"defaultMessage": "Aperçu en cours…"
+	},
+	"wireguard.iface.role": {
+		"defaultMessage": "Rôle"
+	},
+	"wireguard.iface.route-targets": {
+		"defaultMessage": "Cibles de routes"
+	},
+	"wireguard.iface.save-failed": {
+		"defaultMessage": "Échec de l'enregistrement."
+	},
+	"wireguard.iface.saving": {
+		"defaultMessage": "Enregistrement…"
+	},
+	"wireguard.iface.unknown": {
+		"defaultMessage": "inconnu"
+	},
+	"wireguard.interfaces.none": {
+		"defaultMessage": "Aucune interface détectée."
+	},
+	"wireguard.link.active": {
+		"defaultMessage": "actif"
+	},
+	"wireguard.link.close-agent": {
+		"defaultMessage": "Fermer l'agent"
+	},
+	"wireguard.link.close-editor": {
+		"defaultMessage": "Fermer l'éditeur"
+	},
+	"wireguard.link.close-planner": {
+		"defaultMessage": "Fermer le planificateur"
+	},
+	"wireguard.link.connection-type": {
+		"defaultMessage": "Type de connexion"
+	},
+	"wireguard.link.display-name": {
+		"defaultMessage": "Nom d'affichage"
+	},
+	"wireguard.link.display-name-hint": {
+		"defaultMessage": "Un nom quelconque, ex. \"Daniel Home\" ou \"Bureau Berlin\""
+	},
+	"wireguard.link.edit-metadata": {
+		"defaultMessage": "Modifier les métadonnées"
+	},
+	"wireguard.link.endpoint-unknown": {
+		"defaultMessage": "Point de terminaison inconnu"
+	},
+	"wireguard.link.export": {
+		"defaultMessage": "Export"
+	},
+	"wireguard.link.export-local-networks": {
+		"defaultMessage": "Exporter les réseaux locaux"
+	},
+	"wireguard.link.exported-networks": {
+		"defaultMessage": "Réseaux exportés"
+	},
+	"wireguard.link.exported-networks-hint": {
+		"defaultMessage": "Réseaux que ce site met à disposition"
+	},
+	"wireguard.link.import": {
+		"defaultMessage": "Import"
+	},
+	"wireguard.link.import-remote-networks": {
+		"defaultMessage": "Importer les réseaux distants"
+	},
+	"wireguard.link.imported-networks": {
+		"defaultMessage": "Réseaux importés"
+	},
+	"wireguard.link.imported-networks-hint": {
+		"defaultMessage": "Réseaux que nous utilisons depuis là-bas"
+	},
+	"wireguard.link.inactive": {
+		"defaultMessage": "inactif"
+	},
+	"wireguard.link.last-handshake": {
+		"defaultMessage": "dernier handshake"
+	},
+	"wireguard.link.management": {
+		"defaultMessage": "Gestion"
+	},
+	"wireguard.link.metadata-editor": {
+		"defaultMessage": "Éditeur de métadonnées"
+	},
+	"wireguard.link.missing-return": {
+		"defaultMessage": "Retour manquant"
+	},
+	"wireguard.link.nat-candidate": {
+		"defaultMessage": "Candidat NAT"
+	},
+	"wireguard.link.plan-link": {
+		"defaultMessage": "Planifier le lien"
+	},
+	"wireguard.link.planner": {
+		"defaultMessage": "Planificateur de lien"
+	},
+	"wireguard.link.remote-management": {
+		"defaultMessage": "Gestion distante"
+	},
+	"wireguard.link.return-mode": {
+		"defaultMessage": "Mode de retour"
+	},
+	"wireguard.link.return-path": {
+		"defaultMessage": "Chemin de retour"
+	},
+	"wireguard.link.save-failed": {
+		"defaultMessage": "Échec de l'enregistrement."
+	},
+	"wireguard.link.save-plan": {
+		"defaultMessage": "Enregistrer le plan"
+	},
+	"wireguard.link.traffic": {
+		"defaultMessage": "Trafic"
+	},
+	"wireguard.link.tunnel": {
+		"defaultMessage": "Tunnel"
+	},
+	"wireguard.links.clients": {
+		"defaultMessage": "Clients"
+	},
+	"wireguard.links.hub-links": {
+		"defaultMessage": "Liens hub"
+	},
+	"wireguard.links.no-links": {
+		"defaultMessage": "Aucun lien WireGuard détecté pour l'instant."
+	},
+	"wireguard.links.unclassified": {
+		"defaultMessage": "Non classifié"
+	},
+	"wireguard.overview.backups-title": {
+		"defaultMessage": "Sauvegardes de métadonnées"
+	},
+	"wireguard.overview.next-actions-title": {
+		"defaultMessage": "Prochaines étapes recommandées"
+	},
+	"wireguard.overview.no-backups": {
+		"defaultMessage": "Aucune sauvegarde disponible."
+	},
+	"wireguard.overview.no-links": {
+		"defaultMessage": "Aucun lien détecté pour l'instant."
+	},
+	"wireguard.overview.restore": {
+		"defaultMessage": "Restaurer"
+	},
+	"wireguard.overview.restore-failed": {
+		"defaultMessage": "Échec de la restauration."
+	},
+	"wireguard.overview.restore-loading": {
+		"defaultMessage": "Restauration…"
+	},
+	"wireguard.overview.restore-success": {
+		"defaultMessage": "Métadonnées restaurées depuis la sauvegarde."
+	},
+	"wireguard.overview.topology-title": {
+		"defaultMessage": "Topologie réseau"
+	},
+	"wireguard.plan.check": {
+		"defaultMessage": "Vérifier"
+	},
+	"wireguard.plan.design": {
+		"defaultMessage": "Configurer"
+	},
+	"wireguard.plan.ready": {
+		"defaultMessage": "Plan prêt"
+	},
+	"wireguard.plan.unplanned": {
+		"defaultMessage": "Non planifié"
+	},
+	"wireguard.preview.blocked": {
+		"defaultMessage": "Bloqué :"
+	},
+	"wireguard.preview.config-intent-change": {
+		"defaultMessage": "Modification de l'intention de configuration — nécessite la couche d'écriture (pas encore disponible)."
+	},
+	"wireguard.preview.outdated": {
+		"defaultMessage": "périmé"
+	},
+	"wireguard.preview.ready-metadata": {
+		"defaultMessage": "Prêt à appliquer (métadonnées uniquement)."
+	},
+	"wireguard.preview.valid": {
+		"defaultMessage": "valide"
+	},
+	"wireguard.routing.col-allowed-ips": {
+		"defaultMessage": "IPs autorisées"
+	},
+	"wireguard.routing.col-last-handshake": {
+		"defaultMessage": "Dernier handshake"
+	},
+	"wireguard.routing.missing-return-title": {
+		"defaultMessage": "Routes de retour manquantes"
+	},
+	"wireguard.routing.nat-candidates-title": {
+		"defaultMessage": "Candidats NAT"
+	},
+	"wireguard.routing.no-active-peers": {
+		"defaultMessage": "Aucun pair dans la fenêtre de handshake active."
+	},
+	"wireguard.routing.no-missing-return": {
+		"defaultMessage": "Aucune route de retour manquante détectée."
+	},
+	"wireguard.routing.no-nat-candidates": {
+		"defaultMessage": "Aucun candidat NAT détecté."
+	},
+	"wireguard.stats.active-peers": {
+		"defaultMessage": "Pairs actifs"
+	},
+	"wireguard.stats.gateway-routes": {
+		"defaultMessage": "Routes de la passerelle"
+	},
+	"wireguard.status.load-error": {
+		"defaultMessage": "Impossible de charger l'état WireGuard : {error}"
+	},
+	"wireguard.status.unavailable": {
+		"defaultMessage": "Les données WireGuard de l'hôte ne sont pas encore disponibles dans cet environnement d'exécution."
+	},
+	"wireguard.tab.interfaces": {
+		"defaultMessage": "Interfaces"
+	},
+	"wireguard.tab.links": {
+		"defaultMessage": "Liens"
+	},
+	"wireguard.tab.overview": {
+		"defaultMessage": "Vue d'ensemble"
+	},
+	"wireguard.tab.routing": {
+		"defaultMessage": "Routage"
+	},
+	"wireguard.topo.this": {
+		"defaultMessage": "Ce"
+	},
+	"wireguard.topo.hub": {
+		"defaultMessage": "Hub"
+	},
+	"wireguard.topo.site-to-site": {
+		"defaultMessage": "Site à Site"
+	},
+	"wireguard.topo.hub-link": {
+		"defaultMessage": "Lien Hub"
+	},
+	"wireguard.topo.client": {
+		"defaultMessage": "Client"
+	},
+	"wireguard.topo.legend-inactive": {
+		"defaultMessage": "inactif"
+	},
+	"wireguard.topo.legend-active": {
+		"defaultMessage": "actif"
+	},
+	"wireguard.topo.legend-exported": {
+		"defaultMessage": "réseaux exportés"
+	},
+	"wireguard.topo.legend-imported": {
+		"defaultMessage": "réseaux importés"
+	},
+	"wireguard.agent.host": {
+		"defaultMessage": "Hôte"
+	},
+	"wireguard.agent.public-url-label": {
+		"defaultMessage": "URL publique (Fallback)"
+	},
+	"wireguard.agent.tunnel-url-label": {
+		"defaultMessage": "URL du tunnel (WireGuard VPN)"
+	},
+	"wireguard.link.apps": {
+		"defaultMessage": "Applis"
+	},
+	"wireguard.link.mgmt-none": {
+		"defaultMessage": "aucune"
+	},
+	"wireguard.routing.col-interface": {
+		"defaultMessage": "Interface"
+	},
+	"wireguard.routing.col-public-key": {
+		"defaultMessage": "Clé publique"
+	},
+	"wireguard.routing.col-endpoint": {
+		"defaultMessage": "Point de terminaison"
+	},
+	"f2b.active": {
+		"defaultMessage": "actif"
+	},
+	"f2b.loading": {
+		"defaultMessage": "Chargement…"
+	},
+	"f2b.unavailable": {
+		"defaultMessage": "fail2ban non disponible."
+	},
+	"f2b.no-jails": {
+		"defaultMessage": "Aucun jail configuré."
+	},
+	"f2b.col-jail": {
+		"defaultMessage": "Jail"
+	},
+	"f2b.col-failed": {
+		"defaultMessage": "Tentatives échouées"
+	},
+	"f2b.col-banned": {
+		"defaultMessage": "Bloqué"
+	},
+	"f2b.col-banned-ips": {
+		"defaultMessage": "IPs bloquées"
+	},
+	"f2b.unban": {
+		"defaultMessage": "Débloquer"
+	},
+	"platform.plan.ready": {
+		"defaultMessage": "Prêt"
+	},
+	"platform.plan.validate": {
+		"defaultMessage": "Valider"
+	},
+	"platform.plan.shaping": {
+		"defaultMessage": "En cours"
+	},
+	"platform.plan.discover": {
+		"defaultMessage": "Découvrir"
+	},
+	"platform.plan.unplanned": {
+		"defaultMessage": "Non planifié"
+	},
+	"platform.link-type.client": {
+		"defaultMessage": "Client"
+	},
+	"platform.link-type.site": {
+		"defaultMessage": "Site"
+	},
+	"platform.link-type.hub": {
+		"defaultMessage": "Hub"
+	},
+	"platform.link-type.other": {
+		"defaultMessage": "Autre"
+	},
+	"gateway.reach.return-missing": {
+		"defaultMessage": "Chemin retour manquant"
+	},
+	"gateway.reach.check-nat": {
+		"defaultMessage": "Vérifier NAT"
+	},
+	"gateway.reach.reachable": {
+		"defaultMessage": "Accessible"
+	},
+	"dashboard.stat.logical-links": {
+		"defaultMessage": "Liens logiques"
+	},
+	"dashboard.gateway-overview": {
+		"defaultMessage": "Vue d'ensemble Gateway"
+	},
+	"dashboard.hub-interface": {
+		"defaultMessage": "Interface Hub"
+	},
+	"dashboard.total-traffic": {
+		"defaultMessage": "Trafic total"
+	},
+	"dashboard.topology": {
+		"defaultMessage": "Topologie"
+	},
+	"dashboard.next-steps": {
+		"defaultMessage": "Prochaines étapes"
+	},
+	"dashboard.link-preview": {
+		"defaultMessage": "Aperçu des liens"
+	},
+	"dashboard.no-addresses": {
+		"defaultMessage": "Aucune adresse connue"
+	},
+	"dashboard.no-hints": {
+		"defaultMessage": "Aucun conseil immédiat."
+	},
+	"dashboard.no-links": {
+		"defaultMessage": "Aucune route WireGuard disponible."
+	},
+	"dashboard.no-route-risks": {
+		"defaultMessage": "Aucun risque de routage détecté"
+	},
+	"dashboard.missing-return-hint": {
+		"defaultMessage": "{count} route(s) retour manquante(s)"
+	},
+	"dashboard.nat-candidate-hint": {
+		"defaultMessage": "{count} candidat(s) NAT"
+	},
+	"dashboard.wg-routes": {
+		"defaultMessage": "{count} routes WG"
+	},
+	"platform.hero.kicker": {
+		"defaultMessage": "Vue d'ensemble"
+	},
+	"platform.hero.subtitle": {
+		"defaultMessage": "FloppyGuard combine proxy, gateway et gestion WireGuard en une seule plateforme opérationnelle."
+	},
+	"platform.btn.open-wireguard": {
+		"defaultMessage": "Ouvrir le module WireGuard"
+	},
+	"platform.btn.open-gateway": {
+		"defaultMessage": "Ouvrir la vue Gateway"
+	},
+	"platform.btn.open-proxy": {
+		"defaultMessage": "Ouvrir les hôtes proxy"
+	},
+	"platform.cap.title": {
+		"defaultMessage": "Carte des capacités"
+	},
+	"platform.link-readiness.title": {
+		"defaultMessage": "Préparation des liens"
+	},
+	"platform.gateway-snapshot.title": {
+		"defaultMessage": "Snapshot Gateway"
+	},
+	"platform.runtime-risks.title": {
+		"defaultMessage": "Risques d'exécution"
+	},
+	"platform.hub-interface": {
+		"defaultMessage": "Interface Hub"
+	},
+	"platform.no-addresses": {
+		"defaultMessage": "Aucune adresse"
+	},
+	"platform.no-links": {
+		"defaultMessage": "Aucun lien logique configuré."
+	},
+	"platform.missing-return.title": {
+		"defaultMessage": "Routes retour manquantes"
+	},
+	"platform.missing-return.none": {
+		"defaultMessage": "Aucune route retour manquante détectée."
+	},
+	"platform.missing-return.some": {
+		"defaultMessage": "{count} réseau/réseaux importé(s) manque(nt) encore d'une route active."
+	},
+	"platform.nat-candidates.title": {
+		"defaultMessage": "Candidats NAT"
+	},
+	"platform.nat-candidates.none": {
+		"defaultMessage": "Aucun candidat NAT évident détecté."
+	},
+	"platform.nat-candidates.some": {
+		"defaultMessage": "{count} réseau/réseaux encore identifié(s) comme candidat(s) NAT."
+	},
+	"platform.write-cap.title": {
+		"defaultMessage": "Capacité d'écriture"
+	},
+	"platform.observations.title": {
+		"defaultMessage": "Observations"
+	},
+	"platform.observations.none": {
+		"defaultMessage": "Aucune observation de route disponible."
+	},
+	"platform.stat.logical-links": {
+		"defaultMessage": "Liens logiques"
+	},
+	"gateway.kicker": {
+		"defaultMessage": "Vue réseau"
+	},
+	"gateway.subtitle": {
+		"defaultMessage": "Accessibilité, risques de chemin retour et préparation des liens pour le plan de contrôle FloppyGuard."
+	},
+	"gateway.stat.wireguard-routes": {
+		"defaultMessage": "Routes WireGuard"
+	},
+	"gateway.stat.private-routes": {
+		"defaultMessage": "Routes privées"
+	},
+	"gateway.stat.peer-networks": {
+		"defaultMessage": "Réseaux pairs"
+	},
+	"gateway.stat.logical-links": {
+		"defaultMessage": "Liens logiques"
+	},
+	"gateway.reachability.title": {
+		"defaultMessage": "Carte d'accessibilité Gateway"
+	},
+	"gateway.no-links": {
+		"defaultMessage": "Aucun lien dérivé disponible."
+	},
+	"gateway.link.endpoint-unknown": {
+		"defaultMessage": "point de terminaison inconnu"
+	},
+	"gateway.link.active": {
+		"defaultMessage": "actif"
+	},
+	"gateway.link.idle": {
+		"defaultMessage": "inactif"
+	},
+	"gateway.private-routes.title": {
+		"defaultMessage": "Inventaire des routes privées"
+	},
+	"gateway.col-destination": {
+		"defaultMessage": "Destination"
+	},
+	"gateway.col-device": {
+		"defaultMessage": "Périphérique"
+	},
+	"gateway.col-via": {
+		"defaultMessage": "Via"
+	},
+	"gateway.col-na": {
+		"defaultMessage": "n/a"
+	},
+	"gateway.col-direct": {
+		"defaultMessage": "direct"
+	},
+	"gateway.no-private-routes": {
+		"defaultMessage": "Aucun inventaire de routes privées disponible."
+	},
+	"gateway.peer-networks.title": {
+		"defaultMessage": "Inventaire des réseaux pairs"
+	},
+	"gateway.col-network": {
+		"defaultMessage": "Réseau"
+	},
+	"gateway.col-role": {
+		"defaultMessage": "Rôle"
+	},
+	"gateway.no-peer-networks": {
+		"defaultMessage": "Aucun réseau pair détecté."
+	},
+	"gateway.routing-hints.title": {
+		"defaultMessage": "Conseils de routage"
+	},
+	"gateway.missing-return.title": {
+		"defaultMessage": "Routes retour manquantes"
+	},
+	"gateway.missing-return.none": {
+		"defaultMessage": "Aucune route retour manquante détectée."
+	},
+	"gateway.nat-candidates.title": {
+		"defaultMessage": "Candidats NAT"
+	},
+	"gateway.nat-candidates.none": {
+		"defaultMessage": "Aucun candidat NAT évident détecté."
+	},
+	"gateway.observations.title": {
+		"defaultMessage": "Observations"
+	},
+	"gateway.no-observations": {
+		"defaultMessage": "Aucune observation de route disponible."
+	},
+	"gateway.error": {
+		"defaultMessage": "Impossible de charger l'état du gateway : {error}"
+	},
+	"gateway.unavailable": {
+		"defaultMessage": "Les données Gateway ne sont pas encore disponibles dans ce runtime."
+	},
+	"gateway.gap.no-exported": {
+		"defaultMessage": "Aucun réseau exporté défini pour ce lien."
+	},
+	"gateway.gap.no-imported": {
+		"defaultMessage": "Aucun réseau importé défini pour ce lien."
+	},
+	"gateway.gap.mgmt-undefined": {
+		"defaultMessage": "Chemin de gestion distante non défini."
+	},
+	"gateway.gap.return-undecided": {
+		"defaultMessage": "Mode de chemin retour non décidé."
+	},
+	"gateway.gap.missing-route": {
+		"defaultMessage": "Au moins un réseau importé n'a pas de route WireGuard correspondante."
+	},
+	"gateway.gap.nat-required": {
+		"defaultMessage": "Le runtime Gateway suggère que NAT pourrait encore être requis."
+	},
+	"gateway.gap.no-blocking": {
+		"defaultMessage": "Aucun écart de routage bloquant détecté pour ce lien."
+	},
+	"wireguard.warning.remote-endpoint-missing": {
+		"defaultMessage": "Point de terminaison distant non défini"
+	},
+	"wireguard.warning.imported-network-missing-live-route": {
+		"defaultMessage": "Réseau importé sans route active"
+	},
+	"wireguard.warning.nat-likely-needed": {
+		"defaultMessage": "NAT probablement requis"
+	},
+	"wireguard.warning.exported-networks-missing": {
+		"defaultMessage": "Aucun réseau exporté défini"
+	},
+	"wireguard.warning.return-path-mode-undefined": {
+		"defaultMessage": "Mode chemin retour non défini"
+	},
+	"wireguard.warning.remote-management-mode-undefined": {
+		"defaultMessage": "Mode de gestion distante non défini"
+	},
+	"wireguard.warning.link-not-currently-active": {
+		"defaultMessage": "Lien actuellement inactif"
+	},
+	"wireguard.next.verify-return-path": {
+		"defaultMessage": "Vérifier le chemin retour"
+	},
+	"wireguard.next.model-exported-networks": {
+		"defaultMessage": "Définir les réseaux exportés"
+	},
+	"wireguard.next.define-remote-management-mode": {
+		"defaultMessage": "Définir le mode de gestion distante"
+	},
+	"wireguard.next.fix-return-path": {
+		"defaultMessage": "Corriger le chemin retour"
+	},
+	"wireguard.next.decide-nat-or-static-route": {
+		"defaultMessage": "Décider : NAT ou route statique"
+	},
+	"wireguard.next.define-return-path-mode": {
+		"defaultMessage": "Définir le mode chemin retour"
+	},
+	"wireguard.next.verify-live-tunnel-state": {
+		"defaultMessage": "Vérifier l'état du tunnel actif"
+	},
+	"wireguard.next.mount-wireguard-config-directory": {
+		"defaultMessage": "Monter le répertoire de config WireGuard"
 	}
 }
