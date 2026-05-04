@@ -11,33 +11,33 @@ import {
 import { useNavigate } from "react-router-dom";
 import { useHostReport, useWireGuardStatus, useFail2BanStatus, useUnbanIp } from "src/hooks";
 import type { WireGuardLink } from "src/api/backend";
+import { intl } from "src/locale/IntlProvider";
+
+const KNOWN_NEXT_ACTIONS = new Set([
+	"verify-return-path", "model-exported-networks", "define-remote-management-mode",
+	"fix-return-path", "decide-nat-or-static-route", "define-return-path-mode",
+	"verify-live-tunnel-state", "mount-wireguard-config-directory",
+]);
+const fmtNextAction = (a: string) =>
+	KNOWN_NEXT_ACTIONS.has(a) ? intl.formatMessage({ id: `wireguard.next.${a}` }) : a;
 
 const getPlanBadge = (link: WireGuardLink) => {
 	switch (link.planState) {
-		case "ready":
-			return { label: "Ready", className: "bg-green-lt text-green" };
-		case "validate":
-			return { label: "Validate", className: "bg-yellow-lt text-yellow" };
-		case "shape":
-			return { label: "Shaping", className: "bg-blue-lt text-blue" };
-		case "discover":
-			return { label: "Discover", className: "bg-secondary-lt text-secondary" };
-		default:
-			return { label: "Unplanned", className: "bg-secondary-lt text-secondary" };
+		case "ready": return { labelId: "platform.plan.ready", className: "bg-green-lt text-green" };
+		case "validate": return { labelId: "platform.plan.validate", className: "bg-yellow-lt text-yellow" };
+		case "shape": return { labelId: "platform.plan.shaping", className: "bg-blue-lt text-blue" };
+		case "discover": return { labelId: "platform.plan.discover", className: "bg-secondary-lt text-secondary" };
+		default: return { labelId: "platform.plan.unplanned", className: "bg-secondary-lt text-secondary" };
 	}
 };
 
 
 const getLinkTypeBadge = (link: WireGuardLink) => {
 	switch (link.type) {
-		case "client":
-			return { label: "Client", className: "bg-green-lt text-green" };
-		case "site-to-site":
-			return { label: "Site", className: "bg-blue-lt text-blue" };
-		case "hub-link":
-			return { label: "Hub", className: "bg-cyan-lt text-cyan" };
-		default:
-			return { label: "Other", className: "bg-secondary-lt text-secondary" };
+		case "client": return { labelId: "platform.link-type.client", className: "bg-green-lt text-green" };
+		case "site-to-site": return { labelId: "platform.link-type.site", className: "bg-blue-lt text-blue" };
+		case "hub-link": return { labelId: "platform.link-type.hub", className: "bg-cyan-lt text-cyan" };
+		default: return { labelId: "platform.link-type.other", className: "bg-secondary-lt text-secondary" };
 	}
 };
 
@@ -68,20 +68,20 @@ const Platform = () => {
 				<div className="card-body p-4 p-md-5">
 					<div className="row align-items-center g-4">
 						<div className="col-lg-8">
-							<div className="platform-kicker">Platform Overview</div>
+							<div className="platform-kicker">{intl.formatMessage({ id: "platform.hero.kicker" })}</div>
 							<h1 className="platform-title">FloppyGuard</h1>
 							<p className="platform-subtitle mb-4 fs-4">
-								FloppyGuard combines proxy, gateway and WireGuard management into one operational platform.
+								{intl.formatMessage({ id: "platform.hero.subtitle" })}
 							</p>
 							<div className="platform-actions">
 								<button className="btn btn-primary" type="button" onClick={() => navigate("/wireguard")}>
-									Open WireGuard Module
+									{intl.formatMessage({ id: "platform.btn.open-wireguard" })}
 								</button>
 								<button className="btn btn-outline-primary" type="button" onClick={() => navigate("/gateway")}>
-									Open Gateway View
+									{intl.formatMessage({ id: "platform.btn.open-gateway" })}
 								</button>
 								<button className="btn btn-outline-secondary" type="button" onClick={() => navigate("/nginx/proxy")}>
-									Open Proxy Hosts
+									{intl.formatMessage({ id: "platform.btn.open-proxy" })}
 								</button>
 							</div>
 						</div>
@@ -146,7 +146,7 @@ const Platform = () => {
 						<div className="card-body d-flex align-items-center gap-3">
 							<span className="bg-cyan text-white avatar"><IconTopologyStar3 /></span>
 							<div>
-								<div className="text-secondary">Logical Links</div>
+								<div className="text-secondary">{intl.formatMessage({ id: "platform.stat.logical-links" })}</div>
 								<div className="platform-stat-value">{summary?.linkCount || 0}</div>
 							</div>
 						</div>
@@ -158,7 +158,7 @@ const Platform = () => {
 				<div className="col-lg-5">
 					<div className="card h-100 platform-elevated-card">
 						<div className="card-header">
-							<h3 className="card-title d-flex align-items-center gap-2"><IconStack2 size={18} /> Capability Map</h3>
+							<h3 className="card-title d-flex align-items-center gap-2"><IconStack2 size={18} /> {intl.formatMessage({ id: "platform.cap.title" })}</h3>
 						</div>
 						<div className="card-body d-flex flex-column gap-3">
 							<div className="platform-module">
@@ -193,7 +193,7 @@ const Platform = () => {
 				<div className="col-lg-7">
 					<div className="card h-100 platform-elevated-card">
 						<div className="card-header">
-							<h3 className="card-title d-flex align-items-center gap-2"><IconChecklist size={18} /> Link Readiness</h3>
+							<h3 className="card-title d-flex align-items-center gap-2"><IconChecklist size={18} /> {intl.formatMessage({ id: "platform.link-readiness.title" })}</h3>
 						</div>
 						<div className="card-body">
 							<div className="d-flex gap-2 flex-wrap mb-3">
@@ -214,14 +214,14 @@ const Platform = () => {
 											<div className="d-flex justify-content-between align-items-start gap-2 flex-wrap">
 												<div className="fw-medium">{link.name}</div>
 												<div className="d-flex gap-1 flex-wrap">
-													<span className={`badge ${typeBadge.className}`}>{typeBadge.label}</span>
-													<span className={`badge ${planBadge.className}`}>{planBadge.label}</span>
+													<span className={`badge ${typeBadge.className}`}>{intl.formatMessage({ id: typeBadge.labelId })}</span>
+													<span className={`badge ${planBadge.className}`}>{intl.formatMessage({ id: planBadge.labelId })}</span>
 												</div>
 											</div>
 											<div className="text-secondary small">{link.interfaceName}{link.remoteEndpoint ? ` · ${link.remoteEndpoint}` : ""}</div>
 										</div>
 									);
-								}) : <div className="text-secondary small">No logical links configured.</div>}
+								}) : <div className="text-secondary small">{intl.formatMessage({ id: "platform.no-links" })}</div>}
 							</div>
 						</div>
 					</div>
@@ -232,13 +232,13 @@ const Platform = () => {
 				<div className="col-lg-6">
 					<div className="card h-100 platform-elevated-card">
 						<div className="card-header">
-							<h3 className="card-title d-flex align-items-center gap-2"><IconRoute size={18} /> Gateway Snapshot</h3>
+							<h3 className="card-title d-flex align-items-center gap-2"><IconRoute size={18} /> {intl.formatMessage({ id: "platform.gateway-snapshot.title" })}</h3>
 						</div>
 						<div className="card-body d-flex flex-column gap-3">
 							<div>
-								<div className="text-secondary small mb-1">Hub Interface</div>
+								<div className="text-secondary small mb-1">{intl.formatMessage({ id: "platform.hub-interface" })}</div>
 								<div className="fw-bold">{hub?.name || "—"}</div>
-								<div className="text-secondary small">{hub?.addresses?.join(", ") || "No addresses"}</div>
+								<div className="text-secondary small">{hub?.addresses?.join(", ") || intl.formatMessage({ id: "platform.no-addresses" })}</div>
 							</div>
 							<div className="d-flex flex-wrap gap-2">
 								<span className="badge bg-blue-lt text-blue">WG routes: {summary?.wireguardRouteCount || 0}</span>
@@ -247,7 +247,7 @@ const Platform = () => {
 							</div>
 							{nextActions.length > 0 && (
 								<div className="small text-secondary d-flex flex-column gap-1">
-									{nextActions.map((item) => <span key={item}>• {item}</span>)}
+									{nextActions.map((a) => <span key={a}>• {fmtNextAction(a)}</span>)}
 								</div>
 							)}
 						</div>
@@ -256,25 +256,25 @@ const Platform = () => {
 				<div className="col-lg-6">
 					<div className="card h-100 platform-elevated-card">
 						<div className="card-header">
-							<h3 className="card-title">Runtime Risks</h3>
+							<h3 className="card-title">{intl.formatMessage({ id: "platform.runtime-risks.title" })}</h3>
 						</div>
 						<div className="card-body d-flex flex-column gap-3">
 							<div className="platform-source">
-								<div className="fw-bold">Missing Return Routes</div>
-								<div className="text-secondary small">{missingReturnRoutes.length ? `${missingReturnRoutes.length} imported network(s) still lack a matching live route.` : "No missing return routes detected right now."}</div>
+								<div className="fw-bold">{intl.formatMessage({ id: "platform.missing-return.title" })}</div>
+								<div className="text-secondary small">{missingReturnRoutes.length ? intl.formatMessage({ id: "platform.missing-return.some" }, { count: missingReturnRoutes.length }) : intl.formatMessage({ id: "platform.missing-return.none" })}</div>
 							</div>
 							<div className="platform-source">
-								<div className="fw-bold">NAT Candidates</div>
-								<div className="text-secondary small">{natCandidates.length ? `${natCandidates.length} network(s) still look like NAT candidates.` : "No obvious NAT candidates detected right now."}</div>
+								<div className="fw-bold">{intl.formatMessage({ id: "platform.nat-candidates.title" })}</div>
+								<div className="text-secondary small">{natCandidates.length ? intl.formatMessage({ id: "platform.nat-candidates.some" }, { count: natCandidates.length }) : intl.formatMessage({ id: "platform.nat-candidates.none" })}</div>
 							</div>
 							<div className="platform-source">
-								<div className="fw-bold">Write Capability</div>
+								<div className="fw-bold">{intl.formatMessage({ id: "platform.write-cap.title" })}</div>
 								<div className="text-secondary small">{capabilities?.supports.peerCrud ? "Live write actions are enabled." : "Live peer and interface writes are still disabled."}</div>
 							</div>
 							<div className="platform-source">
-								<div className="fw-bold">Observations</div>
+								<div className="fw-bold">{intl.formatMessage({ id: "platform.observations.title" })}</div>
 								<div className="text-secondary small">
-									{observations.length ? observations.slice(0, 3).join(" ") : "No additional route observations available right now."}
+									{observations.length ? observations.slice(0, 3).join(" ") : intl.formatMessage({ id: "platform.observations.none" })}
 								</div>
 							</div>
 						</div>
@@ -291,26 +291,26 @@ const Platform = () => {
 							</h3>
 							<div className="card-options">
 								{fail2ban?.available && (
-									<span className="badge bg-green-lt text-green">aktiv</span>
+									<span className="badge bg-green-lt text-green">{intl.formatMessage({ id: "f2b.active" })}</span>
 								)}
 							</div>
 						</div>
 						<div className="card-body p-0">
-							{f2bLoading && <div className="p-3 text-secondary small">Lade…</div>}
+							{f2bLoading && <div className="p-3 text-secondary small">{intl.formatMessage({ id: "f2b.loading" })}</div>}
 							{!f2bLoading && !fail2ban?.available && (
-								<div className="p-3 text-secondary small">fail2ban nicht verfügbar.</div>
+								<div className="p-3 text-secondary small">{intl.formatMessage({ id: "f2b.unavailable" })}</div>
 							)}
 							{fail2ban?.available && fail2ban.jails.length === 0 && (
-								<div className="p-3 text-secondary small">Keine Jails konfiguriert.</div>
+								<div className="p-3 text-secondary small">{intl.formatMessage({ id: "f2b.no-jails" })}</div>
 							)}
 							{fail2ban?.available && fail2ban.jails.length > 0 && (
 								<table className="table table-vcenter card-table">
 									<thead>
 										<tr>
-											<th>Jail</th>
-											<th className="text-end">Fehlversuche</th>
-											<th className="text-end">Gesperrt</th>
-											<th>Gesperrte IPs</th>
+											<th>{intl.formatMessage({ id: "f2b.col-jail" })}</th>
+											<th className="text-end">{intl.formatMessage({ id: "f2b.col-failed" })}</th>
+											<th className="text-end">{intl.formatMessage({ id: "f2b.col-banned" })}</th>
+											<th>{intl.formatMessage({ id: "f2b.col-banned-ips" })}</th>
 										</tr>
 									</thead>
 									<tbody>
@@ -341,7 +341,7 @@ const Platform = () => {
 																	type="button"
 																	className="btn-close btn-close-sm ms-1"
 																	style={{ fontSize: "0.6rem" }}
-																	title="Entsperren"
+																	title={intl.formatMessage({ id: "f2b.unban" })}
 																	disabled={unban.isPending}
 																	onClick={() => unban.mutate({ jail: jail.name, ip })}
 																/>

@@ -1,6 +1,6 @@
 # FloppyGuard Implementation Status
 
-Stand: 2026-05-03
+Stand: 2026-05-04
 
 ## Production Infrastructure — DONE
 
@@ -10,7 +10,6 @@ Stand: 2026-05-03
 - MySQL backend (same DB as legacy NPM)
 - certbot virtualenv at `/opt/certbot/` with Cloudflare + dns-multi plugins
 - Let's Encrypt certs symlinked from `/opt/npm/letsencrypt/`
-- Domain `https://your-instance-domain` live
 - NPM Docker container stopped (cutover complete)
 
 ## Proxy Management (NPM feature set) — DONE
@@ -33,6 +32,18 @@ API endpoints live:
 Current capability: `runtime-read + metadata-write + metadata-restore`
 Live WireGuard config writes are intentionally not yet implemented.
 
+## WireGuard — Routing Automation — DONE (v1.2.2)
+
+Hub-and-spoke routing wired up end-to-end on every apply:
+
+- `syncHubConf()` — rewrites hub `wg0.conf` AllowedIPs and PostUp/PostDown ip-route commands
+  from link metadata; applies live via `wg set` + `ip route add` without restarting wg0
+- `syncAgentConfigs()` — updates every connected agent's WireGuard peer AllowedIPs so all sites
+  can reach each other through the hub; agents pick up changes on their next 30 s poll
+- Both syncs fire automatically when apply scope is `metadata-with-config-intent`
+- Apply response includes `hubSync` and `agentSync` result fields
+- UI shows live sync feedback (peer count, agent names, or warnings) after apply
+
 ## WireGuard Agent System — DONE
 
 Remote agent management built and live:
@@ -48,6 +59,7 @@ Remote agent management built and live:
 - `GET /api/agent/install?reg_token=...&public_url=...&tunnel_url=...` — serves install script
 - `POST /api/agent/register` — agent exchanges reg_token for permanent agent_token
 - `GET /api/agent/config` — agent polls for WireGuard config (Bearer agent_token)
+- `GET /api/agent/loop-script` — serves current loop script for self-update (Bearer agent_token)
 - `POST /api/agent/heartbeat` — agent reports hash + hostname + LAN IP + services
 
 Agent features:
@@ -64,6 +76,20 @@ curl -fsSL "<publicUrl>/api/agent/install?reg_token=TOKEN&public_url=URL&tunnel_
 ```
 Installs as `floppyguard-agent` systemd service, polls hub every 30s.
 
+## Agent Self-Update — DONE (v1.2.2)
+
+Agents self-update automatically when the server script version changes:
+
+- `AGENT_SCRIPT_VERSION` constant in `backend/internal/agent.js` tracks the loop script version
+- Config response includes `script_version`; agent compares on every 30s poll
+- On version change: downloads new script from `GET /api/agent/loop-script`, atomically replaces
+  `/usr/local/sbin/floppyguard-agent`, then `exec`s it — zero-downtime, no systemd restart
+- `sync_routes()` bash function added to loop script: adds missing kernel ip routes after
+  `wg syncconf` (which updates WireGuard peer tables but never touches the kernel routing table)
+
+**Rule:** Any edit to `buildLoopScript()` in `agent.js` that affects the generated bash script
+**requires a `AGENT_SCRIPT_VERSION` bump** — otherwise running agents never pick up the change.
+
 ## WireGuard UI — DONE
 
 - Link cards with inline metadata editor and link planner
@@ -73,6 +99,7 @@ Installs as `floppyguard-agent` systemd service, polls hub every 30s.
 - Discovered services shown directly on link card (no need to open agent section)
 - "Neu installieren": resets token and shows new one-liner immediately
 - Metadata editor for interfaces
+- Apply result shows hubSync / agentSync feedback inline
 
 ## WireGuard — Still Missing
 
@@ -99,7 +126,7 @@ Installs as `floppyguard-agent` systemd service, polls hub every 30s.
 | Users | Live |
 | Settings | Live |
 | Audit Log | Live |
-| `/wireguard` | Live (read + metadata + agent management) |
+| `/wireguard` | Live (read + metadata + routing automation + agent management) |
 | `/gateway` | Live (status only) |
 | `/platform` | Live (status only) |
 

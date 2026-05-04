@@ -12,7 +12,16 @@ import {
 import { useNavigate } from "react-router-dom";
 import { HasPermission } from "src/components";
 import { useHostReport, useWireGuardStatus, useFail2BanStatus, useUnbanIp } from "src/hooks";
+import { intl } from "src/locale/IntlProvider";
 import { DEAD_HOSTS, PROXY_HOSTS, REDIRECTION_HOSTS, STREAMS, VIEW } from "src/modules/Permissions";
+
+const KNOWN_NEXT_ACTIONS = new Set([
+	"verify-return-path", "model-exported-networks", "define-remote-management-mode",
+	"fix-return-path", "decide-nat-or-static-route", "define-return-path-mode",
+	"verify-live-tunnel-state", "mount-wireguard-config-directory",
+]);
+const fmtNextAction = (a: string) =>
+	KNOWN_NEXT_ACTIONS.has(a) ? intl.formatMessage({ id: `wireguard.next.${a}` }) : a;
 
 const byteFmt = (value?: number) => {
 	const bytes = Number(value) || 0;
@@ -109,7 +118,7 @@ const Dashboard = () => {
 							<div className="d-flex align-items-center gap-3">
 								<span className="bg-cyan text-white avatar"><IconTopologyStar3 /></span>
 								<div>
-									<div className="text-secondary">Logical Links</div>
+									<div className="text-secondary">{intl.formatMessage({ id: "dashboard.stat.logical-links" })}</div>
 									<div className="platform-stat-value">{wgSummary?.linkCount || 0}</div>
 								</div>
 							</div>
@@ -123,22 +132,22 @@ const Dashboard = () => {
 				<div className="col-lg-7">
 					<div className="card h-100 platform-elevated-card">
 						<div className="card-header">
-							<h3 className="card-title d-flex align-items-center gap-2"><IconRoute size={18} /> Gateway Overview</h3>
+							<h3 className="card-title d-flex align-items-center gap-2"><IconRoute size={18} /> {intl.formatMessage({ id: "dashboard.gateway-overview" })}</h3>
 						</div>
 						<div className="card-body">
 							<div className="row row-cards">
 								<div className="col-sm-6">
 									<div className="platform-inline-panel h-100">
-										<div className="text-secondary small mb-1">Hub Interface</div>
+										<div className="text-secondary small mb-1">{intl.formatMessage({ id: "dashboard.hub-interface" })}</div>
 										<div className="fw-bold mb-1">{hub?.name || "—"}</div>
 										<div className="small text-secondary">
-											{hub?.addresses?.length ? hub.addresses.join(", ") : "No addresses reported"}
+											{hub?.addresses?.length ? hub.addresses.join(", ") : intl.formatMessage({ id: "dashboard.no-addresses" })}
 										</div>
 									</div>
 								</div>
 								<div className="col-sm-6">
 									<div className="platform-inline-panel h-100">
-										<div className="text-secondary small mb-1">Total Traffic</div>
+										<div className="text-secondary small mb-1">{intl.formatMessage({ id: "dashboard.total-traffic" })}</div>
 										<div className="fw-bold mb-1">{byteFmt(wgSummary?.totalRxBytes)} / {byteFmt(wgSummary?.totalTxBytes)}</div>
 										<div className="small text-secondary">
 											{wgSummary?.peerNetworkCount || 0} peer networks · {wgSummary?.privateRouteCount || 0} private routes
@@ -147,21 +156,21 @@ const Dashboard = () => {
 								</div>
 								<div className="col-sm-6">
 									<div className="platform-inline-panel h-100">
-										<div className="text-secondary small mb-1">Topology</div>
+										<div className="text-secondary small mb-1">{intl.formatMessage({ id: "dashboard.topology" })}</div>
 										<div className="fw-bold mb-1">{wgSummary?.siteLinkCount || 0} site · {wgSummary?.hubLinkCount || 0} hub · {wgSummary?.clientLinkCount || 0} client</div>
 										<div className="small text-secondary">
-											{missingReturnRoutes.length > 0 && <span className="text-warning">{missingReturnRoutes.length} missing return route(s) · </span>}
-											{natCandidates.length > 0 && <span className="text-warning">{natCandidates.length} NAT candidate(s) · </span>}
-											{missingReturnRoutes.length === 0 && natCandidates.length === 0 && <span>No route risks detected · </span>}
-											<span>{wgSummary?.wireguardRouteCount || 0} WG routes</span>
+											{missingReturnRoutes.length > 0 && <span className="text-warning">{intl.formatMessage({ id: "dashboard.missing-return-hint" }, { count: missingReturnRoutes.length })} · </span>}
+											{natCandidates.length > 0 && <span className="text-warning">{intl.formatMessage({ id: "dashboard.nat-candidate-hint" }, { count: natCandidates.length })} · </span>}
+											{missingReturnRoutes.length === 0 && natCandidates.length === 0 && <span>{intl.formatMessage({ id: "dashboard.no-route-risks" })} · </span>}
+											<span>{intl.formatMessage({ id: "dashboard.wg-routes" }, { count: wgSummary?.wireguardRouteCount || 0 })}</span>
 										</div>
 									</div>
 								</div>
 								<div className="col-sm-6">
 									<div className="platform-inline-panel h-100">
-										<div className="text-secondary small mb-1">Next Steps</div>
+										<div className="text-secondary small mb-1">{intl.formatMessage({ id: "dashboard.next-steps" })}</div>
 										<div className="small text-secondary d-flex flex-column gap-1">
-											{nextActions.length ? nextActions.map((item) => <span key={item}>• {item}</span>) : <span>No immediate hints from runtime.</span>}
+											{nextActions.length ? nextActions.map((a) => <span key={a}>• {fmtNextAction(a)}</span>) : <span>{intl.formatMessage({ id: "dashboard.no-hints" })}</span>}
 										</div>
 									</div>
 								</div>
@@ -172,7 +181,7 @@ const Dashboard = () => {
 				<div className="col-lg-5">
 					<div className="card h-100 platform-table-card">
 						<div className="card-header">
-							<h3 className="card-title">Link Preview</h3>
+							<h3 className="card-title">{intl.formatMessage({ id: "dashboard.link-preview" })}</h3>
 						</div>
 						<div className="list-group list-group-flush">
 							{links.length ? links.map((link) => (
@@ -190,7 +199,7 @@ const Dashboard = () => {
 									</div>
 								</div>
 							)) : (
-								<div className="list-group-item text-secondary small">No WireGuard routes available.</div>
+								<div className="list-group-item text-secondary small">{intl.formatMessage({ id: "dashboard.no-links" })}</div>
 							)}
 						</div>
 					</div>
@@ -267,25 +276,25 @@ const Dashboard = () => {
 								<IconShield size={18} /> Fail2Ban
 							</h3>
 							<div className="card-options">
-								{fail2ban?.available && <span className="badge bg-green-lt text-green">aktiv</span>}
+								{fail2ban?.available && <span className="badge bg-green-lt text-green">{intl.formatMessage({ id: "f2b.active" })}</span>}
 							</div>
 						</div>
 						<div className="card-body p-0">
-							{f2bLoading && <div className="p-3 text-secondary small">Lade…</div>}
+							{f2bLoading && <div className="p-3 text-secondary small">{intl.formatMessage({ id: "f2b.loading" })}</div>}
 							{!f2bLoading && !fail2ban?.available && (
-								<div className="p-3 text-secondary small">fail2ban nicht verfügbar.</div>
+								<div className="p-3 text-secondary small">{intl.formatMessage({ id: "f2b.unavailable" })}</div>
 							)}
 							{fail2ban?.available && fail2ban.jails.length === 0 && (
-								<div className="p-3 text-secondary small">Keine Jails konfiguriert.</div>
+								<div className="p-3 text-secondary small">{intl.formatMessage({ id: "f2b.no-jails" })}</div>
 							)}
 							{fail2ban?.available && fail2ban.jails.length > 0 && (
 								<table className="table table-vcenter card-table">
 									<thead>
 										<tr>
-											<th>Jail</th>
-											<th className="text-end">Fehlversuche</th>
-											<th className="text-end">Gesperrt</th>
-											<th>Gesperrte IPs</th>
+											<th>{intl.formatMessage({ id: "f2b.col-jail" })}</th>
+											<th className="text-end">{intl.formatMessage({ id: "f2b.col-failed" })}</th>
+											<th className="text-end">{intl.formatMessage({ id: "f2b.col-banned" })}</th>
+											<th>{intl.formatMessage({ id: "f2b.col-banned-ips" })}</th>
 										</tr>
 									</thead>
 									<tbody>
@@ -314,7 +323,7 @@ const Dashboard = () => {
 																	type="button"
 																	className="btn-close btn-close-sm ms-1"
 																	style={{ fontSize: "0.6rem" }}
-																	title="Entsperren"
+																	title={intl.formatMessage({ id: "f2b.unban" })}
 																	disabled={unban.isPending}
 																	onClick={() => unban.mutate({ jail: jail.name, ip })}
 																/>

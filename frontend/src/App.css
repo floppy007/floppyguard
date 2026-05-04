@@ -377,6 +377,26 @@ body:not(.auth) {
 	}
 }
 
+/* react-select menu portal — rendered in <body>, outside .react-select-container */
+.react-select__menu-portal .react-select__menu {
+	background-color: var(--tblr-bg-forms);
+	border: var(--tblr-border-width) solid var(--tblr-border-color);
+	color: var(--tblr-body-color);
+
+	.react-select__option {
+		background: rgba(var(--tblr-primary-rgb), .04);
+		color: var(--tblr-body-color) !important;
+
+		&.react-select__option--is-focused {
+			background: rgba(var(--tblr-primary-rgb), .1);
+		}
+
+		&.react-select__option--is-focused.react-select__option--is-selected {
+			background: rgba(var(--tblr-primary-rgb), .2);
+		}
+	}
+}
+
 .textareaMono {
 	font-family: 'Courier New', Courier, monospace !important;
 	resize: vertical;

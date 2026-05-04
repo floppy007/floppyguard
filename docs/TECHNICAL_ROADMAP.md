@@ -1,6 +1,6 @@
 # FloppyGuard Technical Roadmap
 
-Stand: 2026-05-03
+Stand: 2026-05-04
 
 ## Was bereits fertig ist
 
@@ -9,6 +9,13 @@ Stand: 2026-05-03
 - Remote management mode `agent` — Agents direkt auf WireGuard-Link-Karten
 - Link-Planer (type, networks, return path, management mode) — direkt speicherbar
 - Service-Buttons direkt auf Link-Karten sichtbar
+- **WireGuard Routing Automation** — `syncHubConf` + `syncAgentConfigs` on every apply;
+  hub wg0.conf und alle Agent-Configs werden automatisch aktualisiert
+- **Agent Self-Update** — `AGENT_SCRIPT_VERSION` + `GET /api/agent/loop-script`;
+  Agents updaten sich selbst innerhalb von 30s bei Version-Bump
+- **Kernel Route Sync** — `sync_routes()` im Loop-Script addiert fehlende ip-Routes
+  nach `wg syncconf` (wg syncconf berührt die Kernel-Routing-Tabelle nicht)
+- CI-Pipeline (Backend Lint + Test, Frontend Lint + Build, OpenAPI Lint)
 
 ## Empfohlene Reihenfolge
 

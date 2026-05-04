@@ -21,7 +21,7 @@ nginx -s reload
 ## Frontend aktualisieren
 
 ```bash
-cd /var/www/nginx-proxy-manager-fork-base/frontend
+cd /var/www/floppyguard/frontend
 corepack yarn build
 # nginx serviert dist/ sofort — kein Reload nötig
 ```

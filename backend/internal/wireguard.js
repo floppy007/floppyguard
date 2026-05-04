@@ -674,6 +674,145 @@ async function getStatus() {
 	};
 }
 
+// ─── Hub wg0.conf sync ───────────────────────────────────────────────────────
+//
+// Keeps /etc/wireguard/<iface>.conf in sync with the metadata store.
+// Called automatically after applyMetadata when importedNetworks change.
+//
+// Per peer:
+//   AllowedIPs = <existing /32+/128 tunnel IPs> + <metadata importedNetworks>
+// Peers without a metadata entry are left unchanged.
+// PostUp/PostDown ip-route lines are rebuilt from the union of all effective AllowedIPs.
+
+function _parsePeersFromConf(lines) {
+	const peers = new Map(); // pubkey → current AllowedIPs string[]
+	let inPeer = false;
+	let currentPubKey = null;
+	let currentAllowedIPs = [];
+
+	const flush = () => {
+		if (inPeer && currentPubKey) peers.set(currentPubKey, [...currentAllowedIPs]);
+	};
+
+	for (const rawLine of lines) {
+		const trimmed = rawLine.trim();
+		if (trimmed === "[Peer]") { flush(); inPeer = true; currentPubKey = null; currentAllowedIPs = []; continue; }
+		if (trimmed.startsWith("[")) { flush(); inPeer = false; currentPubKey = null; continue; }
+		if (!trimmed || trimmed.startsWith("#") || !trimmed.includes("=")) continue;
+		const eqIdx = trimmed.indexOf("=");
+		const k = trimmed.slice(0, eqIdx).trim();
+		const v = trimmed.slice(eqIdx + 1).trim();
+		if (inPeer) {
+			if (k === "PublicKey") currentPubKey = v;
+			if (k === "AllowedIPs") currentAllowedIPs = v.split(",").map((s) => s.trim()).filter(Boolean);
+		}
+	}
+	flush();
+	return peers;
+}
+
+function _buildPeerUpdates(peerMap, linksMeta, ifaceName) {
+	const updates = new Map(); // pubkey → new AllowedIPs[]
+	for (const [pubkey, currentCIDRs] of peerMap) {
+		const meta = linksMeta[`${ifaceName}:${pubkey}`];
+		if (!meta) continue; // unmanaged peer — leave unchanged
+		const hostRoutes = currentCIDRs.filter((c) => c.endsWith("/32") || c.endsWith("/128"));
+		const imported = (meta.importedNetworks || []).filter((c) => !c.endsWith("/32") && !c.endsWith("/128"));
+		const newIPs = [...new Set([...hostRoutes, ...imported])];
+		if ([...newIPs].sort().join(",") !== [...currentCIDRs].sort().join(",")) {
+			updates.set(pubkey, newIPs);
+		}
+	}
+	return updates;
+}
+
+function _rewriteHubConf(lines, ifaceName, peerUpdates, allRouteNets) {
+	let inPeer = false;
+	let currentPubKey = null;
+	const out = [];
+	for (const rawLine of lines) {
+		const t = rawLine.trim();
+		if (t === "[Peer]") { inPeer = true; currentPubKey = null; out.push(rawLine); continue; }
+		if (t.startsWith("[")) { inPeer = false; currentPubKey = null; out.push(rawLine); continue; }
+		if (inPeer && t.startsWith("PublicKey")) {
+			currentPubKey = t.slice(t.indexOf("=") + 1).trim();
+			out.push(rawLine);
+			continue;
+		}
+		if (inPeer && t.startsWith("AllowedIPs") && currentPubKey && peerUpdates.has(currentPubKey)) {
+			out.push(`AllowedIPs = ${peerUpdates.get(currentPubKey).join(", ")}`);
+			continue;
+		}
+		if (!inPeer && (t.startsWith("PostUp") || t.startsWith("PostDown"))) {
+			const isUp = t.startsWith("PostUp");
+			const key = isUp ? "PostUp" : "PostDown";
+			const verb = isUp ? "add" : "del";
+			const value = rawLine.slice(rawLine.indexOf("=") + 1).trim();
+			const routeRe = new RegExp(`^ip route (?:add|del) \\S+ dev ${ifaceName}`);
+			const nonRoute = value.split(";").map((s) => s.trim()).filter((p) => p && !routeRe.test(p));
+			const routeCmds = [...allRouteNets].sort().map((net) => `ip route ${verb} ${net} dev ${ifaceName} 2>/dev/null || true`);
+			out.push(`${key} = ${[...nonRoute, ...routeCmds].join("; ")}`);
+			continue;
+		}
+		out.push(rawLine);
+	}
+	return out.join("\n");
+}
+
+async function syncHubConf(metadata, ifaceName = "wg0") {
+	const confPath = path.join(getWireGuardConfDir(), `${ifaceName}.conf`);
+	let confText;
+	try {
+		confText = await fs.readFile(confPath, "utf8");
+	} catch {
+		return { synced: false, reason: "no-conf-file" };
+	}
+
+	const lines = confText.split(/\r?\n/);
+	const peerMap = _parsePeersFromConf(lines);
+	const peerUpdates = _buildPeerUpdates(peerMap, metadata.links || {}, ifaceName);
+
+	if (!peerUpdates.size) return { synced: true, changes: [] };
+
+	// All non-/32 networks across all peers (effective values after updates)
+	const allRouteNets = new Set();
+	for (const [pubkey, currentCIDRs] of peerMap) {
+		const effective = peerUpdates.has(pubkey) ? peerUpdates.get(pubkey) : currentCIDRs;
+		for (const cidr of effective) {
+			if (!cidr.endsWith("/32") && !cidr.endsWith("/128")) allRouteNets.add(cidr);
+		}
+	}
+
+	const newText = _rewriteHubConf(lines, ifaceName, peerUpdates, allRouteNets);
+	await fs.writeFile(confPath, newText, "utf8");
+
+	const wgBin = getWireGuardBin();
+	const ipBin = getIpBin();
+	const changes = [];
+
+	for (const [pubkey, newIPs] of peerUpdates) {
+		try {
+			await execFileAsync(wgBin, ["set", ifaceName, "peer", pubkey, "allowed-ips", newIPs.join(",")]);
+			changes.push({ peer: `${pubkey.slice(0, 8)}…`, allowedIPs: newIPs });
+		} catch {
+			// peer not currently connected — conf is updated, live apply skipped
+		}
+	}
+
+	// Add any newly required routes live
+	try {
+		const { stdout } = await execFileAsync(ipBin, ["route", "show", "dev", ifaceName]);
+		const existing = new Set(stdout.split("\n").map((l) => l.split(/\s/)[0]).filter(Boolean));
+		for (const net of allRouteNets) {
+			if (!existing.has(net)) {
+				try { await execFileAsync(ipBin, ["route", "add", net, "dev", ifaceName]); } catch { /* already exists */ }
+			}
+		}
+	} catch { /* ignore route lookup failures */ }
+
+	return { synced: true, changes };
+}
+
 export {
 	buildLinkRecord,
 	buildRouteAnalysis,
@@ -694,6 +833,7 @@ export {
 	sanitizeInterfaceMetadataPatch,
 	sanitizeLinkMetadata,
 	sanitizeLinkMetadataPatch,
+	syncHubConf,
 };
 
 export default {
@@ -701,6 +841,7 @@ export default {
 	backupMetadataStore,
 	getStatus,
 	readMetadataStore,
+	syncHubConf,
 	updateInterfaceMetadata,
 	updateLinkMetadata,
 	writeMetadataStore,

@@ -119,7 +119,10 @@ export function SSLCertificateField({
 							defaultValue={options.find((o) => o.value === field.value) || options[0]}
 							options={options}
 							components={{ Option }}
+							menuPortalTarget={document.body}
+							menuPosition="fixed"
 							styles={{
+								menuPortal: (base) => ({ ...base, zIndex: 9999 }),
 								option: (base) => ({
 									...base,
 									height: "100%",
