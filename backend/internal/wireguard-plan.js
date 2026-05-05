@@ -1,4 +1,3 @@
-import internalAgent from "./agent.js";
 import internalWireGuard, {
 	buildRouteAnalysis,
 	buildTopology,
@@ -357,6 +356,7 @@ async function applyMetadata(patch = {}) {
 			hubSync = { synced: false, reason: err.message };
 		}
 		try {
+			const { default: internalAgent } = await import("./agent.js");
 			agentSync = await internalAgent.syncAgentConfigs(metadata);
 		} catch (err) {
 			agentSync = { error: err.message };

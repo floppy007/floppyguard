@@ -16,7 +16,8 @@ import {
 	useWireGuardApplyState,
 	useWireGuardStatus,
 } from "src/hooks";
-import { buildInstallOneliner, resetAgentToken } from "src/api/backend";
+import { buildInstallOneliner, downloadWireGuardLinkConfig, resetAgentToken } from "src/api/backend";
+import { showWireGuardQrModal } from "src/modals";
 import type {
 	Agent,
 	WireGuardApplyMetadataResponse,
@@ -687,6 +688,7 @@ function LinkCard({ link, missingReturnRoutes, natCandidates, planningInterfaces
 	const [editorOpen, setEditorOpen] = useState(false);
 	const [plannerOpen, setPlannerOpen] = useState(false);
 	const [agentOpen, setAgentOpen] = useState(false);
+	const [downloading, setDownloading] = useState(false);
 
 	// Editor state
 	const [draftName, setDraftName] = useState("");
@@ -901,6 +903,29 @@ function LinkCard({ link, missingReturnRoutes, natCandidates, planningInterfaces
 							: "Agent"}
 						</button>
 					)}
+					<button
+						className="btn btn-sm btn-outline-secondary ms-auto"
+						type="button"
+						disabled={downloading}
+						onClick={async () => {
+							setDownloading(true);
+							try {
+								const filename = `${(link.name || link.id).replace(/[^\w.-]/g, "_")}.conf`;
+								await downloadWireGuardLinkConfig(link.id, filename);
+							} finally {
+								setDownloading(false);
+							}
+						}}
+					>
+						{downloading ? "…" : intl.formatMessage({ id: "wireguard.link.download-config" })}
+					</button>
+					<button
+						className="btn btn-sm btn-outline-secondary"
+						type="button"
+						onClick={() => showWireGuardQrModal(link.id, link.name || link.id)}
+					>
+						{intl.formatMessage({ id: "wireguard.link.show-qr" })}
+					</button>
 				</div>
 			</div>
 
@@ -1372,6 +1397,76 @@ function InterfaceCard({
 	);
 }
 
+// ── Routing Matrix ─────────────────────────────────────────────────────────────
+
+function RoutingMatrix({ links }: { links: WireGuardLink[] }) {
+	const allNetworks = Array.from(
+		new Set(links.flatMap((l) => l.exportedNetworks)),
+	).sort();
+
+	if (allNetworks.length === 0) {
+		return (
+			<div className="card">
+				<div className="card-header">
+					<h3 className="card-title">{intl.formatMessage({ id: "wireguard.routing.matrix-title" })}</h3>
+				</div>
+				<div className="card-body text-secondary small">
+					{intl.formatMessage({ id: "wireguard.routing.matrix-no-networks" })}
+				</div>
+			</div>
+		);
+	}
+
+	return (
+		<div className="card">
+			<div className="card-header">
+				<h3 className="card-title">{intl.formatMessage({ id: "wireguard.routing.matrix-title" })}</h3>
+				<span className="text-secondary small ms-2">
+					{intl.formatMessage({ id: "wireguard.routing.matrix-hint" })}
+				</span>
+			</div>
+			<div className="table-responsive">
+				<table className="table table-vcenter card-table">
+					<thead>
+						<tr>
+							<th>{intl.formatMessage({ id: "wireguard.routing.col-peer" })}</th>
+							{allNetworks.map((net) => (
+								<th key={net} className="text-center text-secondary small fw-normal">
+									{net}
+								</th>
+							))}
+						</tr>
+					</thead>
+					<tbody>
+						{links.map((link) => (
+							<tr key={link.id}>
+								<td className="fw-medium">{link.name || link.id}</td>
+								{allNetworks.map((net) => {
+									const exports = link.exportedNetworks.includes(net);
+									const imports = link.importedNetworks.includes(net);
+									return (
+										<td key={net} className="text-center">
+											{exports ? (
+												<span className="badge bg-azure-lt text-azure">
+													{intl.formatMessage({ id: "wireguard.routing.matrix-exports" })}
+												</span>
+											) : imports ? (
+												<span className="text-green fw-medium">✓</span>
+											) : (
+												<span className="text-secondary">—</span>
+											)}
+										</td>
+									);
+								})}
+							</tr>
+						))}
+					</tbody>
+				</table>
+			</div>
+		</div>
+	);
+}
+
 // ── Main Component ─────────────────────────────────────────────────────────────
 
 type Tab = "overview" | "links" | "interfaces" | "routing";
@@ -1737,6 +1832,7 @@ const WireGuard = () => {
 									<thead>
 										<tr>
 											<th>{intl.formatMessage({ id: "wireguard.routing.col-interface" })}</th>
+											<th>{intl.formatMessage({ id: "wireguard.link.display-name" })}</th>
 											<th>{intl.formatMessage({ id: "wireguard.routing.col-public-key" })}</th>
 											<th>{intl.formatMessage({ id: "wireguard.routing.col-endpoint" })}</th>
 											<th>{intl.formatMessage({ id: "wireguard.routing.col-allowed-ips" })}</th>
@@ -1755,6 +1851,7 @@ const WireGuard = () => {
 											activePeers.map((peer) => (
 												<tr key={`${peer.iface}-${peer.publicKey}`}>
 													<td>{peer.iface}</td>
+													<td>{links.find((l) => l.peerPublicKey === peer.publicKey && l.interfaceName === peer.iface)?.name || <span className="text-secondary">—</span>}</td>
 													<td className="text-secondary">{shortKey(peer.publicKey)}</td>
 													<td>{peer.endpoint || <span className="text-secondary">—</span>}</td>
 													<td>
@@ -1781,6 +1878,10 @@ const WireGuard = () => {
 								</table>
 							</div>
 						</div>
+					</div>
+
+					<div className="col-12">
+						<RoutingMatrix links={links} />
 					</div>
 				</div>
 			)}

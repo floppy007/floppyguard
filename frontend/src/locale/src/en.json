@@ -911,6 +911,15 @@
 	"wireguard.link.display-name-hint": {
 		"defaultMessage": "Any name, e.g. \"Daniel Home\" or \"Office Berlin\""
 	},
+	"wireguard.link.download-config": {
+		"defaultMessage": "Download Config"
+	},
+	"wireguard.link.show-qr": {
+		"defaultMessage": "Show QR"
+	},
+	"wireguard.link.qr-hint": {
+		"defaultMessage": "Scan with WireGuard app (iOS / Android)"
+	},
 	"wireguard.link.edit-metadata": {
 		"defaultMessage": "Edit metadata"
 	},

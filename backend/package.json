@@ -1,6 +1,6 @@
 {
 	"name": "floppyguard",
-	"version": "1.2.3",
+	"version": "1.2.4",
 	"description": "WireGuard VPN management + nginx reverse proxy in one platform",
 	"author": "Florian Hesse <f.hesse@comnic.de>",
 	"contributors": [
@@ -12,7 +12,7 @@
 	"scripts": {
 		"lint": "biome lint",
 		"prettier": "biome format --write .",
-		"test": "node --test",
+		"test": "node --test internal/*.test.js",
 		"validate-schema": "node validate-schema.js",
 		"regenerate-config": "node scripts/regenerate-config"
 	},
@@ -40,6 +40,7 @@
 		"path": "^0.12.7",
 		"pg": "^8.18.0",
 		"proxy-agent": "^6.5.0",
+		"qrcode": "^1.5.4",
 		"signale": "1.4.0",
 		"sqlite3": "^5.1.7",
 		"temp-write": "^4.0.0"
