@@ -14,8 +14,9 @@ import {
 } from "@tabler/icons-react";
 import { useNavigate } from "react-router-dom";
 import { HasPermission } from "src/components";
-import { useHostReport, useWireGuardStatus, useFail2BanStatus, useUnbanIp } from "src/hooks";
+import { useHostReport, useWireGuardStatus, useWireGuardBandwidth, useFail2BanStatus, useUnbanIp } from "src/hooks";
 import { intl } from "src/locale/IntlProvider";
+import type { PeerBandwidth } from "src/api/backend";
 import { DEAD_HOSTS, PROXY_HOSTS, REDIRECTION_HOSTS, STREAMS, VIEW } from "src/modules/Permissions";
 
 const KNOWN_NEXT_ACTIONS = new Set([
@@ -39,12 +40,85 @@ const byteFmt = (value?: number) => {
 	return `${current < 10 ? current.toFixed(2) : current < 100 ? current.toFixed(1) : Math.round(current)} ${units[idx]}`;
 };
 
+const PEER_COLORS = ["#4299e1", "#48bb78", "#ed8936", "#a78bfa", "#f687b3", "#38b2ac"];
+
+const rateFmt = (bps: number) => {
+	if (bps < 1024) return `${bps} B/s`;
+	if (bps < 1024 * 1024) return `${(bps / 1024).toFixed(1)} KB/s`;
+	return `${(bps / 1024 / 1024).toFixed(2)} MB/s`;
+};
+
+function MiniChart({ peers, mode }: { peers: PeerBandwidth[]; mode: "rx" | "tx" }) {
+	const W = 600; const H = 90; const N = 60;
+	const PAD = { t: 6, r: 8, b: 18, l: 42 };
+	const IW = W - PAD.l - PAD.r; const IH = H - PAD.t - PAD.b;
+	const allVals = peers.flatMap((p) => p.history.map((s) => (mode === "rx" ? s.rx : s.tx)));
+	const yMax = Math.max(...allVals, 1024) * 1.2;
+
+	const toD = (peer: PeerBandwidth, fill: boolean) => {
+		if (!peer.history.length) return "";
+		const pts = peer.history.map((s, i) => {
+			const x = PAD.l + (i / (N - 1)) * IW;
+			const v = mode === "rx" ? s.rx : s.tx;
+			const y = PAD.t + IH - (v / yMax) * IH;
+			return `${x.toFixed(1)},${y.toFixed(1)}`;
+		});
+		if (fill) {
+			const lastX = (PAD.l + ((peer.history.length - 1) / (N - 1)) * IW).toFixed(1);
+			return `M ${pts.join(" L ")} L ${lastX},${(PAD.t + IH).toFixed(1)} L ${PAD.l},${(PAD.t + IH).toFixed(1)} Z`;
+		}
+		return `M ${pts.join(" L ")}`;
+	};
+
+	const ticks = [0, 0.5, 1].map((f) => ({ y: PAD.t + IH * (1 - f), label: rateFmt(Math.round(yMax * f)) }));
+
+	return (
+		<svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: H, display: "block" }}>
+			<title>bandwidth</title>
+			<defs>
+				{peers.map((_, idx) => {
+					const c = PEER_COLORS[idx % PEER_COLORS.length];
+					return (
+						<linearGradient key={idx} id={`dg-${mode}-${idx}`} x1="0" y1="0" x2="0" y2="1">
+							<stop offset="0%" stopColor={c} stopOpacity="0.2" />
+							<stop offset="100%" stopColor={c} stopOpacity="0" />
+						</linearGradient>
+					);
+				})}
+			</defs>
+			{ticks.map(({ y, label }) => (
+				<g key={label}>
+					<line x1={PAD.l} y1={y} x2={W - PAD.r} y2={y} stroke="currentColor" strokeOpacity="0.06" strokeWidth={1} />
+					<text x={PAD.l - 3} y={y + 3.5} textAnchor="end" fontSize={8} fill="currentColor" fillOpacity="0.35" fontFamily="monospace">{label}</text>
+				</g>
+			))}
+			{peers.map((p, idx) => {
+				const c = PEER_COLORS[idx % PEER_COLORS.length];
+				const areaD = toD(p, true);
+				const lineD = toD(p, false);
+				if (!lineD) return null;
+				return (
+					<g key={p.id}>
+						<path d={areaD} fill={`url(#dg-${mode}-${idx})`} />
+						<path d={lineD} fill="none" stroke={c} strokeWidth={1.6} strokeLinejoin="round" strokeLinecap="round" />
+					</g>
+				);
+			})}
+			<text x={PAD.l} y={H - 2} fontSize={8} fill="currentColor" fillOpacity="0.3" fontFamily="monospace">-10m</text>
+			<text x={W - PAD.r} y={H - 2} fontSize={8} fill="currentColor" fillOpacity="0.3" fontFamily="monospace" textAnchor="end">now</text>
+		</svg>
+	);
+}
+
 const Dashboard = () => {
 	const { data: hostReport } = useHostReport();
 	const { data: wireguard } = useWireGuardStatus();
+	const { data: bw = [] } = useWireGuardBandwidth();
 	const { data: fail2ban, isLoading: f2bLoading } = useFail2BanStatus();
 	const unban = useUnbanIp();
 	const navigate = useNavigate();
+
+	const hasHistory = bw.some((p) => p.history.length > 0);
 	const wgSummary = wireguard?.summary;
 	const hub = wireguard?.hub;
 	const routePreview = wireguard?.routes.wireguard.slice(0, 5) || [];
@@ -236,6 +310,48 @@ const Dashboard = () => {
 					</div>
 				</div>
 			</div>
+
+			{/* Live bandwidth mini-charts */}
+			{hasHistory && (
+				<div className="row row-cards">
+					<div className="col-lg-6">
+						<div className="card platform-elevated-card">
+							<div className="card-header">
+								<h3 className="card-title d-flex align-items-center gap-2">
+									<IconArrowDown size={14} className="text-success" />
+									{intl.formatMessage({ id: "traffic.chart-rx" })}
+								</h3>
+								<div className="card-options">
+									<span className="text-secondary" style={{ fontSize: "0.72rem", fontFamily: "monospace" }}>
+										{rateFmt(bw.reduce((s, p) => s + (p.history[p.history.length - 1]?.rx ?? 0), 0))}
+									</span>
+								</div>
+							</div>
+							<div className="card-body pt-1 pb-2">
+								<MiniChart peers={bw.slice(0, 4)} mode="rx" />
+							</div>
+						</div>
+					</div>
+					<div className="col-lg-6">
+						<div className="card platform-elevated-card">
+							<div className="card-header">
+								<h3 className="card-title d-flex align-items-center gap-2">
+									<IconArrowUp size={14} className="text-primary" />
+									{intl.formatMessage({ id: "traffic.chart-tx" })}
+								</h3>
+								<div className="card-options">
+									<span className="text-secondary" style={{ fontSize: "0.72rem", fontFamily: "monospace" }}>
+										{rateFmt(bw.reduce((s, p) => s + (p.history[p.history.length - 1]?.tx ?? 0), 0))}
+									</span>
+								</div>
+							</div>
+							<div className="card-body pt-1 pb-2">
+								<MiniChart peers={bw.slice(0, 4)} mode="tx" />
+							</div>
+						</div>
+					</div>
+				</div>
+			)}
 
 			{/* Secondary host stats */}
 			<div className="row row-deck row-cards">
