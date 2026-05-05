@@ -1,6 +1,7 @@
 import {
 	IconChevronRight,
 	IconChartArcs,
+	IconChartBar,
 	IconDeviceDesktop,
 	IconHome,
 	IconLock,
@@ -71,9 +72,9 @@ const menuItems: MenuItem[] = [
 		label: "dashboard",
 	},
 	{
-		to: "/gateway",
-		icon: IconChartArcs,
-		label: "gateway",
+		to: "/traffic",
+		icon: IconChartBar,
+		label: "traffic",
 	},
 	{
 		icon: IconDeviceDesktop,

@@ -1486,5 +1486,80 @@
 	},
 	"wireguard.next.mount-wireguard-config-directory": {
 		"defaultMessage": "Monter le répertoire de config WireGuard"
+	},
+	"dashboard.view-routing": {
+		"defaultMessage": "Détails du routage"
+	},
+	"dashboard.view-traffic": {
+		"defaultMessage": "Détails du trafic"
+	},
+	"traffic": {
+		"defaultMessage": "Trafic"
+	},
+	"traffic.rx": {
+		"defaultMessage": "Reçu"
+	},
+	"traffic.tx": {
+		"defaultMessage": "Envoyé"
+	},
+	"traffic.never": {
+		"defaultMessage": "jamais"
+	},
+	"traffic.total-rx": {
+		"defaultMessage": "Total reçu"
+	},
+	"traffic.total-tx": {
+		"defaultMessage": "Total envoyé"
+	},
+	"traffic.active-links": {
+		"defaultMessage": "Liens actifs"
+	},
+	"traffic.combined": {
+		"defaultMessage": "Trafic combiné"
+	},
+	"traffic.per-peer-title": {
+		"defaultMessage": "Bande passante par pair"
+	},
+	"traffic.table-title": {
+		"defaultMessage": "Détails des liens"
+	},
+	"traffic.loading": {
+		"defaultMessage": "Chargement des données de trafic…"
+	},
+	"traffic.no-links": {
+		"defaultMessage": "Aucun lien WireGuard trouvé."
+	},
+	"traffic.updated": {
+		"defaultMessage": "Mis à jour {time}"
+	},
+	"traffic.col-peer": {
+		"defaultMessage": "Pair"
+	},
+	"traffic.col-type": {
+		"defaultMessage": "Type"
+	},
+	"traffic.col-iface": {
+		"defaultMessage": "Interface"
+	},
+	"traffic.col-rx": {
+		"defaultMessage": "Reçu"
+	},
+	"traffic.col-tx": {
+		"defaultMessage": "Envoyé"
+	},
+	"traffic.col-handshake": {
+		"defaultMessage": "Dernier handshake"
+	},
+	"traffic.col-status": {
+		"defaultMessage": "Statut"
+	},
+	"traffic.status-active": {
+		"defaultMessage": "Actif"
+	},
+	"traffic.status-idle": {
+		"defaultMessage": "Inactif"
+	},
+	"traffic.handshake": {
+		"defaultMessage": "Handshake"
 	}
 }
