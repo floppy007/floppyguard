@@ -23,4 +23,5 @@ export * from "./useTheme";
 export * from "./useUser";
 export * from "./useUsers";
 export * from "./useWireGuardMetadata";
+export * from "./useWireGuardBandwidth";
 export * from "./useWireGuardStatus";

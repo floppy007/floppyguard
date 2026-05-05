@@ -129,6 +129,19 @@ router.route("/link-config-qr")
 		}
 	});
 
+router.route("/bandwidth")
+	.options((_, res) => { res.sendStatus(204); })
+	.all(jwtdecode())
+	.get(async (req, res, next) => {
+		try {
+			const data = await internalWireGuard.getBandwidth();
+			res.status(200).send(data);
+		} catch (err) {
+			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
+			next(err);
+		}
+	});
+
 router.route("/restore-metadata")
 	.options((_, res) => { res.sendStatus(204); })
 	.all(jwtdecode())
