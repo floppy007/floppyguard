@@ -1496,50 +1496,47 @@
 	"traffic": {
 		"defaultMessage": "Trafic"
 	},
-	"traffic.rx": {
-		"defaultMessage": "Reçu"
+	"traffic.current-rx": {
+		"defaultMessage": "Réception"
 	},
-	"traffic.tx": {
-		"defaultMessage": "Envoyé"
+	"traffic.current-tx": {
+		"defaultMessage": "Émission"
 	},
-	"traffic.never": {
-		"defaultMessage": "jamais"
-	},
-	"traffic.total-rx": {
-		"defaultMessage": "Total reçu"
-	},
-	"traffic.total-tx": {
-		"defaultMessage": "Total envoyé"
+	"traffic.total": {
+		"defaultMessage": "total"
 	},
 	"traffic.active-links": {
 		"defaultMessage": "Liens actifs"
 	},
-	"traffic.combined": {
-		"defaultMessage": "Trafic combiné"
+	"traffic.combined-rate": {
+		"defaultMessage": "Débit combiné"
 	},
-	"traffic.per-peer-title": {
-		"defaultMessage": "Bande passante par pair"
+	"traffic.peers": {
+		"defaultMessage": "pairs"
+	},
+	"traffic.chart-rx": {
+		"defaultMessage": "Reçu (octets/s)"
+	},
+	"traffic.chart-tx": {
+		"defaultMessage": "Envoyé (octets/s)"
+	},
+	"traffic.warming-up": {
+		"defaultMessage": "Collecte des données — mise à jour toutes les 10 s…"
 	},
 	"traffic.table-title": {
 		"defaultMessage": "Détails des liens"
 	},
-	"traffic.loading": {
-		"defaultMessage": "Chargement des données de trafic…"
+	"traffic.routing-details": {
+		"defaultMessage": "Détails du routage"
 	},
 	"traffic.no-links": {
 		"defaultMessage": "Aucun lien WireGuard trouvé."
-	},
-	"traffic.updated": {
-		"defaultMessage": "Mis à jour {time}"
 	},
 	"traffic.col-peer": {
 		"defaultMessage": "Pair"
 	},
 	"traffic.col-type": {
 		"defaultMessage": "Type"
-	},
-	"traffic.col-iface": {
-		"defaultMessage": "Interface"
 	},
 	"traffic.col-rx": {
 		"defaultMessage": "Reçu"
@@ -1558,8 +1555,5 @@
 	},
 	"traffic.status-idle": {
 		"defaultMessage": "Inactif"
-	},
-	"traffic.handshake": {
-		"defaultMessage": "Handshake"
 	}
 }

@@ -943,6 +943,76 @@ async function syncHubConf(metadata, ifaceName = "wg0") {
 	return { synced: true, changes };
 }
 
+// ─── Bandwidth ring buffer ────────────────────────────────────────────────────
+// Polls `wg show all dump` every BW_POLL_INTERVAL ms, computes per-peer
+// RX/TX byte deltas and stores up to BW_HISTORY_SIZE rate samples per peer.
+
+const BW_HISTORY_SIZE = 60; // samples (= 10 min at 10 s interval)
+const BW_POLL_INTERVAL = 10_000; // ms
+
+/** Map<peerKey, Array<{ts: number, rx: number, tx: number}>> — rates in bytes/s */
+const _bwHistory = new Map();
+/** Map<peerKey, {ts: number, rxBytes: number, txBytes: number}> — previous raw counters */
+let _bwPrev = null;
+
+async function _pollBandwidth() {
+	try {
+		const now = Date.now();
+		const dump = parseDump(await getDump());
+		const snap = new Map();
+		for (const [iface, data] of dump) {
+			for (const peer of data.peers) {
+				if (!peer.publicKey) continue;
+				const key = `${iface}:${peer.publicKey}`;
+				snap.set(key, { ts: now, rxBytes: peer.rxBytes, txBytes: peer.txBytes });
+			}
+		}
+		if (_bwPrev) {
+			const dt = (now - _bwPrev.get("__ts__")) / 1000 || BW_POLL_INTERVAL / 1000;
+			for (const [key, curr] of snap) {
+				const prev = _bwPrev.get(key);
+				if (!prev) continue;
+				const rx = Math.max(0, (curr.rxBytes - prev.rxBytes)) / dt;
+				const tx = Math.max(0, (curr.txBytes - prev.txBytes)) / dt;
+				const history = _bwHistory.get(key) ?? [];
+				history.push({ ts: now, rx: Math.round(rx), tx: Math.round(tx) });
+				if (history.length > BW_HISTORY_SIZE) history.shift();
+				_bwHistory.set(key, history);
+			}
+		}
+		snap.set("__ts__", now);
+		_bwPrev = snap;
+	} catch {
+		// silently ignore poll errors
+	}
+}
+
+// Kick off polling as soon as the module is loaded
+_pollBandwidth();
+const _bwTimer = setInterval(_pollBandwidth, BW_POLL_INTERVAL);
+// Avoid keeping Node process alive for this background timer alone
+if (typeof _bwTimer.unref === "function") _bwTimer.unref();
+
+/**
+ * Returns the bandwidth ring buffer, annotated with link names from metadata.
+ * Each entry: { id, name, history: [{ts, rx, tx}] }
+ */
+async function getBandwidth() {
+	const metadataStore = await readMetadataStore();
+	const result = [];
+	for (const [key, history] of _bwHistory) {
+		const linkMeta = metadataStore.links?.[key] ?? {};
+		result.push({ id: key, name: linkMeta.name || key, history });
+	}
+	// Sort by most recently active (last sample tx+rx descending)
+	result.sort((a, b) => {
+		const lastA = a.history.at(-1);
+		const lastB = b.history.at(-1);
+		return ((lastB?.rx ?? 0) + (lastB?.tx ?? 0)) - ((lastA?.rx ?? 0) + (lastA?.tx ?? 0));
+	});
+	return result;
+}
+
 export {
 	buildLinkRecord,
 	buildRouteAnalysis,
@@ -971,6 +1041,7 @@ export default {
 	backupMetadataStore,
 	generatePeerConfig,
 	generatePeerConfigQr,
+	getBandwidth,
 	getStatus,
 	readMetadataStore,
 	syncHubConf,

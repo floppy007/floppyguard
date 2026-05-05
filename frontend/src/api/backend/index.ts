@@ -44,6 +44,7 @@ export * from "./getToken";
 export * from "./getUser";
 export * from "./getUsers";
 export * from "./getWireGuardApplyState";
+export * from "./getWireGuardBandwidth";
 export * from "./getWireGuardStatus";
 export * from "./getWireGuardMetadata";
 export * from "./helpers";
