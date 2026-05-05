@@ -1,5 +1,8 @@
 import {
+	IconArrowDown,
+	IconArrowRight,
 	IconArrowsCross,
+	IconArrowUp,
 	IconBolt,
 	IconBoltOff,
 	IconDisc,
@@ -133,6 +136,11 @@ const Dashboard = () => {
 					<div className="card h-100 platform-elevated-card">
 						<div className="card-header">
 							<h3 className="card-title d-flex align-items-center gap-2"><IconRoute size={18} /> {intl.formatMessage({ id: "dashboard.gateway-overview" })}</h3>
+							<div className="card-options">
+								<a href="/gateway" className="btn btn-sm btn-ghost-secondary" onClick={(e) => { e.preventDefault(); navigate("/gateway"); }}>
+									{intl.formatMessage({ id: "dashboard.view-routing" })} <IconArrowRight size={14} />
+								</a>
+							</div>
 						</div>
 						<div className="card-body">
 							<div className="row row-cards">
@@ -182,25 +190,48 @@ const Dashboard = () => {
 					<div className="card h-100 platform-table-card">
 						<div className="card-header">
 							<h3 className="card-title">{intl.formatMessage({ id: "dashboard.link-preview" })}</h3>
+							<div className="card-options">
+								<a href="/traffic" className="btn btn-sm btn-ghost-secondary" onClick={(e) => { e.preventDefault(); navigate("/traffic"); }}>
+									{intl.formatMessage({ id: "dashboard.view-traffic" })} <IconArrowRight size={14} />
+								</a>
+							</div>
 						</div>
 						<div className="list-group list-group-flush">
-							{links.length ? links.map((link) => (
-								<div key={link.id} className="list-group-item">
-									<div className="fw-medium">{link.name}</div>
-									<div className="text-secondary small">
-										{link.type} on {link.interfaceName}{link.remoteEndpoint ? ` · ${link.remoteEndpoint}` : ""}
+							{(() => {
+								const maxBytes = links.length ? Math.max(...links.map((l) => Math.max(l.rxBytes || 0, l.txBytes || 0)), 1) : 1;
+								return links.length ? links.map((link) => (
+									<div key={link.id} className="list-group-item py-2">
+										<div className="d-flex align-items-center justify-content-between mb-1">
+											<span className="fw-medium" style={{ fontSize: "0.85rem" }}>{link.name || link.id}</span>
+											<span className={`badge ${link.active ? "bg-success-lt text-success" : "bg-secondary-lt text-secondary"}`} style={{ fontSize: "0.65rem" }}>
+												{link.active ? "●" : "○"} {link.type || "—"}
+											</span>
+										</div>
+										<div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+											<IconArrowDown size={10} className="text-success" style={{ flexShrink: 0 }} />
+											<div style={{ flex: 1, height: 4, borderRadius: 2, background: "var(--tblr-border-color)", overflow: "hidden" }}>
+												<div style={{ width: `${Math.max(2, Math.round(((link.rxBytes || 0) / maxBytes) * 100))}%`, height: "100%", background: "var(--tblr-success)", borderRadius: 2 }} />
+											</div>
+											<IconArrowUp size={10} className="text-primary" style={{ flexShrink: 0 }} />
+											<div style={{ flex: 1, height: 4, borderRadius: 2, background: "var(--tblr-border-color)", overflow: "hidden" }}>
+												<div style={{ width: `${Math.max(2, Math.round(((link.txBytes || 0) / maxBytes) * 100))}%`, height: "100%", background: "var(--tblr-primary)", borderRadius: 2 }} />
+											</div>
+											<span className="text-secondary" style={{ fontSize: "0.65rem", minWidth: 60, textAlign: "right" }}>
+												{byteFmt(link.rxBytes)} / {byteFmt(link.txBytes)}
+											</span>
+										</div>
 									</div>
-								</div>
-							)) : routePreview.length ? routePreview.map((route) => (
-								<div key={route.raw} className="list-group-item">
-									<div className="fw-medium">{route.destination}</div>
-									<div className="text-secondary small">
-										dev {route.device || "?"}{route.via ? ` via ${route.via}` : ""}
+								)) : routePreview.length ? routePreview.map((route) => (
+									<div key={route.raw} className="list-group-item">
+										<div className="fw-medium">{route.destination}</div>
+										<div className="text-secondary small">
+											dev {route.device || "?"}{route.via ? ` via ${route.via}` : ""}
+										</div>
 									</div>
-								</div>
-							)) : (
-								<div className="list-group-item text-secondary small">{intl.formatMessage({ id: "dashboard.no-links" })}</div>
-							)}
+								)) : (
+									<div className="list-group-item text-secondary small">{intl.formatMessage({ id: "dashboard.no-links" })}</div>
+								);
+							})()}
 						</div>
 					</div>
 				</div>
