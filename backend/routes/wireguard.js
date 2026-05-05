@@ -92,6 +92,43 @@ router.route("/apply-state")
 		}
 	});
 
+router.route("/link-config")
+	.options((_, res) => { res.sendStatus(204); })
+	.all(jwtdecode())
+	.get(async (req, res, next) => {
+		try {
+			const { filename, content } = await internalWireGuard.generatePeerConfig(req.query.link_id);
+			res.setHeader("Content-Type", "text/plain; charset=utf-8");
+			res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+			res.status(200).send(content);
+		} catch (err) {
+			if (err?.message?.startsWith("Link not found")) {
+				next(new error.ItemNotFoundError(err.message));
+				return;
+			}
+			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
+			next(err);
+		}
+	});
+
+router.route("/link-config-qr")
+	.options((_, res) => { res.sendStatus(204); })
+	.all(jwtdecode())
+	.get(async (req, res, next) => {
+		try {
+			const png = await internalWireGuard.generatePeerConfigQr(req.query.link_id);
+			res.setHeader("Content-Type", "image/png");
+			res.status(200).send(png);
+		} catch (err) {
+			if (err?.message?.startsWith("Link not found")) {
+				next(new error.ItemNotFoundError(err.message));
+				return;
+			}
+			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
+			next(err);
+		}
+	});
+
 router.route("/restore-metadata")
 	.options((_, res) => { res.sendStatus(204); })
 	.all(jwtdecode())

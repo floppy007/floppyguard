@@ -17,6 +17,8 @@ export * from "./deleteRedirectionHost";
 export * from "./deleteStream";
 export * from "./deleteUser";
 export * from "./downloadCertificate";
+export * from "./downloadWireGuardLinkConfig";
+export * from "./getWireGuardLinkConfigQr";
 export * from "./expansions";
 export * from "./getAccessList";
 export * from "./getAccessLists";
