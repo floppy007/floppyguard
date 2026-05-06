@@ -191,6 +191,10 @@ DB_SQLITE_FILE=/data/database.sqlite
 
 PORT=${BACKEND_PORT}
 WG_CONF_DIR=/etc/wireguard
+
+# --- WireGuard peer config defaults ---
+# WG_HUB_HOST=your-server-ip-or-hostname
+# WG_DNS=10.10.0.1,1.1.1.1
 EOF
     ok ".env written"
 }
