@@ -7,7 +7,7 @@
 > Nginx reverse proxy manager with integrated WireGuard VPN management, a visual topology map, remote agent support and a hardened host-based runtime.
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.2.4-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.3.0-blue.svg)](CHANGELOG.md)
 [![CI](https://github.com/floppy007/floppyguard/actions/workflows/ci.yml/badge.svg)](https://github.com/floppy007/floppyguard/actions/workflows/ci.yml)
 
 ---
@@ -21,13 +21,17 @@
 
 **Added by FloppyGuard**
 - WireGuard interface, peer and link management with visual topology map
+- WireGuard tunnel creation from the UI — name, type, DNS, platform (desktop/mobile), full tunnel toggle
+- Peer config export with QR code for mobile enrollment
+- DNS/nameserver auto-config per interface or link, with platform-aware AllowedIPs
 - Planning layer: links go through discover → shape → validate → ready stages
 - Remote agent system — push WireGuard configs to remote hosts (native Linux + UniFi-compatible mode)
+- Live bandwidth monitoring with per-peer sparklines and donut gauges
 - Platform dashboard — proxy stats, WireGuard summary, gateway overview, fail2ban status in one view
 - Fail2Ban UI — view jails and banned IPs, unban with one click
 - nftables firewall hardening (strict INPUT policy, only required ports open)
 - Multilanguage UI — English, German, French
-- Dark mode with correct CSS variable handling
+- Dark mode with compact glassmorphism header and theme toggle
 
 ---
 
@@ -122,6 +126,8 @@ nginx -t && nginx -s reload
 | `DB_POSTGRES_PASSWORD` | — | PostgreSQL password |
 | `DB_POSTGRES_NAME` | — | PostgreSQL database name |
 | `WG_CONF_DIR` | `/etc/wireguard` | WireGuard config directory |
+| `WG_HUB_HOST` | — | Public IP/hostname for WireGuard endpoint in generated peer configs |
+| `WG_DNS` | — | Default DNS servers for peer configs (comma-separated, e.g. `10.10.0.1,1.1.1.1`) |
 | `PORT` | `3300` | Backend listen port |
 
 ---
@@ -186,7 +192,7 @@ yarn test       # Vitest
 ## Project structure
 
 ```
-backend/          Express.js API (Node 18+, ES modules)
+backend/          Express.js API (Node 20+, ES modules)
 frontend/         React 19 + TypeScript + Vite
 scripts/          Operational scripts (install, start, stop, check)
 docs/             VitePress documentation + architecture notes

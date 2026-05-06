@@ -7,6 +7,32 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.3.0] – 2026-05-06
+
+### Added
+
+- **WireGuard tunnel creation** — new "Neuer Tunnel" button on WireGuard page; creates peer with keypair, auto-assigns tunnel IP, generates downloadable client config
+- **Tunnel configuration options** — name, type (client/site-to-site/hub-link), DNS servers, platform (desktop/mobile), full tunnel toggle, custom AllowedIPs
+- **Platform-aware AllowedIPs** — desktop uses `/1`-split routing (no routing loop), mobile uses `0.0.0.0/0` (OS VPN tunnel flag)
+- **DNS/nameserver config** — configurable per interface and per link; falls back to `WG_DNS` env variable; written into `[Interface] DNS =` of generated peer configs
+- **DonutGauge component** — SVG ring gauge for stat cards showing ratios (e.g. 10/12 active)
+- **PeerSparkline component** — mini bandwidth sparkline chart per peer connection
+- **Chart legends** — bandwidth charts show peer name + color + current rate
+
+### Changed
+
+- **Dashboard redesign** — stat cards with donut gauges, peer link preview with sparklines and scroll, higher bandwidth charts
+- **Traffic page redesign** — donut stat cards, per-peer sparkline column in link table
+- **Header redesign** — compact 56px glassmorphism header, pill-style nav links, Light/Dark pill toggle, avatar with initials
+- **CSS simplification** — removed heavy body gradients, grid overlays, pseudo-element decorations; cards use `backdrop-filter: blur` and `color-mix`
+
+### Fixed
+
+- Bandwidth charts starting in the middle when history is incomplete (left-padded with zeros)
+- Nav link active state not visible (Tabler CSS specificity override)
+
+---
+
 ## [1.2.3] – 2026-05-04
 
 ### Fixed
