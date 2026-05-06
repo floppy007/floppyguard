@@ -59,30 +59,30 @@ export default function TableWrapper() {
 						</div>
 
 						<div className="platform-admin-tools">
+							{data?.length ? (
+								<div className="input-group input-group-flat platform-search">
+									<span className="input-group-text input-group-text-sm">
+										<IconSearch size={16} />
+									</span>
+									<input
+										id="advanced-table-search"
+										type="text"
+										className="form-control form-control-sm"
+										autoComplete="off"
+										onChange={(e: any) => setSearch(e.target.value.toLowerCase().trim())}
+									/>
+								</div>
+							) : null}
+							<Button size="sm" onClick={() => showHelpModal("DeadHosts", "red")}>
+								<IconHelp size={20} />
+							</Button>
+							<HasPermission section={DEAD_HOSTS} permission={MANAGE} hideError>
 								{data?.length ? (
-									<div className="input-group input-group-flat platform-search">
-										<span className="input-group-text input-group-text-sm">
-											<IconSearch size={16} />
-										</span>
-										<input
-											id="advanced-table-search"
-											type="text"
-											className="form-control form-control-sm"
-											autoComplete="off"
-											onChange={(e: any) => setSearch(e.target.value.toLowerCase().trim())}
-										/>
-									</div>
+									<Button size="sm" className="btn-red" onClick={() => showDeadHostModal("new")}>
+										<T id="object.add" tData={{ object: "dead-host" }} />
+									</Button>
 								) : null}
-								<Button size="sm" onClick={() => showHelpModal("DeadHosts", "red")}>
-									<IconHelp size={20} />
-								</Button>
-								<HasPermission section={DEAD_HOSTS} permission={MANAGE} hideError>
-									{data?.length ? (
-										<Button size="sm" className="btn-red" onClick={() => showDeadHostModal("new")}>
-											<T id="object.add" tData={{ object: "dead-host" }} />
-										</Button>
-									) : null}
-								</HasPermission>
+							</HasPermission>
 						</div>
 					</div>
 				</div>

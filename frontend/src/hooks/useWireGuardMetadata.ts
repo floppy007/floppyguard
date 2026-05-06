@@ -61,4 +61,12 @@ const usePreviewWireGuardPlan = () => {
 	});
 };
 
-export { fetchWireGuardApplyState, fetchWireGuardMetadata, useApplyWireGuardMetadata, usePreviewWireGuardPlan, useRestoreWireGuardMetadata, useWireGuardApplyState, useWireGuardMetadata };
+export {
+	fetchWireGuardApplyState,
+	fetchWireGuardMetadata,
+	useApplyWireGuardMetadata,
+	usePreviewWireGuardPlan,
+	useRestoreWireGuardMetadata,
+	useWireGuardApplyState,
+	useWireGuardMetadata,
+};

@@ -1,9 +1,8 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-
 import { buildApplyContract, buildPlanPreview, classifyChangeScope, normalizePatch } from "./wireguard-plan.js";
 
 async function withPlanEnv(env, suffix, fn) {
@@ -184,7 +183,10 @@ test("buildPlanPreview projects metadata changes into route-aware warnings and d
 test("classifyChangeScope distinguishes no-op, metadata-only and config-intent changes", () => {
 	assert.equal(classifyChangeScope({ interfaces: [], links: [] }), "none");
 	assert.equal(classifyChangeScope({ interfaces: [{ changedFields: ["notes"] }], links: [] }), "metadata-only");
-	assert.equal(classifyChangeScope({ interfaces: [], links: [{ changedFields: ["exportedNetworks"] }] }), "metadata-with-config-intent");
+	assert.equal(
+		classifyChangeScope({ interfaces: [], links: [{ changedFields: ["exportedNetworks"] }] }),
+		"metadata-with-config-intent",
+	);
 });
 
 test("buildApplyContract exposes blockers and backup requirements", () => {
@@ -202,13 +204,15 @@ test("buildApplyContract exposes blockers and backup requirements", () => {
 		},
 		diff: {
 			interfaces: [],
-			links: [{
-				id: "wg1:site-peer-key",
-				kind: "link",
-				changedFields: ["returnPathMode"],
-				before: { returnPathMode: "unknown" },
-				after: { returnPathMode: "static-route" },
-			}],
+			links: [
+				{
+					id: "wg1:site-peer-key",
+					kind: "link",
+					changedFields: ["returnPathMode"],
+					before: { returnPathMode: "unknown" },
+					after: { returnPathMode: "static-route" },
+				},
+			],
 		},
 	});
 
@@ -237,10 +241,7 @@ test("buildPlanPreview marks unknown targets as invalid preview errors", () => {
 	);
 
 	assert.equal(preview.valid, false);
-	assert.deepEqual(preview.errors, [
-		'Unknown interface "wg99"',
-		'Unknown link "wg99:peer"',
-	]);
+	assert.deepEqual(preview.errors, ['Unknown interface "wg99"', 'Unknown link "wg99:peer"']);
 	assert.equal(preview.apply.canApply, false);
 	assert.equal(preview.apply.blockedBy.includes('error:Unknown interface "wg99"'), true);
 	assert.equal(preview.nextActions.includes("resolve-preview-errors"), true);
@@ -261,14 +262,18 @@ PrivateKey = test-private-key
 	);
 	await writeFile(
 		metadataFile,
-		`${JSON.stringify({
-			interfaces: {
-				wg1: {
-					notes: ["old note"],
+		`${JSON.stringify(
+			{
+				interfaces: {
+					wg1: {
+						notes: ["old note"],
+					},
 				},
+				links: {},
 			},
-			links: {},
-		}, null, 2)}\n`,
+			null,
+			2,
+		)}\n`,
 		"utf8",
 	);
 
@@ -320,27 +325,35 @@ PrivateKey = test-private-key
 	);
 	await writeFile(
 		metadataFile,
-		`${JSON.stringify({
-			interfaces: {
-				wg1: {
-					notes: ["current note"],
+		`${JSON.stringify(
+			{
+				interfaces: {
+					wg1: {
+						notes: ["current note"],
+					},
 				},
+				links: {},
 			},
-			links: {},
-		}, null, 2)}\n`,
+			null,
+			2,
+		)}\n`,
 		"utf8",
 	);
 	const backupPath = `${metadataFile}.2026-04-19T23-00-00-000Z.bak`;
 	await writeFile(
 		backupPath,
-		`${JSON.stringify({
-			interfaces: {
-				wg1: {
-					notes: ["restored note"],
+		`${JSON.stringify(
+			{
+				interfaces: {
+					wg1: {
+						notes: ["restored note"],
+					},
 				},
+				links: {},
 			},
-			links: {},
-		}, null, 2)}\n`,
+			null,
+			2,
+		)}\n`,
 		"utf8",
 	);
 

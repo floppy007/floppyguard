@@ -1,6 +1,7 @@
 dist
 node_modules
 ts
+design/demo-*.html
 .temp
 .cache
 .vitepress/cache

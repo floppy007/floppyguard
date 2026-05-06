@@ -72,7 +72,8 @@ export default function Setup() {
 							Create the first platform admin and bring the stack under one control surface.
 						</h1>
 						<p className={styles.subtitle}>
-							This prepares the first user account for proxy, gateway and WireGuard visibility in the new platform shell.
+							This prepares the first user account for proxy, gateway and WireGuard visibility in the new
+							platform shell.
 						</p>
 					</div>
 				</div>

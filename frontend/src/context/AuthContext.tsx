@@ -5,8 +5,8 @@ import {
 	isTwoFactorChallenge,
 	loginAsUser,
 	refreshToken,
-	verify2FA,
 	type TokenResponse,
+	verify2FA,
 } from "src/api/backend";
 import AuthStore from "src/modules/AuthStore";
 

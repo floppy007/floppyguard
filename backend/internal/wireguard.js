@@ -14,7 +14,8 @@ const RETURN_PATH_MODES = new Set(["auto", "routed", "static-route", "nat", "unk
 const getWireGuardConfDir = () => process.env.WG_CONF_DIR || "/etc/wireguard";
 const getWireGuardBin = () => process.env.WG_BIN || "wg";
 const getIpBin = () => process.env.IP_BIN || "ip";
-const getMetadataFile = () => process.env.WG_METADATA_FILE || path.resolve(process.cwd(), ".local-data", "wireguard-metadata.json");
+const getMetadataFile = () =>
+	process.env.WG_METADATA_FILE || path.resolve(process.cwd(), ".local-data", "wireguard-metadata.json");
 
 async function pathExists(targetPath) {
 	try {
@@ -73,7 +74,10 @@ function mergeMetadataStorePatch(store = {}, patch = {}) {
 	};
 
 	for (const [name, value] of Object.entries(patch.interfaces || {})) {
-		nextStore.interfaces[name] = mergeMetadataEntry(nextStore.interfaces[name] || {}, sanitizeInterfaceMetadataPatch(value));
+		nextStore.interfaces[name] = mergeMetadataEntry(
+			nextStore.interfaces[name] || {},
+			sanitizeInterfaceMetadataPatch(value),
+		);
 	}
 
 	for (const [id, value] of Object.entries(patch.links || {})) {
@@ -84,7 +88,7 @@ function mergeMetadataStorePatch(store = {}, patch = {}) {
 }
 
 async function backupMetadataStore(store = null) {
-	const currentStore = store || await readMetadataStore();
+	const currentStore = store || (await readMetadataStore());
 	const metadataFile = getMetadataFile();
 	await fs.mkdir(path.dirname(metadataFile), { recursive: true });
 	const stamp = new Date().toISOString().replaceAll(":", "-").replaceAll(".", "-");
@@ -120,12 +124,19 @@ function sanitizeInterfaceMetadata(input = {}) {
 
 function sanitizeInterfaceMetadataPatch(input = {}) {
 	const sanitized = {};
-	if (Object.hasOwn(input, "role")) sanitized.role = normalizeInterfaceRole(input.role ? String(input.role) : undefined);
-	if (Object.hasOwn(input, "managementMode")) sanitized.managementMode = MANAGEMENT_MODES.has(input.managementMode ? String(input.managementMode) : undefined) ? String(input.managementMode) : undefined;
-	if (Object.hasOwn(input, "exportedNetworks")) sanitized.exportedNetworks = sanitizeStringArray(input.exportedNetworks);
-	if (Object.hasOwn(input, "importedNetworks")) sanitized.importedNetworks = sanitizeStringArray(input.importedNetworks);
+	if (Object.hasOwn(input, "role"))
+		sanitized.role = normalizeInterfaceRole(input.role ? String(input.role) : undefined);
+	if (Object.hasOwn(input, "managementMode"))
+		sanitized.managementMode = MANAGEMENT_MODES.has(input.managementMode ? String(input.managementMode) : undefined)
+			? String(input.managementMode)
+			: undefined;
+	if (Object.hasOwn(input, "exportedNetworks"))
+		sanitized.exportedNetworks = sanitizeStringArray(input.exportedNetworks);
+	if (Object.hasOwn(input, "importedNetworks"))
+		sanitized.importedNetworks = sanitizeStringArray(input.importedNetworks);
 	if (Object.hasOwn(input, "routeTargets")) sanitized.routeTargets = sanitizeStringArray(input.routeTargets);
 	if (Object.hasOwn(input, "notes")) sanitized.notes = sanitizeStringArray(input.notes);
+	if (Object.hasOwn(input, "dns")) sanitized.dns = sanitizeStringArray(input.dns);
 	return sanitized;
 }
 
@@ -150,12 +161,29 @@ function sanitizeLinkMetadataPatch(input = {}) {
 	const sanitized = {};
 	if (Object.hasOwn(input, "name")) sanitized.name = input.name ? String(input.name) : undefined;
 	if (Object.hasOwn(input, "type")) sanitized.type = normalizeLinkType(input.type ? String(input.type) : undefined);
-	if (Object.hasOwn(input, "exportedNetworks")) sanitized.exportedNetworks = sanitizeStringArray(input.exportedNetworks);
-	if (Object.hasOwn(input, "importedNetworks")) sanitized.importedNetworks = sanitizeStringArray(input.importedNetworks);
-	if (Object.hasOwn(input, "returnPathMode")) sanitized.returnPathMode = RETURN_PATH_MODES.has(input.returnPathMode ? String(input.returnPathMode) : undefined) ? String(input.returnPathMode) : undefined;
-	if (Object.hasOwn(input, "remoteManagementMode")) sanitized.remoteManagementMode = REMOTE_MANAGEMENT_MODES.has(input.remoteManagementMode ? String(input.remoteManagementMode) : undefined) ? String(input.remoteManagementMode) : undefined;
-	if (Object.hasOwn(input, "planIntent")) sanitized.planIntent = input.planIntent ? String(input.planIntent) : undefined;
+	if (Object.hasOwn(input, "exportedNetworks"))
+		sanitized.exportedNetworks = sanitizeStringArray(input.exportedNetworks);
+	if (Object.hasOwn(input, "importedNetworks"))
+		sanitized.importedNetworks = sanitizeStringArray(input.importedNetworks);
+	if (Object.hasOwn(input, "returnPathMode"))
+		sanitized.returnPathMode = RETURN_PATH_MODES.has(
+			input.returnPathMode ? String(input.returnPathMode) : undefined,
+		)
+			? String(input.returnPathMode)
+			: undefined;
+	if (Object.hasOwn(input, "remoteManagementMode"))
+		sanitized.remoteManagementMode = REMOTE_MANAGEMENT_MODES.has(
+			input.remoteManagementMode ? String(input.remoteManagementMode) : undefined,
+		)
+			? String(input.remoteManagementMode)
+			: undefined;
+	if (Object.hasOwn(input, "planIntent"))
+		sanitized.planIntent = input.planIntent ? String(input.planIntent) : undefined;
 	if (Object.hasOwn(input, "planState")) sanitized.planState = input.planState ? String(input.planState) : undefined;
+	if (Object.hasOwn(input, "dns")) sanitized.dns = sanitizeStringArray(input.dns);
+	if (Object.hasOwn(input, "fullTunnel")) sanitized.fullTunnel = Boolean(input.fullTunnel);
+	if (Object.hasOwn(input, "platform"))
+		sanitized.platform = ["desktop", "mobile"].includes(input.platform) ? input.platform : undefined;
 	if (Object.hasOwn(input, "notes")) sanitized.notes = sanitizeStringArray(input.notes);
 	return sanitized;
 }
@@ -174,7 +202,10 @@ function normalizeInterfaceRole(role) {
 
 async function updateInterfaceMetadata(interfaceName, patch) {
 	const store = await readMetadataStore();
-	store.interfaces[interfaceName] = mergeMetadataEntry(store.interfaces[interfaceName] || {}, sanitizeInterfaceMetadataPatch(patch));
+	store.interfaces[interfaceName] = mergeMetadataEntry(
+		store.interfaces[interfaceName] || {},
+		sanitizeInterfaceMetadataPatch(patch),
+	);
 	await writeMetadataStore(store);
 	return store.interfaces[interfaceName];
 }
@@ -207,7 +238,11 @@ function parseConfig(confText) {
 		if (!line.includes("=")) continue;
 		const [key, value] = line.split("=", 2).map((part) => part.trim());
 		if (section === "interface") {
-			if (key === "Address") result.addresses = value.split(",").map((part) => part.trim()).filter(Boolean);
+			if (key === "Address")
+				result.addresses = value
+					.split(",")
+					.map((part) => part.trim())
+					.filter(Boolean);
 			if (key === "ListenPort") {
 				const parsed = Number.parseInt(value, 10);
 				result.listenPort = Number.isFinite(parsed) ? parsed : null;
@@ -269,7 +304,10 @@ function parseDump(stdout) {
 		existing.peers.push({
 			publicKey: parts[1] || null,
 			endpoint: parts[3] || null,
-			allowedIps: (parts[4] || "").split(",").map((part) => part.trim()).filter(Boolean),
+			allowedIps: (parts[4] || "")
+				.split(",")
+				.map((part) => part.trim())
+				.filter(Boolean),
 			latestHandshake,
 			rxBytes,
 			txBytes,
@@ -289,7 +327,13 @@ function dedupe(values) {
 }
 
 function isPrivateNetwork(target) {
-	return target.startsWith("10.") || target.startsWith("192.168.") || /^172\.(1[6-9]|2\d|3[0-1])\./u.test(target) || target.startsWith("fd") || target.startsWith("fc");
+	return (
+		target.startsWith("10.") ||
+		target.startsWith("192.168.") ||
+		/^172\.(1[6-9]|2\d|3[0-1])\./u.test(target) ||
+		target.startsWith("fd") ||
+		target.startsWith("fc")
+	);
 }
 
 function isHostRoute(target) {
@@ -345,8 +389,14 @@ function buildLinkRecord(ifaceName, peer, index, metadata = {}) {
 		txBytes: peer.txBytes || 0,
 		active: Boolean(peer.isActive),
 		hasMetadata: Boolean(Object.keys(metadata).length),
-		returnPathMode: RETURN_PATH_MODES.has(metadata.returnPathMode) ? metadata.returnPathMode : (importedNetworks.length ? "unknown" : "routed"),
-		remoteManagementMode: REMOTE_MANAGEMENT_MODES.has(metadata.remoteManagementMode) ? metadata.remoteManagementMode : "none",
+		returnPathMode: RETURN_PATH_MODES.has(metadata.returnPathMode)
+			? metadata.returnPathMode
+			: importedNetworks.length
+				? "unknown"
+				: "routed",
+		remoteManagementMode: REMOTE_MANAGEMENT_MODES.has(metadata.remoteManagementMode)
+			? metadata.remoteManagementMode
+			: "none",
 		planIntent: metadata.planIntent || type,
 		planState: metadata.planState || null,
 		notes: metadata.notes || [],
@@ -369,7 +419,9 @@ async function getRoutes() {
 				return { destination, device: devMatch?.[1] || null, via: viaMatch?.[1] || null, raw: line };
 			});
 		const wireguard = parsed.filter((route) => route.device?.startsWith("wg"));
-		const privateRoutes = parsed.filter((route) => route.destination !== "default" && isPrivateNetwork(route.destination));
+		const privateRoutes = parsed.filter(
+			(route) => route.destination !== "default" && isPrivateNetwork(route.destination),
+		);
 		return { all: parsed, wireguard, privateRoutes };
 	} catch {
 		return { all: [], wireguard: [], privateRoutes: [] };
@@ -383,15 +435,26 @@ async function getInterfaceStatus(name, dumpByInterface, metadataStore) {
 	const dump = dumpByInterface.get(name);
 	const statsBase = `/sys/class/net/${name}/statistics`;
 	const configPeerNetworks = dedupe(
-		parsedConfig.peers.flatMap((peer) => String(peer.AllowedIPs || "").split(",").map((part) => part.trim()).filter(Boolean)),
+		parsedConfig.peers.flatMap((peer) =>
+			String(peer.AllowedIPs || "")
+				.split(",")
+				.map((part) => part.trim())
+				.filter(Boolean),
+		),
 	);
 	const peers = dump?.peers ?? [];
 	const metadata = metadataStore.interfaces[name] || {};
 	const role = normalizeInterfaceRole(metadata.role) || inferInterfaceRole(name, peers);
 	const importedNetworks = metadata.importedNetworks?.length
 		? metadata.importedNetworks
-		: dedupe(peers.flatMap((peer) => (peer.allowedIps || []).filter((entry) => isPrivateNetwork(entry) && !isHostRoute(entry))));
-	const routeTargets = metadata.routeTargets?.length ? metadata.routeTargets : dedupe(peers.flatMap((peer) => peer.allowedIps || []));
+		: dedupe(
+				peers.flatMap((peer) =>
+					(peer.allowedIps || []).filter((entry) => isPrivateNetwork(entry) && !isHostRoute(entry)),
+				),
+			);
+	const routeTargets = metadata.routeTargets?.length
+		? metadata.routeTargets
+		: dedupe(peers.flatMap((peer) => peer.allowedIps || []));
 	const active = Boolean(dump?.active);
 	return {
 		name,
@@ -414,7 +477,11 @@ async function getInterfaceStatus(name, dumpByInterface, metadataStore) {
 		exportedNetworks: metadata.exportedNetworks || [],
 		routeTargets,
 		health: active ? "healthy" : "inactive",
-		notes: metadata.notes?.length ? metadata.notes : (importedNetworks.length ? [`${importedNetworks.length} imported network(s) detected`] : []),
+		notes: metadata.notes?.length
+			? metadata.notes
+			: importedNetworks.length
+				? [`${importedNetworks.length} imported network(s) detected`]
+				: [],
 		peers,
 	};
 }
@@ -433,8 +500,14 @@ async function listConfigNames() {
 
 function buildTopology(interfaces, links) {
 	return {
-		exportedNetworks: dedupe([...interfaces.flatMap((item) => item.exportedNetworks || []), ...links.flatMap((item) => item.exportedNetworks || [])]),
-		importedNetworks: dedupe([...interfaces.flatMap((item) => item.importedNetworks || []), ...links.flatMap((item) => item.importedNetworks || [])]),
+		exportedNetworks: dedupe([
+			...interfaces.flatMap((item) => item.exportedNetworks || []),
+			...links.flatMap((item) => item.exportedNetworks || []),
+		]),
+		importedNetworks: dedupe([
+			...interfaces.flatMap((item) => item.importedNetworks || []),
+			...links.flatMap((item) => item.importedNetworks || []),
+		]),
 		siteLinks: links.filter((item) => item.type === "site-to-site").map((item) => item.id),
 		clientLinks: links.filter((item) => item.type === "client").map((item) => item.id),
 		hubLinks: links.filter((item) => item.type === "hub-link").map((item) => item.id),
@@ -443,7 +516,11 @@ function buildTopology(interfaces, links) {
 
 function buildRouteAnalysis(routes, topology) {
 	const wireguardDestinations = new Set(routes.wireguard.map((route) => route.destination));
-	const staticRouteDestinations = new Set(routes.privateRoutes.filter((route) => !String(route.device || "").startsWith("wg")).map((route) => route.destination));
+	const staticRouteDestinations = new Set(
+		routes.privateRoutes
+			.filter((route) => !String(route.device || "").startsWith("wg"))
+			.map((route) => route.destination),
+	);
 	const missingReturnRoutes = topology.importedNetworks
 		.filter((network) => !wireguardDestinations.has(network) && !staticRouteDestinations.has(network))
 		.map((network) => ({ network, reason: "network-not-found-in-live-routes" }));
@@ -451,7 +528,10 @@ function buildRouteAnalysis(routes, topology) {
 		.filter((network) => !wireguardDestinations.has(network) && !staticRouteDestinations.has(network))
 		.map((network) => ({ network, reason: "return-path-unclear" }));
 	const staticRoutes = routes.privateRoutes.filter((route) => !String(route.device || "").startsWith("wg"));
-	const splitTunnelCandidates = dedupe([...topology.importedNetworks, ...staticRoutes.map((route) => route.destination)]);
+	const splitTunnelCandidates = dedupe([
+		...topology.importedNetworks,
+		...staticRoutes.map((route) => route.destination),
+	]);
 	return {
 		all: routes.all,
 		wireguard: routes.wireguard,
@@ -462,8 +542,12 @@ function buildRouteAnalysis(routes, topology) {
 		conflicts: [],
 		splitTunnelCandidates,
 		observations: [
-			...(missingReturnRoutes.length ? ["Some imported networks are not visible as live WireGuard routes yet"] : []),
-			...(staticRoutes.length ? ["Static private routes exist outside WireGuard and may affect reachability decisions"] : []),
+			...(missingReturnRoutes.length
+				? ["Some imported networks are not visible as live WireGuard routes yet"]
+				: []),
+			...(staticRoutes.length
+				? ["Static private routes exist outside WireGuard and may affect reachability decisions"]
+				: []),
 		],
 	};
 }
@@ -566,7 +650,7 @@ function deriveGlobalNextActions(interfaces, links, routeAnalysis) {
 	const actions = [
 		...(routeAnalysis.missingReturnRoutes?.length ? ["fix-return-path"] : []),
 		...(routeAnalysis.natCandidates?.length ? ["review-nat-requirements"] : []),
-		...interfaces.flatMap((item) => item.health === "warning" ? ["review-interface-health"] : []),
+		...interfaces.flatMap((item) => (item.health === "warning" ? ["review-interface-health"] : [])),
 		...links.flatMap((link) => link.nextActions || []),
 	];
 	return dedupe(actions);
@@ -574,9 +658,13 @@ function deriveGlobalNextActions(interfaces, links, routeAnalysis) {
 
 function deriveGlobalWarnings(interfaces, routeAnalysis) {
 	const warnings = [
-		...(routeAnalysis.missingReturnRoutes?.length ? ["Imported networks exist without matching live WireGuard route entries"] : []),
-		...(routeAnalysis.natCandidates?.length ? ["Some imported networks may still require NAT or explicit return-path handling"] : []),
-		...interfaces.flatMap((item) => item.health === "warning" ? [`Interface ${item.name} needs review`] : []),
+		...(routeAnalysis.missingReturnRoutes?.length
+			? ["Imported networks exist without matching live WireGuard route entries"]
+			: []),
+		...(routeAnalysis.natCandidates?.length
+			? ["Some imported networks may still require NAT or explicit return-path handling"]
+			: []),
+		...interfaces.flatMap((item) => (item.health === "warning" ? [`Interface ${item.name} needs review`] : [])),
 	];
 	return dedupe(warnings);
 }
@@ -613,8 +701,16 @@ async function _rotatePeerPublicKey(ifaceName, oldPubKey, newPubKey, peerAllowed
 	const out = [];
 	for (const rawLine of lines) {
 		const t = rawLine.trim();
-		if (t === "[Peer]") { inPeer = true; out.push(rawLine); continue; }
-		if (t.startsWith("[")) { inPeer = false; out.push(rawLine); continue; }
+		if (t === "[Peer]") {
+			inPeer = true;
+			out.push(rawLine);
+			continue;
+		}
+		if (t.startsWith("[")) {
+			inPeer = false;
+			out.push(rawLine);
+			continue;
+		}
 		if (inPeer && !swapped && t.startsWith("PublicKey")) {
 			const currentKey = t.slice(t.indexOf("=") + 1).trim();
 			if (currentKey === oldPubKey) {
@@ -630,12 +726,18 @@ async function _rotatePeerPublicKey(ifaceName, oldPubKey, newPubKey, peerAllowed
 
 	await fs.writeFile(confPath, out.join("\n"), "utf8");
 	const wgBin = getWireGuardBin();
-	try { await execFileAsync(wgBin, ["set", ifaceName, "peer", oldPubKey, "remove"]); } catch { /* not active */ }
+	try {
+		await execFileAsync(wgBin, ["set", ifaceName, "peer", oldPubKey, "remove"]);
+	} catch {
+		/* not active */
+	}
 	try {
 		const args = ["set", ifaceName, "peer", newPubKey];
 		if (peerAllowedIps.length > 0) args.push("allowed-ips", peerAllowedIps.join(","));
 		await execFileAsync(wgBin, args);
-	} catch { /* ignore */ }
+	} catch {
+		/* ignore */
+	}
 	return true;
 }
 
@@ -656,9 +758,7 @@ async function generatePeerConfig(linkId) {
 
 	const tunnelAddress = link.tunnelAddresses[0] ?? null;
 
-	const allowedIps = link.importedNetworks.length > 0
-		? link.importedNetworks
-		: (iface?.addresses ?? []);
+	const allowedIps = link.importedNetworks.length > 0 ? link.importedNetworks : (iface?.addresses ?? []);
 
 	// Generate a fresh WireGuard keypair for this peer
 	// Note: wg pubkey hangs when piped via Node.js child_process stdin on this system;
@@ -667,7 +767,9 @@ async function generatePeerConfig(linkId) {
 	const { stdout: privKeyRaw } = await execFileAsync(wgBin, ["genkey"]);
 	const privateKey = privKeyRaw.trim();
 	const { execSync } = await import("node:child_process");
-	const newPubKey = execSync(`printf '%s\\n' ${JSON.stringify(privateKey)} | ${wgBin} pubkey`).toString().trim();
+	const newPubKey = execSync(`printf '%s\\n' ${JSON.stringify(privateKey)} | ${wgBin} pubkey`)
+		.toString()
+		.trim();
 
 	// Rotate the peer's public key on the hub
 	const oldPubKey = link.peerPublicKey;
@@ -700,11 +802,30 @@ async function generatePeerConfig(linkId) {
 		lines.push(`Address = ${tunnelAddress}`);
 	}
 
-	lines.push(
-		"",
-		"[Peer]",
-		`# Hub interface: ${link.interfaceName}`,
-	);
+	// DNS: link-level > interface-level > env fallback
+	const store = await readMetadataStore();
+	const ifaceMeta = store.interfaces[link.interfaceName] || {};
+	const linkMeta = store.links[linkId] || store.links[`${link.interfaceName}:${link.peerPublicKey}`] || {};
+	const dnsServers = linkMeta.dns?.length
+		? linkMeta.dns
+		: ifaceMeta.dns?.length
+			? ifaceMeta.dns
+			: process.env.WG_DNS
+				? process.env.WG_DNS.split(",").map((s) => s.trim())
+				: [];
+	if (dnsServers.length > 0) {
+		lines.push(`DNS = ${dnsServers.join(", ")}`);
+	}
+
+	// Full tunnel: route all traffic through VPN
+	// Desktop (Windows/Linux/Mac): /1-split avoids replacing default route → no routing loop
+	// Mobile (iOS/Android): 0.0.0.0/0 signals the OS to treat it as a VPN tunnel
+	const isFullTunnel = Boolean(linkMeta.fullTunnel);
+	const isMobile = linkMeta.platform === "mobile";
+	const fullTunnelIPs = isMobile ? ["0.0.0.0/0", "::/0"] : ["0.0.0.0/1", "128.0.0.0/1", "::/1", "8000::/1"];
+	const finalAllowedIps = isFullTunnel ? fullTunnelIPs : allowedIps;
+
+	lines.push("", "[Peer]", `# Hub interface: ${link.interfaceName}`);
 
 	if (hubPublicKey) {
 		lines.push(`PublicKey = ${hubPublicKey}`);
@@ -713,7 +834,7 @@ async function generatePeerConfig(linkId) {
 	const hubHost = process.env.WG_HUB_HOST || "<server-ip>";
 	lines.push(
 		`Endpoint = ${hubHost}:${hubListenPort}`,
-		`AllowedIPs = ${allowedIps.join(", ") || "0.0.0.0/0"}`,
+		`AllowedIPs = ${finalAllowedIps.join(", ") || "0.0.0.0/0"}`,
 		"PersistentKeepalive = 25",
 	);
 
@@ -740,7 +861,17 @@ async function getStatus() {
 			hub: null,
 			interfaces: [],
 			links: [],
-			routes: { all: [], wireguard: [], privateRoutes: [], staticRoutes: [], missingReturnRoutes: [], natCandidates: [], conflicts: [], splitTunnelCandidates: [], observations: [] },
+			routes: {
+				all: [],
+				wireguard: [],
+				privateRoutes: [],
+				staticRoutes: [],
+				missingReturnRoutes: [],
+				natCandidates: [],
+				conflicts: [],
+				splitTunnelCandidates: [],
+				observations: [],
+			},
 			topology: { exportedNetworks: [], importedNetworks: [], siteLinks: [], clientLinks: [], hubLinks: [] },
 			capabilities: buildCapabilities(),
 			summary: null,
@@ -752,9 +883,22 @@ async function getStatus() {
 
 	const dumpByInterface = parseDump(await getDump());
 	const configNames = await listConfigNames();
-	const interfaceNames = Array.from(new Set([...configNames, ...dumpByInterface.keys()])).sort((a, b) => a.localeCompare(b));
-	const interfaceStatuses = await Promise.all(interfaceNames.map((name) => getInterfaceStatus(name, dumpByInterface, metadataStore)));
-	const rawLinks = interfaceStatuses.flatMap((item) => item.peers.map((peer, index) => buildLinkRecord(item.name, peer, index, metadataStore.links[`${item.name}:${peer.publicKey || index}`] || {})));
+	const interfaceNames = Array.from(new Set([...configNames, ...dumpByInterface.keys()])).sort((a, b) =>
+		a.localeCompare(b),
+	);
+	const interfaceStatuses = await Promise.all(
+		interfaceNames.map((name) => getInterfaceStatus(name, dumpByInterface, metadataStore)),
+	);
+	const rawLinks = interfaceStatuses.flatMap((item) =>
+		item.peers.map((peer, index) =>
+			buildLinkRecord(
+				item.name,
+				peer,
+				index,
+				metadataStore.links[`${item.name}:${peer.publicKey || index}`] || {},
+			),
+		),
+	);
 	const routes = await getRoutes();
 	const topology = buildTopology(interfaceStatuses, rawLinks);
 	const routeAnalysis = buildRouteAnalysis(routes, topology);
@@ -769,10 +913,13 @@ async function getStatus() {
 	const totalTxBytes = interfaces.reduce((sum, item) => sum + item.txBytes, 0);
 	const peerNetworks = dedupe(interfaces.flatMap((item) => item.peerNetworks));
 
-	if (!(await pathExists("/sys/class/net"))) warnings.push("/sys/class/net is not mounted; traffic counters are unavailable");
-	if (!dumpByInterface.size) warnings.push(`No live output from "${wireGuardBin} show all dump"; data may be config-only`);
+	if (!(await pathExists("/sys/class/net")))
+		warnings.push("/sys/class/net is not mounted; traffic counters are unavailable");
+	if (!dumpByInterface.size)
+		warnings.push(`No live output from "${wireGuardBin} show all dump"; data may be config-only`);
 	if (!routes.all.length) warnings.push(`No route data from "${ipBin} route show"; gateway summary is incomplete`);
-	if (!interfaces.length) warnings.push("No WireGuard interfaces were discovered from config files or live runtime data");
+	if (!interfaces.length)
+		warnings.push("No WireGuard interfaces were discovered from config files or live runtime data");
 
 	return {
 		available: true,
@@ -826,15 +973,30 @@ function _parsePeersFromConf(lines) {
 
 	for (const rawLine of lines) {
 		const trimmed = rawLine.trim();
-		if (trimmed === "[Peer]") { flush(); inPeer = true; currentPubKey = null; currentAllowedIPs = []; continue; }
-		if (trimmed.startsWith("[")) { flush(); inPeer = false; currentPubKey = null; continue; }
+		if (trimmed === "[Peer]") {
+			flush();
+			inPeer = true;
+			currentPubKey = null;
+			currentAllowedIPs = [];
+			continue;
+		}
+		if (trimmed.startsWith("[")) {
+			flush();
+			inPeer = false;
+			currentPubKey = null;
+			continue;
+		}
 		if (!trimmed || trimmed.startsWith("#") || !trimmed.includes("=")) continue;
 		const eqIdx = trimmed.indexOf("=");
 		const k = trimmed.slice(0, eqIdx).trim();
 		const v = trimmed.slice(eqIdx + 1).trim();
 		if (inPeer) {
 			if (k === "PublicKey") currentPubKey = v;
-			if (k === "AllowedIPs") currentAllowedIPs = v.split(",").map((s) => s.trim()).filter(Boolean);
+			if (k === "AllowedIPs")
+				currentAllowedIPs = v
+					.split(",")
+					.map((s) => s.trim())
+					.filter(Boolean);
 		}
 	}
 	flush();
@@ -862,8 +1024,18 @@ function _rewriteHubConf(lines, ifaceName, peerUpdates, allRouteNets) {
 	const out = [];
 	for (const rawLine of lines) {
 		const t = rawLine.trim();
-		if (t === "[Peer]") { inPeer = true; currentPubKey = null; out.push(rawLine); continue; }
-		if (t.startsWith("[")) { inPeer = false; currentPubKey = null; out.push(rawLine); continue; }
+		if (t === "[Peer]") {
+			inPeer = true;
+			currentPubKey = null;
+			out.push(rawLine);
+			continue;
+		}
+		if (t.startsWith("[")) {
+			inPeer = false;
+			currentPubKey = null;
+			out.push(rawLine);
+			continue;
+		}
 		if (inPeer && t.startsWith("PublicKey")) {
 			currentPubKey = t.slice(t.indexOf("=") + 1).trim();
 			out.push(rawLine);
@@ -879,8 +1051,13 @@ function _rewriteHubConf(lines, ifaceName, peerUpdates, allRouteNets) {
 			const verb = isUp ? "add" : "del";
 			const value = rawLine.slice(rawLine.indexOf("=") + 1).trim();
 			const routeRe = new RegExp(`^ip route (?:add|del) \\S+ dev ${ifaceName}`);
-			const nonRoute = value.split(";").map((s) => s.trim()).filter((p) => p && !routeRe.test(p));
-			const routeCmds = [...allRouteNets].sort().map((net) => `ip route ${verb} ${net} dev ${ifaceName} 2>/dev/null || true`);
+			const nonRoute = value
+				.split(";")
+				.map((s) => s.trim())
+				.filter((p) => p && !routeRe.test(p));
+			const routeCmds = [...allRouteNets]
+				.sort()
+				.map((net) => `ip route ${verb} ${net} dev ${ifaceName} 2>/dev/null || true`);
 			out.push(`${key} = ${[...nonRoute, ...routeCmds].join("; ")}`);
 			continue;
 		}
@@ -932,13 +1109,24 @@ async function syncHubConf(metadata, ifaceName = "wg0") {
 	// Add any newly required routes live
 	try {
 		const { stdout } = await execFileAsync(ipBin, ["route", "show", "dev", ifaceName]);
-		const existing = new Set(stdout.split("\n").map((l) => l.split(/\s/)[0]).filter(Boolean));
+		const existing = new Set(
+			stdout
+				.split("\n")
+				.map((l) => l.split(/\s/)[0])
+				.filter(Boolean),
+		);
 		for (const net of allRouteNets) {
 			if (!existing.has(net)) {
-				try { await execFileAsync(ipBin, ["route", "add", net, "dev", ifaceName]); } catch { /* already exists */ }
+				try {
+					await execFileAsync(ipBin, ["route", "add", net, "dev", ifaceName]);
+				} catch {
+					/* already exists */
+				}
 			}
 		}
-	} catch { /* ignore route lookup failures */ }
+	} catch {
+		/* ignore route lookup failures */
+	}
 
 	return { synced: true, changes };
 }
@@ -972,8 +1160,8 @@ async function _pollBandwidth() {
 			for (const [key, curr] of snap) {
 				const prev = _bwPrev.get(key);
 				if (!prev) continue;
-				const rx = Math.max(0, (curr.rxBytes - prev.rxBytes)) / dt;
-				const tx = Math.max(0, (curr.txBytes - prev.txBytes)) / dt;
+				const rx = Math.max(0, curr.rxBytes - prev.rxBytes) / dt;
+				const tx = Math.max(0, curr.txBytes - prev.txBytes) / dt;
 				const history = _bwHistory.get(key) ?? [];
 				history.push({ ts: now, rx: Math.round(rx), tx: Math.round(tx) });
 				if (history.length > BW_HISTORY_SIZE) history.shift();
@@ -1008,7 +1196,7 @@ async function getBandwidth() {
 	result.sort((a, b) => {
 		const lastA = a.history.at(-1);
 		const lastB = b.history.at(-1);
-		return ((lastB?.rx ?? 0) + (lastB?.tx ?? 0)) - ((lastA?.rx ?? 0) + (lastA?.tx ?? 0));
+		return (lastB?.rx ?? 0) + (lastB?.tx ?? 0) - ((lastA?.rx ?? 0) + (lastA?.tx ?? 0));
 	});
 	return result;
 }
@@ -1022,13 +1210,13 @@ export {
 	deriveGlobalWarnings,
 	enrichInterfaceStatus,
 	enrichLinkRecord,
-	getNatCandidateNetworks,
 	getMissingImportedNetworks,
+	getNatCandidateNetworks,
 	inferInterfaceRole,
 	inferPlanState,
+	mergeMetadataStorePatch,
 	normalizeInterfaceRole,
 	normalizeLinkType,
-	mergeMetadataStorePatch,
 	sanitizeInterfaceMetadata,
 	sanitizeInterfaceMetadataPatch,
 	sanitizeLinkMetadata,
@@ -1036,9 +1224,134 @@ export {
 	syncHubConf,
 };
 
+/**
+ * Create a new WireGuard peer on the hub interface.
+ * Generates a keypair, assigns the next free tunnel IP, adds the peer to the
+ * live interface and config file, writes metadata, and returns the client config.
+ */
+async function createPeer({ name, type, dns, fullTunnel, platform, importedNetworks, ifaceName = "wg0" }) {
+	const status = await getStatus();
+	if (!status.available) throw new Error("WireGuard is not available");
+
+	const iface = status.interfaces.find((i) => i.name === ifaceName);
+	if (!iface) throw new Error(`Interface ${ifaceName} not found`);
+
+	// ── Find next free tunnel IP ──
+	const hubAddr = (iface.addresses[0] || "10.10.0.1/24").split("/");
+	const basePrefix = hubAddr[0].split(".").slice(0, 3).join(".");
+	const mask = hubAddr[1] || "24";
+	const usedIPs = new Set();
+	// Hub's own IP
+	usedIPs.add(hubAddr[0]);
+	// All existing peer tunnel IPs
+	for (const link of status.links) {
+		for (const addr of link.tunnelAddresses) {
+			usedIPs.add(addr.replace(/\/\d+$/, ""));
+		}
+	}
+	let nextIP = null;
+	for (let i = 2; i < 255; i++) {
+		const candidate = `${basePrefix}.${i}`;
+		if (!usedIPs.has(candidate)) {
+			nextIP = candidate;
+			break;
+		}
+	}
+	if (!nextIP) throw new Error("No free tunnel IPs available in subnet");
+
+	const tunnelAddress = `${nextIP}/${mask}`;
+	const peerAllowedIP = `${nextIP}/32`;
+
+	// ── Generate keypair ──
+	const wgBin = getWireGuardBin();
+	const { stdout: privKeyRaw } = await execFileAsync(wgBin, ["genkey"]);
+	const privateKey = privKeyRaw.trim();
+	const { execSync } = await import("node:child_process");
+	const publicKey = execSync(`printf '%s\\n' ${JSON.stringify(privateKey)} | ${wgBin} pubkey`)
+		.toString()
+		.trim();
+
+	// ── Compute AllowedIPs for hub side ──
+	const hubAllowedIPs = [peerAllowedIP];
+	const importedNets = (importedNetworks || []).filter(Boolean);
+	if (importedNets.length) hubAllowedIPs.push(...importedNets);
+
+	// ── Add peer to live interface ──
+	await execFileAsync(wgBin, ["set", ifaceName, "peer", publicKey, "allowed-ips", hubAllowedIPs.join(",")]);
+
+	// ── Append peer to config file ──
+	const confPath = path.join(getWireGuardConfDir(), `${ifaceName}.conf`);
+	const peerBlock = [
+		"",
+		`# ${name || "new-peer"}`,
+		"[Peer]",
+		`PublicKey = ${publicKey}`,
+		`AllowedIPs = ${hubAllowedIPs.join(", ")}`,
+		"",
+	].join("\n");
+	await fs.appendFile(confPath, peerBlock, "utf8");
+
+	// ── Write metadata ──
+	const linkId = `${ifaceName}:${publicKey}`;
+	const store = await readMetadataStore();
+	const ifaceMeta = store.interfaces[ifaceName] || {};
+	store.links[linkId] = sanitizeLinkMetadataPatch({
+		name: name || undefined,
+		type: type || "client",
+		importedNetworks: importedNets,
+		dns: (dns || []).filter(Boolean),
+		fullTunnel: Boolean(fullTunnel),
+		platform: platform || undefined,
+	});
+	await writeMetadataStore(store);
+
+	// ── Build client config ──
+	const hubPublicKey = iface.publicKey;
+	const hubListenPort = iface.listenPort || 51820;
+	const hubHost = process.env.WG_HUB_HOST || "<server-ip>";
+
+	// DNS: link > interface > env
+	const dnsServers = (dns || []).length
+		? dns
+		: ifaceMeta.dns?.length
+			? ifaceMeta.dns
+			: process.env.WG_DNS
+				? process.env.WG_DNS.split(",").map((s) => s.trim())
+				: [];
+
+	const isFullTunnel = Boolean(fullTunnel);
+	const isMobilePlatform = platform === "mobile";
+	const fullTunnelIPs = isMobilePlatform ? ["0.0.0.0/0", "::/0"] : ["0.0.0.0/1", "128.0.0.0/1", "::/1", "8000::/1"];
+	const clientAllowedIPs = isFullTunnel ? fullTunnelIPs : importedNets.length ? importedNets : iface.addresses || [];
+
+	const configLines = [
+		`# WireGuard peer config — ${name || linkId}`,
+		"# Generated by FloppyGuard",
+		"",
+		"[Interface]",
+		`PrivateKey = ${privateKey}`,
+		`Address = ${tunnelAddress}`,
+	];
+	if (dnsServers.length) configLines.push(`DNS = ${dnsServers.join(", ")}`);
+	configLines.push(
+		"",
+		"[Peer]",
+		`PublicKey = ${hubPublicKey}`,
+		`Endpoint = ${hubHost}:${hubListenPort}`,
+		`AllowedIPs = ${clientAllowedIPs.join(", ") || "0.0.0.0/0"}`,
+		"PersistentKeepalive = 25",
+	);
+
+	const filename = `${name || "peer"}.conf`.replace(/[^\w.-]/g, "_");
+	const content = `${configLines.join("\n")}\n`;
+
+	return { linkId, publicKey, tunnelAddress, filename, content };
+}
+
 export default {
 	applyMetadataPatch,
 	backupMetadataStore,
+	createPeer,
 	generatePeerConfig,
 	generatePeerConfigQr,
 	getBandwidth,

@@ -1,14 +1,15 @@
 import {
-	IconChevronRight,
-	IconChartArcs,
+	IconArrowsRight,
 	IconChartBar,
+	IconChevronRight,
 	IconDeviceDesktop,
 	IconHome,
+	IconLayoutGrid,
 	IconLock,
 	IconSettings,
 	IconShield,
-	IconVectorBezier2,
 	IconUser,
+	IconVectorBezier2,
 } from "@tabler/icons-react";
 import cn from "classnames";
 import React, { useEffect, useRef, useState } from "react";
@@ -32,18 +33,28 @@ import styles from "./SiteMenu.module.css";
 interface MenuItem {
 	label: string;
 	icon?: React.ElementType;
+	/** Render a custom icon element instead of an icon component */
+	iconElement?: React.ReactNode;
 	to?: string;
 	items?: MenuItem[];
 	permissionSection?: Section | typeof ADMIN;
 	permission?: typeof VIEW | typeof MANAGE;
 }
 
+const NpmLogoIcon = () => (
+	<img src="/images/logo-no-text.svg" width={16} height={16} alt="NPM" style={{ display: "block" }} />
+);
+
+const WireGuardLogo = () => (
+	<img src="/images/wireguard-icon.svg" width={16} height={16} alt="WG" style={{ display: "block" }} />
+);
+
 const getSubitemIcon = (label: string) => {
 	switch (label) {
 		case "proxy-hosts":
 			return IconDeviceDesktop;
 		case "redirection-hosts":
-			return IconChartArcs;
+			return IconArrowsRight;
 		case "streams":
 			return IconVectorBezier2;
 		case "dead-hosts":
@@ -55,11 +66,11 @@ const getSubitemIcon = (label: string) => {
 		case "users":
 			return IconUser;
 		case "auditlogs":
-			return IconChartArcs;
+			return IconChartBar;
 		case "settings":
 			return IconSettings;
 		case "wireguard":
-			return IconVectorBezier2;
+			return IconShield;
 		default:
 			return IconChevronRight;
 	}
@@ -68,7 +79,7 @@ const getSubitemIcon = (label: string) => {
 const menuItems: MenuItem[] = [
 	{
 		to: "/",
-		icon: IconHome,
+		icon: IconLayoutGrid,
 		label: "dashboard",
 	},
 	{
@@ -77,7 +88,7 @@ const menuItems: MenuItem[] = [
 		label: "traffic",
 	},
 	{
-		icon: IconDeviceDesktop,
+		iconElement: <NpmLogoIcon />,
 		label: "hosts",
 		items: [
 			{
@@ -108,7 +119,7 @@ const menuItems: MenuItem[] = [
 	},
 	{
 		to: "/wireguard",
-		icon: IconVectorBezier2,
+		iconElement: <WireGuardLogo />,
 		label: "wireguard",
 	},
 	{
@@ -146,6 +157,12 @@ const menuItems: MenuItem[] = [
 		],
 	},
 ];
+
+const renderIcon = (item: MenuItem, size = 16) => {
+	if (item.iconElement) return item.iconElement;
+	if (item.icon) return React.createElement(item.icon, { size });
+	return null;
+};
 
 const pathMatches = (currentPath: string, targetPath?: string) => {
 	if (!targetPath) {
@@ -189,9 +206,7 @@ const getMenuItem = (
 						[styles.itemActive]: isActive,
 					})}
 				>
-					<span className={styles.icon}>
-						{item.icon && React.createElement(item.icon, { height: 24, width: 24 })}
-					</span>
+					<span className={styles.icon}>{renderIcon(item)}</span>
 					<span className="nav-link-title">
 						<T id={item.label} />
 					</span>
@@ -233,9 +248,7 @@ const getMenuDropown = (
 						}
 					}}
 				>
-					<span className={styles.icon}>
-						{item.icon ? React.createElement(item.icon, { height: 24, width: 24 }) : <IconDeviceDesktop height={24} width={24} />}
-					</span>
+					<span className={styles.icon}>{renderIcon(item)}</span>
 					<span className="nav-link-title">
 						<T id={item.label} />
 					</span>
@@ -246,44 +259,44 @@ const getMenuDropown = (
 					})}
 				>
 					<div className={styles.dropdownList}>
-					{item.items?.map((subitem, idx) => {
-						const subitemActive = pathMatches(currentPath, subitem.to);
-						const SubitemIcon = getSubitemIcon(subitem.label);
-						return (
-							<HasPermission
-								key={`${idx}-${subitem.to}`}
-								section={subitem.permissionSection}
-								permission={subitem.permission || VIEW}
-								hideError
-							>
-								<NavLink
-									to={subitem.to}
-									isDropdownItem
-									onClick={() => {
-										if (onCloseDropdown) {
-											onCloseDropdown();
-										}
-										if (onClick) {
-											onClick();
-										}
-									}}
-									className={cn("dropdown-item", styles.dropdownItem, {
-										active: subitemActive,
-									})}
+						{item.items?.map((subitem, idx) => {
+							const subitemActive = pathMatches(currentPath, subitem.to);
+							const SubitemIcon = getSubitemIcon(subitem.label);
+							return (
+								<HasPermission
+									key={`${idx}-${subitem.to}`}
+									section={subitem.permissionSection}
+									permission={subitem.permission || VIEW}
+									hideError
 								>
-									<span className={styles.dropdownItemIcon}>
-										<SubitemIcon height={16} width={16} />
-									</span>
-									<span className={styles.dropdownItemLabel}>
-										<T id={subitem.label} />
-									</span>
-									<span className={styles.dropdownItemArrow}>
-										<IconChevronRight height={15} width={15} />
-									</span>
-								</NavLink>
-							</HasPermission>
-						);
-					})}
+									<NavLink
+										to={subitem.to}
+										isDropdownItem
+										onClick={() => {
+											if (onCloseDropdown) {
+												onCloseDropdown();
+											}
+											if (onClick) {
+												onClick();
+											}
+										}}
+										className={cn("dropdown-item", styles.dropdownItem, {
+											active: subitemActive,
+										})}
+									>
+										<span className={styles.dropdownItemIcon}>
+											<SubitemIcon size={16} />
+										</span>
+										<span className={styles.dropdownItemLabel}>
+											<T id={subitem.label} />
+										</span>
+										<span className={styles.dropdownItemArrow}>
+											<IconChevronRight size={15} />
+										</span>
+									</NavLink>
+								</HasPermission>
+							);
+						})}
 					</div>
 				</div>
 			</li>
@@ -317,13 +330,14 @@ export function SiteMenu({ className }: SiteMenuProps) {
 		};
 	}, []);
 
-	const closeMenu = () => setTimeout(() => {
-		const navbarToggler = document.querySelector<HTMLElement>(".navbar-toggler");
-		const navbarMenu = document.querySelector("#navbar-menu");
-		if (navbarToggler && navbarMenu?.classList.contains("show")) {
-			navbarToggler.click();
-		}
-	}, 300);
+	const closeMenu = () =>
+		setTimeout(() => {
+			const navbarToggler = document.querySelector<HTMLElement>(".navbar-toggler");
+			const navbarMenu = document.querySelector("#navbar-menu");
+			if (navbarToggler && navbarMenu?.classList.contains("show")) {
+				navbarToggler.click();
+			}
+		}, 300);
 
 	return (
 		<div ref={menuRef} className={cn("collapse", "navbar-collapse", styles.menu, className)} id="navbar-menu">

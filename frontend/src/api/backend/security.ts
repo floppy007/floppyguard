@@ -19,5 +19,9 @@ export function getFail2BanStatus(): Promise<Fail2BanStatus> {
 }
 
 export function unbanIp(jail: string, ip: string): Promise<{ unbanned: boolean; jail: string; ip: string }> {
-	return del({ url: `security/fail2ban/${encodeURIComponent(jail)}/${encodeURIComponent(ip)}` }) as Promise<{ unbanned: boolean; jail: string; ip: string }>;
+	return del({ url: `security/fail2ban/${encodeURIComponent(jail)}/${encodeURIComponent(ip)}` }) as Promise<{
+		unbanned: boolean;
+		jail: string;
+		ip: string;
+	}>;
 }

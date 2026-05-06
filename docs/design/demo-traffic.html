@@ -1,701 +1,324 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="light">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>FloppyGuard · Traffic Demo</title>
+<title>FloppyGuard · Traffic</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
 <style>
-/* ─── Reset & Base ──────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --font: 'Inter', system-ui, sans-serif;
-  --mono: 'JetBrains Mono', monospace;
-  --radius-sm: 8px;
-  --radius: 12px;
-  --radius-lg: 18px;
-  --sidebar-w: 228px;
-  --header-h: 64px;
-  --transition: 0.18s ease;
-  --blue: #4f8ef7;   --blue-dim: rgba(79,142,247,.12);
-  --green: #34c77b;  --green-dim: rgba(52,199,123,.12);
-  --amber: #f5a623;  --amber-dim: rgba(245,166,35,.12);
-  --red: #f05257;    --red-dim: rgba(240,82,87,.12);
-  --cyan: #22d3ee;   --cyan-dim: rgba(34,211,238,.12);
-  --purple: #a78bfa; --purple-dim: rgba(167,139,250,.12);
+  --font: 'Inter', -apple-system, system-ui, sans-serif;
+  --mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, monospace;
+  --primary: #066fd1;
+  --primary-rgb: 6,111,209;
+  --green: #2fb344;
+  --green-rgb: 47,179,68;
+  --red: #d63939;
+  --red-rgb: 214,57,57;
+  --yellow: #f59f00;
+  --yellow-rgb: 245,159,0;
+  --azure: #4299e1;
+  --azure-rgb: 66,153,225;
+  --purple: #a855f7;
+  --purple-rgb: 168,85,247;
+  --border-radius: 8px;
 }
 
-[data-theme="dark"] {
-  --bg: #0b0d14; --surface: #111420; --card: #181c2e; --card-hover: #1e2236;
-  --border: #252a40; --border-dim: #1c2033;
-  --text: #e8ecf8; --text-2: #8892b0; --text-3: #4a5568;
-  --sidebar-bg: #0d1021; --sidebar-border: #1a1f35;
-  --header-bg: rgba(11,13,20,.88);
-  --glow: rgba(79,142,247,.08);
-  --chart-grid: rgba(255,255,255,.04);
-}
 [data-theme="light"] {
-  --bg: #f0f2f8; --surface: #ffffff; --card: #ffffff; --card-hover: #f7f8fc;
-  --border: #e2e5ef; --border-dim: #eceef6;
-  --text: #1a1d2e; --text-2: #5a6278; --text-3: #9ba3bf;
-  --sidebar-bg: #111728; --sidebar-border: #1c2338;
-  --header-bg: rgba(240,242,248,.9);
-  --glow: rgba(79,142,247,.05);
-  --chart-grid: rgba(0,0,0,.04);
+  --body-bg: #f9fafb;
+  --body-color: #1f2937;
+  --secondary: #6b7280;
+  --surface: #ffffff;
+  --border: #e5e7eb;
+  --border-t: rgba(4,32,69,.1);
+  --muted: #9ca3af;
+  --chart-grid: rgba(0,0,0,.06);
+}
+[data-theme="dark"] {
+  --body-bg: #111827;
+  --body-color: #e5e7eb;
+  --secondary: #9ca3af;
+  --surface: #1f2937;
+  --border: rgb(46,60,81);
+  --border-t: rgba(72,110,149,.14);
+  --muted: #6b7280;
+  --chart-grid: rgba(255,255,255,.06);
 }
 
-::-webkit-scrollbar { width: 4px; height: 4px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+body { font-family: var(--font); font-size: .875rem; line-height: 1.5; background: var(--body-bg); color: var(--body-color); min-height: 100vh; transition: background .15s, color .15s; }
 
-body {
-  font-family: var(--font);
-  background: var(--bg);
-  color: var(--text);
-  display: flex;
-  min-height: 100vh;
-  transition: background var(--transition), color var(--transition);
-}
-
-/* ─── Sidebar ─────────────────────────────────────────────── */
-.sidebar {
-  position: fixed; left: 0; top: 0; bottom: 0;
-  width: var(--sidebar-w);
-  background: var(--sidebar-bg);
-  border-right: 1px solid var(--sidebar-border);
-  display: flex; flex-direction: column;
-  z-index: 100;
-}
-.sidebar-brand {
-  height: var(--header-h);
-  display: flex; align-items: center; gap: 10px;
-  padding: 0 20px;
-  border-bottom: 1px solid var(--sidebar-border);
-}
-.brand-logo {
-  width: 32px; height: 32px;
-  background: linear-gradient(135deg, var(--blue), var(--purple));
-  border-radius: 9px; display: grid; place-items: center;
-  font-weight: 700; font-size: 15px; color: #fff;
-  box-shadow: 0 4px 16px rgba(79,142,247,.3);
-}
-.brand-name { font-size: 15px; font-weight: 600; color: #e8ecf8; letter-spacing: -.02em; }
-.brand-version { font-size: 10px; color: rgba(255,255,255,.28); font-family: var(--mono); }
-.sidebar-nav { flex: 1; padding: 12px 0; overflow-y: auto; }
-.nav-section { padding: 8px 16px 4px; font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: rgba(255,255,255,.2); }
-.nav-item {
-  display: flex; align-items: center; gap: 10px;
-  padding: 9px 20px; margin: 1px 8px;
-  border-radius: var(--radius-sm);
-  cursor: pointer; color: rgba(255,255,255,.48);
-  font-size: 13.5px; font-weight: 450;
-  text-decoration: none; position: relative;
-  transition: background var(--transition), color var(--transition);
-}
-.nav-item:hover { background: rgba(255,255,255,.06); color: rgba(255,255,255,.8); }
-.nav-item.active { background: var(--blue-dim); color: var(--blue); }
-.nav-item.active::before {
-  content: ''; position: absolute; left: -8px; top: 50%; transform: translateY(-50%);
-  width: 3px; height: 60%; background: var(--blue); border-radius: 0 3px 3px 0;
-}
-.nav-icon { width: 18px; height: 18px; flex-shrink: 0; opacity: .7; }
-.nav-item.active .nav-icon { opacity: 1; }
-.nav-badge { margin-left: auto; background: var(--blue-dim); color: var(--blue); font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 999px; }
-.sidebar-footer {
-  padding: 16px; border-top: 1px solid var(--sidebar-border);
-  display: flex; align-items: center; gap: 10px;
-}
-.sidebar-avatar { width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(135deg, var(--blue), var(--purple)); display: grid; place-items: center; font-size: 12px; font-weight: 600; color: #fff; }
-.sidebar-user-name { font-size: 13px; font-weight: 500; color: rgba(255,255,255,.8); }
-.sidebar-user-role { font-size: 11px; color: rgba(255,255,255,.28); }
-
-/* ─── Main ──────────────────────────────────────────────────── */
-.main { margin-left: var(--sidebar-w); flex: 1; display: flex; flex-direction: column; min-height: 100vh; }
+/* ─── Header ───────────────────────────────────────────────── */
 .header {
-  position: sticky; top: 0; z-index: 90;
-  height: var(--header-h);
-  background: var(--header-bg);
-  backdrop-filter: blur(20px) saturate(1.3);
+  position: sticky; top: 0; z-index: 100;
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  backdrop-filter: blur(12px) saturate(1.2);
   border-bottom: 1px solid var(--border);
-  display: flex; align-items: center; padding: 0 28px; gap: 16px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.04);
 }
-.header-title { font-size: 15px; font-weight: 600; letter-spacing: -.02em; flex: 1; }
-.header-breadcrumb { font-size: 11px; color: var(--text-2); font-weight: 400; margin-top: 1px; }
-.header-actions { display: flex; align-items: center; gap: 8px; }
-.btn-icon {
-  width: 36px; height: 36px; border: 1px solid var(--border); background: var(--card);
-  border-radius: var(--radius-sm); display: grid; place-items: center;
-  cursor: pointer; color: var(--text-2); transition: all var(--transition);
-}
-.btn-icon:hover { border-color: var(--blue); color: var(--blue); background: var(--blue-dim); }
-.content { flex: 1; padding: 24px 28px; display: flex; flex-direction: column; gap: 20px; }
-.grid { display: grid; gap: 16px; }
-.grid-4 { grid-template-columns: repeat(4, 1fr); }
-.grid-2 { grid-template-columns: 1fr 1fr; }
-.card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; transition: background var(--transition), border-color var(--transition); }
-.card-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px 0; }
-.card-title { font-size: 13px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 7px; }
-.card-action { font-size: 11.5px; color: var(--blue); cursor: pointer; display: flex; align-items: center; gap: 3px; text-decoration: none; }
-.card-action:hover { opacity: .8; }
-.card-body { padding: 16px 20px; }
+.header-inner { max-width: 1200px; margin: 0 auto; padding: 0 1.25rem; display: flex; align-items: center; height: 56px; gap: 1rem; }
+.brand { display: flex; align-items: center; gap: .5rem; text-decoration: none; flex-shrink: 0; }
+.brand-logo-img { height: 28px; width: auto; filter: drop-shadow(0 2px 6px rgba(0,0,0,.15)); }
+.nav { display: flex; align-items: center; gap: 2px; flex: 1; margin-left: .5rem; }
+.nav-link { display: inline-flex; align-items: center; gap: .4rem; padding: .4rem .7rem; border-radius: 6px; font-size: .8125rem; font-weight: 500; color: var(--secondary); text-decoration: none; transition: background .12s, color .12s; }
+.nav-link:hover { background: rgba(var(--primary-rgb),.08); color: var(--body-color); }
+.nav-link.active { background: rgba(var(--primary-rgb),.12); color: var(--primary); }
+.nav-link svg { width: 16px; height: 16px; }
+.nav-count { font-size: .7rem; font-weight: 600; background: rgba(var(--primary-rgb),.1); color: var(--primary); padding: 0 5px; border-radius: 10px; margin-left: 2px; }
+.tools { display: flex; align-items: center; gap: .5rem; margin-left: auto; }
+.btn-icon { width: 32px; height: 32px; border: 1px solid var(--border); background: var(--surface); border-radius: 6px; display: grid; place-items: center; cursor: pointer; color: var(--secondary); transition: all .12s; }
+.btn-icon:hover { border-color: var(--primary); color: var(--primary); }
+.theme-toggle { display: flex; gap: 1px; background: var(--border); border-radius: 6px; padding: 2px; }
+.theme-opt { padding: 3px 8px; border-radius: 4px; font-size: .7rem; font-weight: 600; color: var(--muted); cursor: pointer; user-select: none; transition: all .12s; }
+.theme-opt.active { background: var(--surface); color: var(--primary); box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+.avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--green); display: grid; place-items: center; font-size: 10px; font-weight: 700; color: #fff; }
 
-/* ─── Stat cards ────────────────────────────────────────────── */
-.stat-card {
-  background: var(--card); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 18px 20px;
-  display: flex; flex-direction: column; gap: 8px;
-  position: relative; overflow: hidden;
-}
-.stat-icon { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; }
-.stat-meta { font-size: 11.5px; color: var(--text-2); }
-.stat-value { font-size: 22px; font-weight: 700; letter-spacing: -.04em; line-height: 1.1; }
-.stat-sub { font-size: 11px; color: var(--text-3); }
-.stat-rate { font-family: var(--mono); font-size: 14px; font-weight: 600; letter-spacing: -.02em; }
+/* ─── Page ─────────────────────────────────────────────────── */
+.page { max-width: 1200px; margin: 0 auto; padding: 1.5rem 1.25rem 3rem; display: flex; flex-direction: column; gap: 1.5rem; }
+.page-title { font-size: 1.25rem; font-weight: 700; letter-spacing: -.02em; }
+.page-sub { font-size: .8125rem; color: var(--secondary); }
 
-/* ─── XY Chart ──────────────────────────────────────────────── */
-.chart-wrap { padding: 12px 16px 12px; }
+/* ─── Card ─────────────────────────────────────────────────── */
+.card {
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border-t);
+  border-radius: var(--border-radius);
+  box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 16px -4px rgba(0,0,0,.06);
+  transition: box-shadow .15s;
+}
+.card:hover { box-shadow: 0 2px 4px rgba(0,0,0,.05), 0 8px 24px -4px rgba(0,0,0,.1); }
+.card-header { padding: .875rem 1.25rem; border-bottom: 1px solid var(--border-t); display: flex; align-items: center; justify-content: space-between; }
+.card-title { font-size: .8125rem; font-weight: 700; display: flex; align-items: center; gap: .4rem; }
+.card-title svg { width: 15px; height: 15px; color: var(--secondary); }
+.card-action { font-size: .75rem; color: var(--primary); text-decoration: none; font-weight: 500; }
+.card-action:hover { text-decoration: underline; }
+
+.row { display: grid; gap: 1rem; }
+.row-4 { grid-template-columns: repeat(4, 1fr); }
+.row-2 { grid-template-columns: 1fr 1fr; }
+
+/* ─── Stat ─────────────────────────────────────────────────── */
+.stat {
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border-t);
+  border-radius: var(--border-radius);
+  padding: 1rem 1.25rem;
+  box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 16px -4px rgba(0,0,0,.06);
+  transition: box-shadow .15s, transform .15s;
+}
+.stat:hover { box-shadow: 0 2px 4px rgba(0,0,0,.05), 0 8px 24px -4px rgba(0,0,0,.1); transform: translateY(-1px); }
+.stat-top { display: flex; align-items: flex-start; justify-content: space-between; }
+.stat-icon { width: 2.5rem; height: 2.5rem; border-radius: 8px; display: grid; place-items: center; }
+.stat-label { font-size: .75rem; color: var(--secondary); font-weight: 500; text-transform: uppercase; letter-spacing: .04em; }
+.stat-value { font-size: 1.35rem; font-weight: 700; letter-spacing: -.03em; line-height: 1.2; margin: .25rem 0; }
+.stat-rate { font-family: var(--mono); font-size: 1.1rem; font-weight: 600; letter-spacing: -.02em; }
+.stat-sub { font-size: .75rem; color: var(--muted); }
+
+/* ─── Chart ────────────────────────────────────────────────── */
+.chart-wrap { padding: .5rem 1rem .75rem; }
 .chart-svg { width: 100%; display: block; }
+.legend { display: flex; flex-wrap: wrap; gap: .75rem; padding: .25rem 1.25rem 0; }
+.legend-item { display: flex; align-items: center; gap: .35rem; }
+.legend-line { width: 18px; height: 2px; border-radius: 1px; }
+.legend-name { font-size: .75rem; color: var(--secondary); }
+.legend-rate { font-size: .7rem; font-family: var(--mono); color: var(--muted); }
 
-/* ─── Legend ────────────────────────────────────────────────── */
-.legend { display: flex; flex-wrap: wrap; gap: 12px; padding: 4px 20px 0; }
-.legend-item { display: flex; align-items: center; gap: 6px; }
-.legend-line { width: 22px; height: 2.5px; border-radius: 2px; }
-.legend-name { font-size: 12px; color: var(--text-2); }
-.legend-rate { font-size: 11px; font-family: var(--mono); color: var(--text-3); margin-left: 2px; }
-
-/* ─── Table ─────────────────────────────────────────────────── */
+/* ─── Table ────────────────────────────────────────────────── */
 .table { width: 100%; border-collapse: collapse; }
-.table th { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--text-2); padding: 8px 20px; border-bottom: 1px solid var(--border-dim); text-align: left; white-space: nowrap; }
-.table td { padding: 12px 20px; font-size: 13px; border-bottom: 1px solid var(--border-dim); color: var(--text); }
-.table tr:last-child td { border-bottom: none; }
-.table tr:hover td { background: rgba(255,255,255,.015); }
-.mono { font-family: var(--mono); font-size: 12px; }
-.text-right { text-align: right; }
-.text-dim { color: var(--text-2); }
+.table th { font-size: .6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--secondary); padding: .625rem 1.25rem; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
+.table td { padding: .75rem 1.25rem; font-size: .8125rem; border-bottom: 1px solid var(--border-t); }
+.table tr:last-child td { border-bottom: 0; }
+.table tr:hover td { background: rgba(var(--primary-rgb),.03); }
+.mono { font-family: var(--mono); font-size: .75rem; }
+.text-r { text-align: right; }
+.dim { color: var(--secondary); }
 
-.badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; font-size: 10.5px; font-weight: 500; }
-.badge-green { background: var(--green-dim); color: var(--green); }
-.badge-blue  { background: var(--blue-dim);  color: var(--blue); }
-.badge-amber { background: var(--amber-dim); color: var(--amber); }
-.badge-dim   { background: rgba(255,255,255,.06); color: var(--text-2); }
+.badge { display: inline-flex; align-items: center; padding: .125rem .5rem; border-radius: 4px; font-size: .6875rem; font-weight: 500; }
+.badge-green { background: rgba(var(--green-rgb),.1); color: var(--green); }
+.badge-blue { background: rgba(var(--primary-rgb),.1); color: var(--primary); }
+.badge-muted { background: var(--border); color: var(--secondary); }
 
-.peer-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; display: inline-block; margin-right: 6px; }
+.peer-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: .4rem; flex-shrink: 0; }
+.mini-bar { display: flex; align-items: center; gap: .4rem; min-width: 100px; }
+.mini-track { flex: 1; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+.mini-fill { height: 100%; border-radius: 2px; }
 
-/* ─── Mini bar ──────────────────────────────────────────────── */
-.mini-bar-wrap { display: flex; align-items: center; gap: 6px; min-width: 120px; }
-.mini-bar-track { flex: 1; height: 5px; background: var(--border-dim); border-radius: 3px; overflow: hidden; }
-.mini-bar-fill { height: 100%; border-radius: 3px; }
-.mini-bar-val { font-family: var(--mono); font-size: 11px; color: var(--text-2); min-width: 50px; text-align: right; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: pulse 2s ease-in-out infinite; display: inline-block; }
 
-/* ─── Theme toggle ──────────────────────────────────────────── */
-.theme-toggle { display: flex; align-items: center; background: var(--border); border-radius: 999px; padding: 3px; cursor: pointer; }
-.theme-opt { padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 500; color: var(--text-2); transition: all .15s; user-select: none; }
-.theme-opt.active { background: var(--card); color: var(--blue); box-shadow: 0 1px 4px rgba(0,0,0,.15); }
+.footer { max-width: 1200px; margin: 0 auto; padding: 1rem 1.25rem; border-top: 1px solid var(--border); display: flex; justify-content: space-between; font-size: .75rem; color: var(--muted); }
+.footer a { color: var(--secondary); text-decoration: none; }
+.footer a:hover { color: var(--body-color); }
 
-.page-link { display: inline-flex; align-items: center; gap: 5px; background: var(--blue-dim); color: var(--blue); border-radius: var(--radius-sm); padding: 7px 14px; font-size: 12.5px; font-weight: 500; text-decoration: none; border: 1px solid rgba(79,142,247,.2); }
-.page-link:hover { opacity: .85; }
-
-@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
-.live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: pulse 2s ease-in-out infinite; display: inline-block; }
+@media (max-width: 1024px) { .row-4 { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 640px) { .row-4, .row-2 { grid-template-columns: 1fr; } .nav { display: none; } }
 </style>
 </head>
 <body>
 
-<!-- Sidebar (same as dashboard) -->
-<aside class="sidebar">
-  <div class="sidebar-brand">
-    <div class="brand-logo">FG</div>
-    <div>
-      <div class="brand-name">FloppyGuard</div>
-      <div class="brand-version">v1.2.4</div>
+<header class="header">
+  <div class="header-inner">
+    <a class="brand" href="#"><img src="/images/floppyguard-logo-sm.png" alt="FloppyGuard" class="brand-logo-img" /></a>
+    <nav class="nav">
+      <a class="nav-link" href="demo-dashboard.html"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg> Dashboard</a>
+      <a class="nav-link active" href="#"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> Traffic</a>
+      <a class="nav-link" href="#"><img src="/images/logo-no-text.svg" style="width:16px;height:16px" alt="NPM" /> Proxy Hosts <span class="nav-count">12</span></a>
+      <a class="nav-link" href="#"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg> Redirections</a>
+      <a class="nav-link" href="#"><img src="/images/wireguard-icon.svg" style="width:16px;height:16px" alt="WG" /> WireGuard</a>
+      <a class="nav-link" href="#"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M6 20v-2a6 6 0 0 1 12 0v2"/></svg> Users</a>
+    </nav>
+    <div class="tools">
+      <div class="theme-toggle" onclick="toggleTheme()"><div class="theme-opt" id="opt-light">Light</div><div class="theme-opt" id="opt-dark">Dark</div></div>
+      <button class="btn-icon" title="Notifications"><svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/></svg></button>
+      <div class="avatar">FH</div>
     </div>
   </div>
-  <nav class="sidebar-nav">
-    <div class="nav-section">Main</div>
-    <a class="nav-item" href="demo-dashboard.html">
-      <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-        <rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/>
-        <rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>
-      </svg>
-      Dashboard
-    </a>
-    <a class="nav-item active" href="#">
-      <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-      </svg>
-      Traffic
-    </a>
-    <div class="nav-section" style="margin-top:8px">Hosts</div>
-    <a class="nav-item" href="#">
-      <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-        <rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/>
-      </svg>
-      Proxy Hosts
-      <span class="nav-badge">12</span>
-    </a>
-    <a class="nav-item" href="#">
-      <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-      Redirections
-    </a>
-    <a class="nav-item" href="#">
-      <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
-      </svg>
-      Dead Hosts
-    </a>
-    <div class="nav-section" style="margin-top:8px">VPN</div>
-    <a class="nav-item" href="#">
-      <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-      </svg>
-      WireGuard
-    </a>
-    <div class="nav-section" style="margin-top:8px">Admin</div>
-    <a class="nav-item" href="#">
-      <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-        <circle cx="12" cy="8" r="4"/><path d="M6 20v-2a6 6 0 0 1 12 0v2"/>
-      </svg>
-      Users
-    </a>
-    <a class="nav-item" href="#">
-      <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-        <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-      </svg>
-      Settings
-    </a>
-  </nav>
-  <div class="sidebar-footer">
-    <div class="sidebar-avatar">FH</div>
-    <div>
-      <div class="sidebar-user-name">Florian Hesse</div>
-      <div class="sidebar-user-role">Administrator</div>
+</header>
+
+<div class="page">
+  <div>
+    <h1 class="page-title">Traffic</h1>
+    <p class="page-sub"><span class="dot" style="margin-right:4px"></span> WireGuard &middot; Live Bandwidth &middot; Updates every 10 s</p>
+  </div>
+
+  <div class="row row-4">
+    <div class="stat">
+      <div class="stat-top">
+        <div><div class="stat-label">Receiving</div><div class="stat-rate" id="card-rx" style="color:var(--green)">&mdash;</div><div class="stat-sub" id="card-rx-t">4.2 GB total</div></div>
+        <div class="stat-icon" style="background:rgba(var(--green-rgb),.1);color:var(--green)"><svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7"/></svg></div>
+      </div>
+    </div>
+    <div class="stat">
+      <div class="stat-top">
+        <div><div class="stat-label">Sending</div><div class="stat-rate" id="card-tx" style="color:var(--primary)">&mdash;</div><div class="stat-sub" id="card-tx-t">1.8 GB total</div></div>
+        <div class="stat-icon" style="background:rgba(var(--primary-rgb),.1);color:var(--primary)"><svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg></div>
+      </div>
+    </div>
+    <div class="stat">
+      <div class="stat-top">
+        <div><div class="stat-label">Active Links</div><div class="stat-value">2 <span style="font-size:.875rem;color:var(--secondary);font-weight:400">/ 3</span></div><div class="stat-sub">1 peer idle</div></div>
+        <div class="stat-icon" style="background:rgba(var(--green-rgb),.1);color:var(--green)"><svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M1 6s4-2 11-2 11 2 11 2"/><path d="M1 12s4-2 11-2 11 2 11 2"/><path d="M7 18s2.5-1 5-1 5 1 5 1"/><circle cx="12" cy="21" r="1"/></svg></div>
+      </div>
+    </div>
+    <div class="stat">
+      <div class="stat-top">
+        <div><div class="stat-label">Combined Rate</div><div class="stat-rate" id="card-c" style="color:var(--azure)">&mdash;</div><div class="stat-sub">3 peers tracked</div></div>
+        <div class="stat-icon" style="background:rgba(var(--azure-rgb),.1);color:var(--azure)"><svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
+      </div>
     </div>
   </div>
-</aside>
 
-<div class="main">
-  <header class="header">
-    <div style="flex:1">
-      <div class="header-title">Traffic</div>
-      <div class="header-breadcrumb">WireGuard · Live Bandwidth</div>
-    </div>
-    <div style="display:flex;align-items:center;gap:6px">
-      <span class="live-dot"></span>
-      <span style="font-size:12px;color:var(--text-2)">Updates every 10 s</span>
-    </div>
-    <div class="header-actions">
-      <div class="theme-toggle" onclick="toggleTheme()">
-        <div class="theme-opt" id="opt-dark">Dark</div>
-        <div class="theme-opt" id="opt-light">Light</div>
-      </div>
-      <a href="demo-dashboard.html" class="page-link">← Dashboard</a>
-    </div>
-  </header>
-
-  <div class="content">
-
-    <!-- Stat cards -->
-    <div class="grid grid-4">
-      <div class="stat-card">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between">
-          <div>
-            <div class="stat-meta">Receiving</div>
-            <div class="stat-rate" id="card-rx" style="color:var(--green)">— KB/s</div>
-            <div class="stat-sub" id="card-rx-total">4.2 GB total</div>
-          </div>
-          <div class="stat-icon" style="background:var(--green-dim);color:var(--green)">
-            <svg width="19" height="19" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path d="M12 5v14M5 12l7 7 7-7"/>
-            </svg>
-          </div>
-        </div>
-      </div>
-      <div class="stat-card">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between">
-          <div>
-            <div class="stat-meta">Sending</div>
-            <div class="stat-rate" id="card-tx" style="color:var(--blue)">— KB/s</div>
-            <div class="stat-sub" id="card-tx-total">1.8 GB total</div>
-          </div>
-          <div class="stat-icon" style="background:var(--blue-dim);color:var(--blue)">
-            <svg width="19" height="19" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path d="M12 19V5M5 12l7-7 7 7"/>
-            </svg>
-          </div>
-        </div>
-      </div>
-      <div class="stat-card">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between">
-          <div>
-            <div class="stat-meta">Active Links</div>
-            <div class="stat-value">2 <span style="font-size:13px;color:var(--text-2);font-weight:400">/ 3</span></div>
-            <div class="stat-sub">1 peer idle</div>
-          </div>
-          <div class="stat-icon" style="background:var(--green-dim);color:var(--green)">
-            <svg width="19" height="19" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path d="M1 6s4-2 11-2 11 2 11 2"/><path d="M1 12s4-2 11-2 11 2 11 2"/>
-              <path d="M7 18s2.5-1 5-1 5 1 5 1"/><circle cx="12" cy="21" r="1"/>
-            </svg>
-          </div>
-        </div>
-      </div>
-      <div class="stat-card">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between">
-          <div>
-            <div class="stat-meta">Combined Rate</div>
-            <div class="stat-rate" id="card-combined" style="color:var(--cyan)">— KB/s</div>
-            <div class="stat-sub">3 peers tracked</div>
-          </div>
-          <div class="stat-icon" style="background:var(--cyan-dim);color:var(--cyan)">
-            <svg width="19" height="19" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-            </svg>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Charts -->
-    <div class="grid grid-2">
-
-      <!-- RX -->
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">
-            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="color:var(--green)">
-              <path d="M12 5v14M5 12l7 7 7-7"/>
-            </svg>
-            Received · bytes/s
-            <span class="live-dot" style="width:5px;height:5px"></span>
-          </div>
-          <span style="font-size:10.5px;color:var(--text-2);font-family:var(--mono)" id="ts-label">updating…</span>
-        </div>
-        <div class="legend" id="legend-rx"></div>
-        <div class="chart-wrap">
-          <svg id="svg-rx" class="chart-svg" viewBox="0 0 640 160" height="160" preserveAspectRatio="none">
-            <defs id="defs-rx"></defs>
-            <g id="grid-rx"></g>
-            <g id="paths-rx"></g>
-            <g id="labels-rx"></g>
-          </svg>
-        </div>
-      </div>
-
-      <!-- TX -->
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">
-            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="color:var(--blue)">
-              <path d="M12 19V5M5 12l7-7 7 7"/>
-            </svg>
-            Sent · bytes/s
-            <span class="live-dot" style="width:5px;height:5px"></span>
-          </div>
-          <span style="font-size:10.5px;color:var(--text-2);font-family:var(--mono)" id="ts-label-tx"></span>
-        </div>
-        <div class="legend" id="legend-tx"></div>
-        <div class="chart-wrap">
-          <svg id="svg-tx" class="chart-svg" viewBox="0 0 640 160" height="160" preserveAspectRatio="none">
-            <defs id="defs-tx"></defs>
-            <g id="grid-tx"></g>
-            <g id="paths-tx"></g>
-            <g id="labels-tx"></g>
-          </svg>
-        </div>
-      </div>
-    </div>
-
-    <!-- Per-peer detail table -->
+  <div class="row row-2">
     <div class="card">
       <div class="card-header">
-        <div class="card-title">
-          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>
-          </svg>
-          Link Details
-        </div>
-        <a class="card-action" href="#">Routing diagnostics →</a>
+        <div class="card-title"><span style="width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block"></span> Received &middot; bytes/s <span class="dot" style="width:4px;height:4px"></span></div>
+        <span class="mono dim" id="ts">—</span>
       </div>
-      <table class="table">
-        <thead>
-          <tr>
-            <th>Peer</th>
-            <th>Type</th>
-            <th>Interface</th>
-            <th class="text-right">↓ Received</th>
-            <th style="min-width:140px"></th>
-            <th class="text-right">↑ Sent</th>
-            <th style="min-width:140px"></th>
-            <th>Last Handshake</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>
-              <div style="display:flex;align-items:center">
-                <span class="peer-dot" style="background:#34c77b"></span>
-                <div>
-                  <div style="font-weight:500">Hinderlich</div>
-                  <div style="font-size:11px;color:var(--text-2)">10.10.0.2</div>
-                </div>
-              </div>
-            </td>
-            <td><span class="badge badge-blue">site-to-site</span></td>
-            <td class="mono text-dim">wg0</td>
-            <td class="text-right mono">2.1 GB</td>
-            <td>
-              <div class="mini-bar-wrap">
-                <div class="mini-bar-track"><div class="mini-bar-fill" style="width:100%;background:var(--green)"></div></div>
-              </div>
-            </td>
-            <td class="text-right mono">890 MB</td>
-            <td>
-              <div class="mini-bar-wrap">
-                <div class="mini-bar-track"><div class="mini-bar-fill" style="width:42%;background:var(--blue)"></div></div>
-              </div>
-            </td>
-            <td class="mono text-dim">14s ago</td>
-            <td><span class="badge badge-green">Active</span></td>
-          </tr>
-          <tr>
-            <td>
-              <div style="display:flex;align-items:center">
-                <span class="peer-dot" style="background:#4f8ef7"></span>
-                <div>
-                  <div style="font-weight:500">Floppy Home</div>
-                  <div style="font-size:11px;color:var(--text-2)">10.10.0.3</div>
-                </div>
-              </div>
-            </td>
-            <td><span class="badge badge-blue">site-to-site</span></td>
-            <td class="mono text-dim">wg0</td>
-            <td class="text-right mono">1.1 GB</td>
-            <td>
-              <div class="mini-bar-wrap">
-                <div class="mini-bar-track"><div class="mini-bar-fill" style="width:52%;background:var(--green)"></div></div>
-              </div>
-            </td>
-            <td class="text-right mono">620 MB</td>
-            <td>
-              <div class="mini-bar-wrap">
-                <div class="mini-bar-track"><div class="mini-bar-fill" style="width:29%;background:var(--blue)"></div></div>
-              </div>
-            </td>
-            <td class="mono text-dim">8s ago</td>
-            <td><span class="badge badge-green">Active</span></td>
-          </tr>
-          <tr>
-            <td>
-              <div style="display:flex;align-items:center">
-                <span class="peer-dot" style="background:#a78bfa"></span>
-                <div>
-                  <div style="font-weight:500">iPhone Floppy</div>
-                  <div style="font-size:11px;color:var(--text-2)">10.10.0.10</div>
-                </div>
-              </div>
-            </td>
-            <td><span class="badge badge-green">client</span></td>
-            <td class="mono text-dim">wg0</td>
-            <td class="text-right mono">280 MB</td>
-            <td>
-              <div class="mini-bar-wrap">
-                <div class="mini-bar-track"><div class="mini-bar-fill" style="width:13%;background:var(--green)"></div></div>
-              </div>
-            </td>
-            <td class="text-right mono">140 MB</td>
-            <td>
-              <div class="mini-bar-wrap">
-                <div class="mini-bar-track"><div class="mini-bar-fill" style="width:6%;background:var(--blue)"></div></div>
-              </div>
-            </td>
-            <td class="mono text-dim">4m ago</td>
-            <td><span class="badge badge-dim">Idle</span></td>
-          </tr>
-        </tbody>
-      </table>
+      <div class="legend" id="leg-rx"></div>
+      <div class="chart-wrap"><svg id="svg-rx" class="chart-svg" viewBox="0 0 640 150" height="150" preserveAspectRatio="none"><defs id="d-rx"></defs><g id="gr-rx"></g><g id="p-rx"></g><g id="lb-rx"></g></svg></div>
     </div>
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title"><span style="width:7px;height:7px;border-radius:50%;background:var(--primary);display:inline-block"></span> Sent &middot; bytes/s <span class="dot" style="width:4px;height:4px"></span></div>
+        <span class="mono dim" id="ts2">—</span>
+      </div>
+      <div class="legend" id="leg-tx"></div>
+      <div class="chart-wrap"><svg id="svg-tx" class="chart-svg" viewBox="0 0 640 150" height="150" preserveAspectRatio="none"><defs id="d-tx"></defs><g id="gr-tx"></g><g id="p-tx"></g><g id="lb-tx"></g></svg></div>
+    </div>
+  </div>
 
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg> Link Details</div>
+      <a class="card-action" href="#">Routing diagnostics &rarr;</a>
+    </div>
+    <table class="table">
+      <thead><tr><th>Peer</th><th>Type</th><th>Interface</th><th class="text-r">&#8595; Received</th><th style="min-width:120px"></th><th class="text-r">&#8593; Sent</th><th style="min-width:120px"></th><th>Last Handshake</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><div style="display:flex;align-items:center"><span class="peer-dot" style="background:#2fb344"></span><div><div style="font-weight:600">Hinderlich</div><div style="font-size:.7rem;color:var(--secondary)">10.10.0.2</div></div></div></td>
+          <td><span class="badge badge-blue">site-to-site</span></td>
+          <td class="mono dim">wg0</td>
+          <td class="text-r mono">2.1 GB</td>
+          <td><div class="mini-bar"><div class="mini-track"><div class="mini-fill" style="width:100%;background:var(--green)"></div></div></div></td>
+          <td class="text-r mono">890 MB</td>
+          <td><div class="mini-bar"><div class="mini-track"><div class="mini-fill" style="width:42%;background:var(--primary)"></div></div></div></td>
+          <td class="mono dim">14s ago</td>
+          <td><span class="badge badge-green">Active</span></td>
+        </tr>
+        <tr>
+          <td><div style="display:flex;align-items:center"><span class="peer-dot" style="background:#066fd1"></span><div><div style="font-weight:600">Floppy Home</div><div style="font-size:.7rem;color:var(--secondary)">10.10.0.3</div></div></div></td>
+          <td><span class="badge badge-blue">site-to-site</span></td>
+          <td class="mono dim">wg0</td>
+          <td class="text-r mono">1.1 GB</td>
+          <td><div class="mini-bar"><div class="mini-track"><div class="mini-fill" style="width:52%;background:var(--green)"></div></div></div></td>
+          <td class="text-r mono">620 MB</td>
+          <td><div class="mini-bar"><div class="mini-track"><div class="mini-fill" style="width:29%;background:var(--primary)"></div></div></div></td>
+          <td class="mono dim">8s ago</td>
+          <td><span class="badge badge-green">Active</span></td>
+        </tr>
+        <tr>
+          <td><div style="display:flex;align-items:center"><span class="peer-dot" style="background:#a855f7"></span><div><div style="font-weight:600">iPhone Floppy</div><div style="font-size:.7rem;color:var(--secondary)">10.10.0.10</div></div></div></td>
+          <td><span class="badge badge-green">client</span></td>
+          <td class="mono dim">wg0</td>
+          <td class="text-r mono">280 MB</td>
+          <td><div class="mini-bar"><div class="mini-track"><div class="mini-fill" style="width:13%;background:var(--green)"></div></div></div></td>
+          <td class="text-r mono">140 MB</td>
+          <td><div class="mini-bar"><div class="mini-track"><div class="mini-fill" style="width:6%;background:var(--primary)"></div></div></div></td>
+          <td class="mono dim">4m ago</td>
+          <td><span class="badge badge-muted">Idle</span></td>
+        </tr>
+      </tbody>
+    </table>
   </div>
 </div>
 
+<div class="footer"><span>FloppyGuard v1.2.4 &middot; Design Demo</span><a href="demo-dashboard.html">&larr; Dashboard</a></div>
+
 <script>
-// ─── Theme ────────────────────────────────────────────────────
-function toggleTheme() {
-  const html = document.documentElement;
-  html.setAttribute('data-theme', html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
-  updateThemeButtons();
-}
-function updateThemeButtons() {
-  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-  document.getElementById('opt-dark').classList.toggle('active', isDark);
-  document.getElementById('opt-light').classList.toggle('active', !isDark);
-}
-updateThemeButtons();
+function toggleTheme(){const h=document.documentElement;h.setAttribute('data-theme',h.getAttribute('data-theme')==='dark'?'light':'dark');upd()}
+function upd(){const d=document.documentElement.getAttribute('data-theme')==='dark';document.getElementById('opt-dark').classList.toggle('active',d);document.getElementById('opt-light').classList.toggle('active',!d)}
+upd();
 
-// ─── Chart config ─────────────────────────────────────────────
-const W = 640, H_INNER = 130, BOTTOM = H_INNER + 16, N = 60;
-const PAD = { l: 50, r: 8, t: 8, b: 22 };
-const IW = W - PAD.l - PAD.r;
-
-const PEERS = [
-  { id: 'hinderlich',    name: 'Hinderlich',    color: '#34c77b', rxBase: 185000, txBase:  72000 },
-  { id: 'floppy-home',  name: 'Floppy Home',   color: '#4f8ef7', rxBase:  98000, txBase:  44000 },
-  { id: 'iphone-floppy',name: 'iPhone Floppy', color: '#a78bfa', rxBase:   4000, txBase:   2000 },
+const W=640,HI=120,BT=HI+16,N=60,PD={l:46,r:8,t:8,b:22},IW=W-PD.l-PD.r;
+const PEERS=[
+  {id:'h',name:'Hinderlich',color:'#2fb344',rxB:185000,txB:72000},
+  {id:'f',name:'Floppy Home',color:'#066fd1',rxB:98000,txB:44000},
+  {id:'i',name:'iPhone Floppy',color:'#a855f7',rxB:4000,txB:2000},
 ];
+const hR={},hT={};for(const p of PEERS){hR[p.id]=[];hT[p.id]=[]}
 
-// Ring buffer per peer
-const histRx = {}, histTx = {};
-for (const p of PEERS) { histRx[p.id] = []; histTx[p.id] = []; }
+function ns(t,a){return Math.sin(t*.22)*a+Math.sin(t*.09+1.4)*a*.45+Math.sin(t*.5+.8)*a*.15}
+function fmt(v){if(v<1024)return v.toFixed(0)+' B/s';if(v<1048576)return(v/1024).toFixed(1)+' KB/s';return(v/1048576).toFixed(2)+' MB/s'}
+function se(tag,a,p){const e=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const[k,v]of Object.entries(a))e.setAttribute(k,v);if(p)p.appendChild(e);return e}
 
-function noise(t, a) {
-  return Math.sin(t * .22) * a + Math.sin(t * .09 + 1.4) * a * .45 + Math.sin(t * .5 + .8) * a * .15;
+function tick(){const n=Date.now()/1000;for(const p of PEERS){const rx=Math.max(0,p.rxB+ns(n,p.rxB*.7)+(Math.random()-.5)*p.rxB*.2);const tx=Math.max(0,p.txB+ns(n+3,p.txB*.6)+(Math.random()-.5)*p.txB*.2);hR[p.id].push(rx);if(hR[p.id].length>N)hR[p.id].shift();hT[p.id].push(tx);if(hT[p.id].length>N)hT[p.id].shift()}}
+
+function draw(h,m){
+  const av=PEERS.flatMap(p=>h[p.id]);const yM=Math.max(...av,1024)*1.15;
+  const tp=d=>d.map((v,i)=>`${(PD.l+i/(N-1)*IW).toFixed(1)},${(PD.t+HI-v/yM*HI).toFixed(1)}`).join(' ');
+  const gp=document.getElementById(`p-${m}`);const gl=document.getElementById(`lb-${m}`);const gg=document.getElementById(`gr-${m}`);const df=document.getElementById(`d-${m}`);
+  gp.innerHTML='';gl.innerHTML='';gg.innerHTML='';df.innerHTML='';
+  for(const f of[0,.25,.5,.75,1]){const y=PD.t+HI*(1-f);se('line',{x1:PD.l,y1:y,x2:W-PD.r,y2:y,stroke:'var(--chart-grid)','stroke-width':1},gg);const t=se('text',{x:PD.l-4,y:y+4,'text-anchor':'end','font-size':9,fill:'var(--muted)','font-family':'var(--mono)'},gg);t.textContent=fmt(yM*f)}
+  for(const[xf,lb]of[[0,'-10m'],[.5,'-5m'],[1,'now']]){const x=PD.l+xf*IW;const t=se('text',{x,y:PD.t+HI+16,'text-anchor':xf===0?'start':xf===1?'end':'middle','font-size':9,fill:'var(--muted)','font-family':'var(--mono)'},gl);t.textContent=lb}
+  for(const p of PEERS){const d=h[p.id];if(!d.length)continue;const pts=tp(d);const lx=PD.l+(d.length-1)/(N-1)*IW;const ly=PD.t+HI-d[d.length-1]/yM*HI;const gid=`g-${m}-${p.id}`;const lg=se('linearGradient',{id:gid,x1:0,y1:0,x2:0,y2:1},df);se('stop',{offset:'0%','stop-color':p.color,'stop-opacity':'.15'},lg);se('stop',{offset:'100%','stop-color':p.color,'stop-opacity':'0'},lg);se('path',{d:`M ${pts} L ${lx.toFixed(1)},${(PD.t+HI).toFixed(1)} L ${PD.l},${(PD.t+HI).toFixed(1)} Z`,fill:`url(#${gid})`},gp);se('path',{d:`M ${pts}`,fill:'none',stroke:p.color,'stroke-width':1.5,'stroke-linejoin':'round','stroke-linecap':'round'},gp);se('circle',{cx:lx,cy:ly,r:2.5,fill:p.color},gp)}
 }
 
-function tick() {
-  const now = Date.now() / 1000;
-  for (const p of PEERS) {
-    const rx = Math.max(0, p.rxBase + noise(now, p.rxBase * .7) + (Math.random() - .5) * p.rxBase * .2);
-    const tx = Math.max(0, p.txBase + noise(now + 3, p.txBase * .6) + (Math.random() - .5) * p.txBase * .2);
-    histRx[p.id].push(rx); if (histRx[p.id].length > N) histRx[p.id].shift();
-    histTx[p.id].push(tx); if (histTx[p.id].length > N) histTx[p.id].shift();
-  }
-}
+function leg(h,id){const el=document.getElementById(id);el.innerHTML='';for(const p of PEERS){const v=h[p.id][h[p.id].length-1]??0;const d=document.createElement('div');d.className='legend-item';d.innerHTML=`<div class="legend-line" style="background:${p.color}"></div><span class="legend-name">${p.name}</span><span class="legend-rate">${fmt(v)}</span>`;el.appendChild(d)}}
 
-function fmt(v) {
-  if (v < 1024) return v.toFixed(0) + ' B/s';
-  if (v < 1024*1024) return (v/1024).toFixed(1) + ' KB/s';
-  return (v/1024/1024).toFixed(2) + ' MB/s';
-}
+function update(){tick();draw(hR,'rx');draw(hT,'tx');leg(hR,'leg-rx');leg(hT,'leg-tx');
+  const tr=PEERS.reduce((s,p)=>s+(hR[p.id][hR[p.id].length-1]??0),0);
+  const tt=PEERS.reduce((s,p)=>s+(hT[p.id][hT[p.id].length-1]??0),0);
+  document.getElementById('card-rx').textContent=fmt(tr);document.getElementById('card-tx').textContent=fmt(tt);document.getElementById('card-c').textContent=fmt(tr+tt);
+  const now=new Date().toLocaleTimeString();document.getElementById('ts').textContent=now;document.getElementById('ts2').textContent=now}
 
-function svgEl(tag, attrs, parent) {
-  const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
-  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
-  if (parent) parent.appendChild(el);
-  return el;
-}
-
-function buildChartPaths(hist, mode) {
-  const allVals = PEERS.flatMap(p => hist[p.id]);
-  const yMax = Math.max(...allVals, 1024) * 1.15;
-
-  const toPoints = (data) =>
-    data.map((v, i) => {
-      const x = PAD.l + (i / (N - 1)) * IW;
-      const y = PAD.t + H_INNER - (v / yMax) * H_INNER;
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    }).join(' ');
-
-  const grpPaths = document.getElementById(`paths-${mode}`);
-  const grpLabels = document.getElementById(`labels-${mode}`);
-  const grpGrid = document.getElementById(`grid-${mode}`);
-  const defs = document.getElementById(`defs-${mode}`);
-
-  grpPaths.innerHTML = '';
-  grpLabels.innerHTML = '';
-  grpGrid.innerHTML = '';
-  defs.innerHTML = '';
-
-  // Grid
-  const gridVals = [0, .25, .5, .75, 1];
-  for (const f of gridVals) {
-    const y = PAD.t + H_INNER * (1 - f);
-    svgEl('line', { x1: PAD.l, y1: y, x2: W - PAD.r, y2: y, stroke: 'var(--chart-grid)', 'stroke-width': 1 }, grpGrid);
-    const label = fmt(yMax * f);
-    const t = svgEl('text', { x: PAD.l - 4, y: y + 4, 'text-anchor': 'end', 'font-size': 9, fill: 'var(--text-3)', 'font-family': 'JetBrains Mono,monospace' }, grpGrid);
-    t.textContent = label;
-  }
-
-  // X labels
-  for (const [xf, lbl] of [[0,'-10m'],[.5,'-5m'],[1,'now']]) {
-    const x = PAD.l + xf * IW;
-    const t = svgEl('text', { x, y: PAD.t + H_INNER + 16, 'text-anchor': xf===0?'start':xf===1?'end':'middle', 'font-size': 9, fill: 'var(--text-3)', 'font-family': 'JetBrains Mono,monospace' }, grpLabels);
-    t.textContent = lbl;
-  }
-
-  // Peer lines
-  for (const p of PEERS) {
-    const data = hist[p.id];
-    if (!data.length) continue;
-    const pts = toPoints(data);
-    const lastPt = data[data.length-1];
-    const lastX = PAD.l + ((data.length-1)/(N-1))*IW;
-    const lastY = PAD.t + H_INNER - (lastPt/yMax)*H_INNER;
-    const firstX = PAD.l;
-
-    // gradient
-    const gradId = `g-${mode}-${p.id}`;
-    const lg = svgEl('linearGradient', { id: gradId, x1:0, y1:0, x2:0, y2:1 }, defs);
-    const s1 = svgEl('stop', { offset:'0%', 'stop-color':p.color, 'stop-opacity':'.18' }, lg);
-    const s2 = svgEl('stop', { offset:'100%', 'stop-color':p.color, 'stop-opacity':'0' }, lg);
-
-    // area fill
-    const lastPoint = toPoints(data).split(' ').pop();
-    const areaD = `M ${pts} L ${lastX.toFixed(1)},${(PAD.t+H_INNER).toFixed(1)} L ${firstX},${(PAD.t+H_INNER).toFixed(1)} Z`;
-    svgEl('path', { d: areaD, fill: `url(#${gradId})` }, grpPaths);
-
-    // line
-    svgEl('path', { d: `M ${pts}`, fill:'none', stroke:p.color, 'stroke-width':1.8, 'stroke-linejoin':'round', 'stroke-linecap':'round' }, grpPaths);
-
-    // dot
-    svgEl('circle', { cx:lastX, cy:lastY, r:3, fill:p.color }, grpPaths);
-  }
-
-  return yMax;
-}
-
-function buildLegend(hist, elId) {
-  const el = document.getElementById(elId);
-  el.innerHTML = '';
-  for (const p of PEERS) {
-    const data = hist[p.id];
-    const last = data[data.length-1] ?? 0;
-    const item = document.createElement('div');
-    item.className = 'legend-item';
-    item.innerHTML = `<div class="legend-line" style="background:${p.color}"></div>
-      <span class="legend-name">${p.name}</span>
-      <span class="legend-rate">${fmt(last)}</span>`;
-    el.appendChild(item);
-  }
-}
-
-function update() {
-  tick();
-
-  buildChartPaths(histRx, 'rx');
-  buildChartPaths(histTx, 'tx');
-  buildLegend(histRx, 'legend-rx');
-  buildLegend(histTx, 'legend-tx');
-
-  const totalRx = PEERS.reduce((s,p) => s + (histRx[p.id][histRx[p.id].length-1]??0), 0);
-  const totalTx = PEERS.reduce((s,p) => s + (histTx[p.id][histTx[p.id].length-1]??0), 0);
-
-  document.getElementById('card-rx').textContent = fmt(totalRx);
-  document.getElementById('card-tx').textContent = fmt(totalTx);
-  document.getElementById('card-combined').textContent = fmt(totalRx + totalTx);
-
-  const now = new Date().toLocaleTimeString();
-  document.getElementById('ts-label').textContent = now;
-  document.getElementById('ts-label-tx').textContent = now;
-}
-
-// Prime the buffer with historical data
-const baseNow = Date.now();
-for (let i = N; i >= 0; i--) {
-  const t = (baseNow - i * 10000) / 1000;
-  for (const p of PEERS) {
-    const rx = Math.max(0, p.rxBase + Math.sin(t * .22) * p.rxBase * .6 + Math.sin(t * .09) * p.rxBase * .3);
-    const tx = Math.max(0, p.txBase + Math.sin(t * .18 + 2) * p.txBase * .5 + Math.sin(t * .07) * p.txBase * .25);
-    histRx[p.id].push(rx);
-    histTx[p.id].push(tx);
-  }
-}
-
-update();
-setInterval(update, 2000);
+const bn=Date.now();for(let i=N;i>=0;i--){const t=(bn-i*10000)/1000;for(const p of PEERS){hR[p.id].push(Math.max(0,p.rxB+Math.sin(t*.22)*p.rxB*.6+Math.sin(t*.09)*p.rxB*.3));hT[p.id].push(Math.max(0,p.txB+Math.sin(t*.18+2)*p.txB*.5+Math.sin(t*.07)*p.txB*.25))}}
+update();setInterval(update,2000);
 </script>
 </body>
 </html>

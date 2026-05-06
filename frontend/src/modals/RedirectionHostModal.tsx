@@ -98,10 +98,10 @@ const RedirectionHostModal = EasyModal.create(({ id, visible, remove }: Props) =
 							</Modal.Header>
 							<Modal.Body className="p-0">
 								{errorMsg && (
-								<Alert variant="danger" onClose={() => setErrorMsg(null)} dismissible>
-									{errorMsg}
-								</Alert>
-							)}
+									<Alert variant="danger" onClose={() => setErrorMsg(null)} dismissible>
+										{errorMsg}
+									</Alert>
+								)}
 								<div className="card m-0 border-0">
 									<div className="card-header">
 										<ul className="nav nav-tabs card-header-tabs" data-bs-toggle="tabs">
@@ -164,7 +164,9 @@ const RedirectionHostModal = EasyModal.create(({ id, visible, remove }: Props) =
 																		required
 																		{...field}
 																	>
-																		<option value="auto"><T id="auto" /></option>
+																		<option value="auto">
+																			<T id="auto" />
+																		</option>
 																		<option value="http">http</option>
 																		<option value="https">https</option>
 																	</select>
@@ -226,12 +228,24 @@ const RedirectionHostModal = EasyModal.create(({ id, visible, remove }: Props) =
 																required
 																{...field}
 															>
-																<option value="300"><T id="redirection-hosts.http-code.300" /></option>
-																<option value="301"><T id="redirection-hosts.http-code.301" /></option>
-																<option value="302"><T id="redirection-hosts.http-code.302" /></option>
-																<option value="303"><T id="redirection-hosts.http-code.303" /></option>
-																<option value="307"><T id="redirection-hosts.http-code.307" /></option>
-																<option value="308"><T id="redirection-hosts.http-code.308" /></option>
+																<option value="300">
+																	<T id="redirection-hosts.http-code.300" />
+																</option>
+																<option value="301">
+																	<T id="redirection-hosts.http-code.301" />
+																</option>
+																<option value="302">
+																	<T id="redirection-hosts.http-code.302" />
+																</option>
+																<option value="303">
+																	<T id="redirection-hosts.http-code.303" />
+																</option>
+																<option value="307">
+																	<T id="redirection-hosts.http-code.307" />
+																</option>
+																<option value="308">
+																	<T id="redirection-hosts.http-code.308" />
+																</option>
 															</select>
 															{form.errors.forwardHttpCode ? (
 																<div className="invalid-feedback">

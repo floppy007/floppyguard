@@ -1,6 +1,6 @@
 import { IconBrandGithub } from "@tabler/icons-react";
-import { useHealth } from "src/hooks";
 import type { HealthResponse } from "src/api/backend";
+import { useHealth } from "src/hooks";
 
 export function SiteFooter() {
 	const health = useHealth();
@@ -17,7 +17,9 @@ export function SiteFooter() {
 				<div className="platform-footer-row">
 					<div className="text-secondary small">
 						© {new Date().getFullYear()} Florian Hesse |{" "}
-						<a href="https://comnic-it.de" target="_blank" rel="noopener">Comnic-IT</a>
+						<a href="https://comnic-it.de" target="_blank" rel="noopener">
+							Comnic-IT
+						</a>
 					</div>
 					<a
 						href="https://github.com/floppy007/floppyguard"

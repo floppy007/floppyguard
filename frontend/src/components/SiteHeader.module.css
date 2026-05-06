@@ -4,52 +4,24 @@
 	z-index: 1030;
 	display: block;
 	padding: 0;
-	background:
-		radial-gradient(circle at top left, rgba(var(--tblr-primary-rgb), 0.24), transparent 32%),
-		radial-gradient(circle at 78% 0%, rgba(56, 189, 248, 0.16), transparent 26%),
-		linear-gradient(180deg, rgba(var(--tblr-bg-surface-rgb), 0.985), rgba(var(--tblr-bg-surface-rgb), 0.92));
-	backdrop-filter: blur(18px) saturate(135%);
+	background: color-mix(in srgb, var(--tblr-bg-surface) 82%, transparent);
+	backdrop-filter: blur(12px) saturate(1.2);
 	border-bottom: 1px solid rgba(var(--tblr-border-color-rgb), 0.72);
-	box-shadow: 0 16px 32px -28px rgba(0, 0, 0, 0.4);
-}
-
-.header::before {
-	content: "";
-	position: absolute;
-	inset: 0;
-	pointer-events: none;
-	background:
-		linear-gradient(115deg, rgba(255, 255, 255, 0.055) 0%, transparent 30%),
-		radial-gradient(circle at 20% 120%, rgba(var(--tblr-primary-rgb), 0.14), transparent 28%),
-		radial-gradient(circle at 88% -12%, rgba(255, 255, 255, 0.08), transparent 18%);
-	opacity: 0.9;
-}
-
-.header::after {
-	content: "";
-	position: absolute;
-	inset: 0;
-	pointer-events: none;
-	opacity: 0.2;
-	background-image:
-		linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
-		linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
-	background-size: 26px 26px, 26px 26px;
-	mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.8), transparent 85%);
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
 .topRow {
 	display: flex;
 	align-items: center;
 	gap: 1rem;
-	min-height: 72px;
+	height: 56px;
 	flex-wrap: nowrap;
 }
 
 .brand :global(.nav-link) {
 	display: inline-flex;
 	align-items: center;
-	padding: 0.45rem 0.85rem 0.45rem 0;
+	padding: 0;
 }
 
 .logo {
@@ -57,16 +29,11 @@
 	align-items: center;
 }
 
-.logoWordmark {
-	display: block;
-	width: 198px;
-	max-width: 40vw;
-	height: auto;
-	filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.08));
-}
-
-:global([data-bs-theme="dark"]) .logoWordmark {
-	filter: drop-shadow(0 0 22px rgba(28, 182, 54, 0.2));
+.logoImg {
+	height: 32px;
+	width: auto;
+	max-width: 160px;
+	filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.15));
 }
 
 .menuRow {
@@ -74,12 +41,13 @@
 	min-width: 0;
 	display: flex !important;
 	align-items: center;
+	margin-left: 0.5rem;
 }
 
 .tools {
 	display: flex;
 	align-items: center;
-	gap: 0.55rem;
+	gap: 0.5rem;
 	margin-left: auto;
 	flex: 0 0 auto;
 }
@@ -88,72 +56,83 @@
 	display: flex;
 	align-items: center;
 	gap: 0.35rem;
-	padding: 0.3rem;
-	border-radius: 999px;
-	background: color-mix(in srgb, var(--tblr-bg-surface-tertiary) 70%, transparent);
-	border: 1px solid rgba(var(--tblr-border-color-rgb), 0.66);
 }
 
 .profileLink {
 	display: inline-flex;
 	align-items: center;
-	gap: 0.75rem;
-	padding: 0.4rem 0.55rem 0.4rem 0.45rem;
+	gap: 0.5rem;
+	padding: 0.2rem;
 	border-radius: 999px;
-	background: color-mix(in srgb, var(--tblr-bg-surface-tertiary) 78%, transparent);
-	border: 1px solid rgba(var(--tblr-border-color-rgb), 0.75);
 	text-decoration: none;
+	transition: opacity 120ms ease;
 }
 
 .profileLink:hover,
 .profileLink:focus-visible {
-	background: color-mix(in srgb, var(--tblr-primary) 10%, var(--tblr-bg-surface-tertiary));
+	opacity: 0.8;
 	text-decoration: none;
 }
 
+.profileAvatar {
+	width: 28px;
+	height: 28px;
+	border-radius: 50%;
+	background: var(--tblr-green);
+	display: grid;
+	place-items: center;
+	font-size: 10px;
+	font-weight: 700;
+	color: #fff;
+}
+
 .profileMeta {
-	display: flex;
-	flex-direction: column;
-	line-height: 1.1;
+	display: none;
 }
 
 .profileName {
 	font-weight: 700;
-	font-size: 0.92rem;
+	font-size: 0.82rem;
 	color: var(--tblr-body-color);
 }
 
 .profileRole {
-	margin-top: 0.18rem;
-	font-size: 0.73rem;
+	font-size: 0.68rem;
 	color: var(--tblr-secondary);
-	text-transform: uppercase;
-	letter-spacing: 0.04em;
 }
 
-@media (max-width: 991.98px) {
-	.topRow {
-		min-height: 66px;
-	}
+.btnIcon {
+	width: 32px;
+	height: 32px;
+	border: 1px solid rgba(var(--tblr-border-color-rgb), 0.72);
+	background: var(--tblr-bg-surface);
+	border-radius: 6px;
+	display: grid;
+	place-items: center;
+	cursor: pointer;
+	color: var(--tblr-secondary);
+	transition: border-color 120ms ease, color 120ms ease;
+}
 
-	.logoWordmark {
-		width: 178px;
-		max-width: 52vw;
-	}
+.btnIcon:hover {
+	border-color: var(--tblr-primary);
+	color: var(--tblr-primary);
 }
 
 @media (max-width: 767.98px) {
 	.topRow {
 		flex-wrap: wrap;
-		gap: 0.75rem;
+		height: auto;
 		padding-top: 0.4rem;
 		padding-bottom: 0.4rem;
+		gap: 0.5rem;
 	}
 
 	.menuRow {
 		flex-basis: 100%;
 		order: 3;
 		display: block !important;
+		margin-left: 0;
 	}
 
 	.tools {
@@ -163,9 +142,5 @@
 	.brand {
 		flex: 1 1 auto;
 		min-width: 0;
-	}
-
-	.logoWordmark {
-		max-width: min(58vw, 190px);
 	}
 }

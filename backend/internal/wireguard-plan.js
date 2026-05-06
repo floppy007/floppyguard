@@ -1,3 +1,5 @@
+import { promises as fs } from "node:fs";
+import path from "node:path";
 import internalWireGuard, {
 	buildRouteAnalysis,
 	buildTopology,
@@ -9,8 +11,6 @@ import internalWireGuard, {
 	sanitizeLinkMetadataPatch,
 	syncHubConf,
 } from "./wireguard.js";
-import { promises as fs } from "node:fs";
-import path from "node:path";
 
 function dedupe(values) {
 	return Array.from(new Set((values || []).filter(Boolean)));
@@ -59,13 +59,15 @@ function buildDiffEntries(currentEntries, patchedEntries, kind) {
 		const changedFields = Object.keys(after).filter((field) => !isEqual(before[field], after[field]));
 		if (!changedFields.length) return [];
 
-		return [{
-			id,
-			kind,
-			changedFields,
-			before,
-			after,
-		}];
+		return [
+			{
+				id,
+				kind,
+				changedFields,
+				before,
+				after,
+			},
+		];
 	});
 }
 
@@ -74,10 +76,10 @@ function buildProjectedInterface(item, metadata) {
 		...item,
 		role: metadata.role || item.role || "unknown",
 		managementMode: metadata.managementMode || item.managementMode || "unknown",
-		importedNetworks: metadata.importedNetworks?.length ? metadata.importedNetworks : (item.importedNetworks || []),
+		importedNetworks: metadata.importedNetworks?.length ? metadata.importedNetworks : item.importedNetworks || [],
 		exportedNetworks: metadata.exportedNetworks || item.exportedNetworks || [],
-		routeTargets: metadata.routeTargets?.length ? metadata.routeTargets : (item.routeTargets || []),
-		notes: metadata.notes?.length ? metadata.notes : (item.notes || []),
+		routeTargets: metadata.routeTargets?.length ? metadata.routeTargets : item.routeTargets || [],
+		notes: metadata.notes?.length ? metadata.notes : item.notes || [],
 	};
 }
 
@@ -87,12 +89,12 @@ function buildProjectedLink(link, metadata) {
 		type: metadata.type || link.type || "unknown",
 		name: metadata.name || link.name,
 		exportedNetworks: metadata.exportedNetworks || link.exportedNetworks || [],
-		importedNetworks: metadata.importedNetworks?.length ? metadata.importedNetworks : (link.importedNetworks || []),
+		importedNetworks: metadata.importedNetworks?.length ? metadata.importedNetworks : link.importedNetworks || [],
 		returnPathMode: metadata.returnPathMode || link.returnPathMode || "unknown",
 		remoteManagementMode: metadata.remoteManagementMode || link.remoteManagementMode || "unknown",
 		planIntent: metadata.planIntent || link.planIntent || metadata.type || link.type || "unknown",
 		planState: metadata.planState || null,
-		notes: metadata.notes?.length ? metadata.notes : (link.notes || []),
+		notes: metadata.notes?.length ? metadata.notes : link.notes || [],
 		hasMetadata: Object.keys(metadata).length > 0,
 		warnings: [],
 		nextActions: [],
@@ -141,8 +143,9 @@ function classifyChangeScope(diff) {
 }
 
 function buildApplyContract({ errors, warnings, nextActions, normalizedPatch, diff }) {
-	const changedFieldCount = diff.interfaces.reduce((sum, item) => sum + item.changedFields.length, 0)
-		+ diff.links.reduce((sum, item) => sum + item.changedFields.length, 0);
+	const changedFieldCount =
+		diff.interfaces.reduce((sum, item) => sum + item.changedFields.length, 0) +
+		diff.links.reduce((sum, item) => sum + item.changedFields.length, 0);
 	const changeScope = classifyChangeScope(diff);
 	const blockedBy = dedupe([
 		...errors.map((item) => `error:${item}`),
@@ -251,8 +254,12 @@ function buildPlanPreview(status, patch = {}) {
 		nextMetadata.links[id] = mergeMetadata(currentMetadata.links[id] || {}, value);
 	}
 
-	const projectedInterfacesBase = (status.interfaces || []).map((item) => buildProjectedInterface(item, nextMetadata.interfaces[item.name] || {}));
-	const projectedLinksBase = (status.links || []).map((item) => buildProjectedLink(item, nextMetadata.links[item.id] || {}));
+	const projectedInterfacesBase = (status.interfaces || []).map((item) =>
+		buildProjectedInterface(item, nextMetadata.interfaces[item.name] || {}),
+	);
+	const projectedLinksBase = (status.links || []).map((item) =>
+		buildProjectedLink(item, nextMetadata.links[item.id] || {}),
+	);
 
 	// Validate that link names are unique — duplicate names cause silent agent misconfiguration
 	// because syncAgentConfigs indexes links by name and last-writer wins
@@ -409,8 +416,8 @@ async function restoreMetadataBackup(backupPath) {
 		changeScope: "metadata-only",
 		changeCount: 0,
 		patchSummary: {
-			interfaceTargets: Object.keys((restoreSource.interfaces || {})),
-			linkTargets: Object.keys((restoreSource.links || {})),
+			interfaceTargets: Object.keys(restoreSource.interfaces || {}),
+			linkTargets: Object.keys(restoreSource.links || {}),
 		},
 		action: "restore-backup",
 		restoredFrom: selectedBackup.path,
@@ -427,10 +434,7 @@ async function restoreMetadataBackup(backupPath) {
 }
 
 async function getApplyState() {
-	const [backups, recentApplies] = await Promise.all([
-		listMetadataBackups(),
-		readApplyAudit(),
-	]);
+	const [backups, recentApplies] = await Promise.all([listMetadataBackups(), readApplyAudit()]);
 
 	return {
 		backups,
@@ -439,12 +443,7 @@ async function getApplyState() {
 	};
 }
 
-export {
-	buildPlanPreview,
-	buildApplyContract,
-	classifyChangeScope,
-	normalizePatch,
-};
+export { buildApplyContract, buildPlanPreview, classifyChangeScope, normalizePatch };
 
 export default {
 	applyMetadata,

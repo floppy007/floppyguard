@@ -50,34 +50,30 @@ export default function TableWrapper() {
 						</div>
 
 						<div className="platform-admin-tools">
+							{data?.length ? (
+								<div className="input-group input-group-flat platform-search">
+									<span className="input-group-text input-group-text-sm">
+										<IconSearch size={16} />
+									</span>
+									<input
+										id="advanced-table-search"
+										type="text"
+										className="form-control form-control-sm"
+										autoComplete="off"
+										onChange={(e: any) => setSearch(e.target.value.toLowerCase().trim())}
+									/>
+								</div>
+							) : null}
+							<Button size="sm" onClick={() => showHelpModal("AccessLists", "cyan")}>
+								<IconHelp size={20} />
+							</Button>
+							<HasPermission section={ACCESS_LISTS} permission={MANAGE} hideError>
 								{data?.length ? (
-									<div className="input-group input-group-flat platform-search">
-										<span className="input-group-text input-group-text-sm">
-											<IconSearch size={16} />
-										</span>
-										<input
-											id="advanced-table-search"
-											type="text"
-											className="form-control form-control-sm"
-											autoComplete="off"
-											onChange={(e: any) => setSearch(e.target.value.toLowerCase().trim())}
-										/>
-									</div>
+									<Button size="sm" className="btn-cyan" onClick={() => showAccessListModal("new")}>
+										<T id="object.add" tData={{ object: "access-list" }} />
+									</Button>
 								) : null}
-								<Button size="sm" onClick={() => showHelpModal("AccessLists", "cyan")}>
-									<IconHelp size={20} />
-								</Button>
-								<HasPermission section={ACCESS_LISTS} permission={MANAGE} hideError>
-									{data?.length ? (
-										<Button
-											size="sm"
-											className="btn-cyan"
-											onClick={() => showAccessListModal("new")}
-										>
-											<T id="object.add" tData={{ object: "access-list" }} />
-											</Button>
-										) : null}
-									</HasPermission>
+							</HasPermission>
 						</div>
 					</div>
 				</div>

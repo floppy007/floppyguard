@@ -75,22 +75,22 @@ export default function TableWrapper() {
 						</div>
 						{data?.length ? (
 							<div className="platform-admin-tools">
-									<div className="input-group input-group-flat platform-search">
-										<span className="input-group-text input-group-text-sm">
-											<IconSearch size={16} />
-										</span>
-										<input
-											id="advanced-table-search"
-											type="text"
-											className="form-control form-control-sm"
-											autoComplete="off"
-											onChange={(e: any) => setSearch(e.target.value.toLowerCase().trim())}
-										/>
-									</div>
+								<div className="input-group input-group-flat platform-search">
+									<span className="input-group-text input-group-text-sm">
+										<IconSearch size={16} />
+									</span>
+									<input
+										id="advanced-table-search"
+										type="text"
+										className="form-control form-control-sm"
+										autoComplete="off"
+										onChange={(e: any) => setSearch(e.target.value.toLowerCase().trim())}
+									/>
+								</div>
 
-									<Button size="sm" className="btn-orange" onClick={() => showUserModal("new")}>
-										<T id="object.add" tData={{ object: "user" }} />
-									</Button>
+								<Button size="sm" className="btn-orange" onClick={() => showUserModal("new")}>
+									<T id="object.add" tData={{ object: "user" }} />
+								</Button>
 							</div>
 						) : null}
 					</div>

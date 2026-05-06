@@ -7,8 +7,11 @@ import { debug, express as logger } from "../logger.js";
 
 const router = express.Router({ caseSensitive: true, strict: true, mergeParams: true });
 
-router.route("/status")
-	.options((_, res) => { res.sendStatus(204); })
+router
+	.route("/status")
+	.options((_, res) => {
+		res.sendStatus(204);
+	})
 	.all(jwtdecode())
 	.get(async (req, res, next) => {
 		try {
@@ -20,8 +23,11 @@ router.route("/status")
 		}
 	});
 
-router.route("/metadata")
-	.options((_, res) => { res.sendStatus(204); })
+router
+	.route("/metadata")
+	.options((_, res) => {
+		res.sendStatus(204);
+	})
 	.all(jwtdecode())
 	.get(async (req, res, next) => {
 		try {
@@ -49,8 +55,11 @@ router.route("/metadata")
 		}
 	});
 
-router.route("/plan-preview")
-	.options((_, res) => { res.sendStatus(204); })
+router
+	.route("/plan-preview")
+	.options((_, res) => {
+		res.sendStatus(204);
+	})
 	.all(jwtdecode())
 	.post(async (req, res, next) => {
 		try {
@@ -62,8 +71,11 @@ router.route("/plan-preview")
 		}
 	});
 
-router.route("/apply-metadata")
-	.options((_, res) => { res.sendStatus(204); })
+router
+	.route("/apply-metadata")
+	.options((_, res) => {
+		res.sendStatus(204);
+	})
 	.all(jwtdecode())
 	.post(async (req, res, next) => {
 		try {
@@ -79,8 +91,11 @@ router.route("/apply-metadata")
 		}
 	});
 
-router.route("/apply-state")
-	.options((_, res) => { res.sendStatus(204); })
+router
+	.route("/apply-state")
+	.options((_, res) => {
+		res.sendStatus(204);
+	})
 	.all(jwtdecode())
 	.get(async (req, res, next) => {
 		try {
@@ -92,8 +107,11 @@ router.route("/apply-state")
 		}
 	});
 
-router.route("/link-config")
-	.options((_, res) => { res.sendStatus(204); })
+router
+	.route("/link-config")
+	.options((_, res) => {
+		res.sendStatus(204);
+	})
 	.all(jwtdecode())
 	.get(async (req, res, next) => {
 		try {
@@ -111,8 +129,11 @@ router.route("/link-config")
 		}
 	});
 
-router.route("/link-config-qr")
-	.options((_, res) => { res.sendStatus(204); })
+router
+	.route("/link-config-qr")
+	.options((_, res) => {
+		res.sendStatus(204);
+	})
 	.all(jwtdecode())
 	.get(async (req, res, next) => {
 		try {
@@ -129,8 +150,11 @@ router.route("/link-config-qr")
 		}
 	});
 
-router.route("/bandwidth")
-	.options((_, res) => { res.sendStatus(204); })
+router
+	.route("/bandwidth")
+	.options((_, res) => {
+		res.sendStatus(204);
+	})
 	.all(jwtdecode())
 	.get(async (req, res, next) => {
 		try {
@@ -142,8 +166,40 @@ router.route("/bandwidth")
 		}
 	});
 
-router.route("/restore-metadata")
-	.options((_, res) => { res.sendStatus(204); })
+router
+	.route("/create-peer")
+	.options((_, res) => {
+		res.sendStatus(204);
+	})
+	.all(jwtdecode())
+	.post(async (req, res, next) => {
+		try {
+			const { name, type, dns, fullTunnel, platform, importedNetworks, ifaceName } = req.body || {};
+			if (!name || !name.trim()) {
+				next(new error.ValidationError("Name is required"));
+				return;
+			}
+			const result = await internalWireGuard.createPeer({
+				name: name.trim(),
+				type: type || "client",
+				dns: dns || [],
+				fullTunnel: Boolean(fullTunnel),
+				platform: platform || undefined,
+				importedNetworks: importedNetworks || [],
+				ifaceName: ifaceName || "wg0",
+			});
+			res.status(201).send(result);
+		} catch (err) {
+			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
+			next(err);
+		}
+	});
+
+router
+	.route("/restore-metadata")
+	.options((_, res) => {
+		res.sendStatus(204);
+	})
 	.all(jwtdecode())
 	.post(async (req, res, next) => {
 		try {

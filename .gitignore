@@ -12,3 +12,5 @@ docker/dev/resolv.conf
 __pycache__/
 *.pyc
 frontend/package-lock.json
+CLAUDE.md
+AGENTS.md

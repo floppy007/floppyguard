@@ -20,8 +20,11 @@ function extractBearerToken(req) {
  * GET /api/agents
  * List all agents
  */
-router.route("/agents")
-	.options((_, res) => { res.sendStatus(204); })
+router
+	.route("/agents")
+	.options((_, res) => {
+		res.sendStatus(204);
+	})
 	.all(jwtdecode())
 	.get(async (req, res, next) => {
 		try {
@@ -47,8 +50,11 @@ router.route("/agents")
  * PUT /api/agents/:id
  * DELETE /api/agents/:id
  */
-router.route("/agents/:id")
-	.options((_, res) => { res.sendStatus(204); })
+router
+	.route("/agents/:id")
+	.options((_, res) => {
+		res.sendStatus(204);
+	})
 	.all(jwtdecode())
 	.get(async (req, res, next) => {
 		try {
@@ -82,8 +88,11 @@ router.route("/agents/:id")
  * POST /api/agents/:id/reset-token
  * Generates a new reg_token so the agent can be reinstalled
  */
-router.route("/agents/:id/reset-token")
-	.options((_, res) => { res.sendStatus(204); })
+router
+	.route("/agents/:id/reset-token")
+	.options((_, res) => {
+		res.sendStatus(204);
+	})
 	.all(jwtdecode())
 	.post(async (req, res, next) => {
 		try {
@@ -100,8 +109,11 @@ router.route("/agents/:id/reset-token")
  * Returns the install script as text/plain
  * Query params: ?public_url=...&tunnel_url=...
  */
-router.route("/agents/:id/install")
-	.options((_, res) => { res.sendStatus(204); })
+router
+	.route("/agents/:id/install")
+	.options((_, res) => {
+		res.sendStatus(204);
+	})
 	.all(jwtdecode())
 	.get(async (req, res, next) => {
 		try {
@@ -128,8 +140,11 @@ router.route("/agents/:id/install")
  * Public endpoint — authenticated via reg_token only, no JWT required.
  * Returns the install script as text/plain.
  */
-router.route("/agent/install")
-	.options((_, res) => { res.sendStatus(204); })
+router
+	.route("/agent/install")
+	.options((_, res) => {
+		res.sendStatus(204);
+	})
 	.get(async (req, res, next) => {
 		try {
 			const { reg_token, public_url, tunnel_url } = req.query;
@@ -153,8 +168,11 @@ router.route("/agent/install")
  * Authorization: Bearer <agent_token>
  * Returns the current loop script for the agent (used for self-update).
  */
-router.route("/agent/loop-script")
-	.options((_, res) => { res.sendStatus(204); })
+router
+	.route("/agent/loop-script")
+	.options((_, res) => {
+		res.sendStatus(204);
+	})
 	.get(async (req, res, next) => {
 		try {
 			const agentToken = extractBearerToken(req);
@@ -171,8 +189,11 @@ router.route("/agent/loop-script")
  * POST /api/agent/register
  * Body: { reg_token: string }
  */
-router.route("/agent/register")
-	.options((_, res) => { res.sendStatus(204); })
+router
+	.route("/agent/register")
+	.options((_, res) => {
+		res.sendStatus(204);
+	})
 	.post(async (req, res, next) => {
 		try {
 			const { reg_token } = req.body || {};
@@ -191,8 +212,11 @@ router.route("/agent/register")
  * GET /api/agent/config
  * Authorization: Bearer <agent_token>
  */
-router.route("/agent/config")
-	.options((_, res) => { res.sendStatus(204); })
+router
+	.route("/agent/config")
+	.options((_, res) => {
+		res.sendStatus(204);
+	})
 	.get(async (req, res, next) => {
 		try {
 			const agentToken = extractBearerToken(req);
@@ -212,8 +236,11 @@ router.route("/agent/config")
  * Authorization: Bearer <agent_token>
  * Body: { hash: string, server: string }
  */
-router.route("/agent/heartbeat")
-	.options((_, res) => { res.sendStatus(204); })
+router
+	.route("/agent/heartbeat")
+	.options((_, res) => {
+		res.sendStatus(204);
+	})
 	.post(async (req, res, next) => {
 		try {
 			const agentToken = extractBearerToken(req);

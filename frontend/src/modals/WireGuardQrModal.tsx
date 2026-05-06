@@ -1,8 +1,8 @@
 import EasyModal, { type InnerModalProps } from "ez-modal-react";
-import Modal from "react-bootstrap/Modal";
-import { Button } from "src/components";
-import { getWireGuardLinkConfigQr } from "src/api/backend";
 import { useEffect, useState } from "react";
+import Modal from "react-bootstrap/Modal";
+import { getWireGuardLinkConfigQr } from "src/api/backend";
+import { Button } from "src/components";
 import { T } from "src/locale";
 
 interface Props extends InnerModalProps {

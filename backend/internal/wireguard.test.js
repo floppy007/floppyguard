@@ -1,9 +1,8 @@
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-
 import {
 	buildLinkRecord,
 	buildRouteAnalysis,
@@ -110,12 +109,22 @@ test("buildRouteAnalysis excludes imported networks already covered by static pr
 	const routeAnalysis = buildRouteAnalysis(
 		{
 			all: [
-				{ destination: "192.168.50.0/24", device: "eth0", via: "10.0.0.1", raw: "192.168.50.0/24 via 10.0.0.1 dev eth0" },
+				{
+					destination: "192.168.50.0/24",
+					device: "eth0",
+					via: "10.0.0.1",
+					raw: "192.168.50.0/24 via 10.0.0.1 dev eth0",
+				},
 				{ destination: "10.10.0.0/24", device: "wg0", via: null, raw: "10.10.0.0/24 dev wg0" },
 			],
 			wireguard: [{ destination: "10.10.0.0/24", device: "wg0", via: null, raw: "10.10.0.0/24 dev wg0" }],
 			privateRoutes: [
-				{ destination: "192.168.50.0/24", device: "eth0", via: "10.0.0.1", raw: "192.168.50.0/24 via 10.0.0.1 dev eth0" },
+				{
+					destination: "192.168.50.0/24",
+					device: "eth0",
+					via: "10.0.0.1",
+					raw: "192.168.50.0/24 via 10.0.0.1 dev eth0",
+				},
 				{ destination: "10.10.0.0/24", device: "wg0", via: null, raw: "10.10.0.0/24 dev wg0" },
 			],
 		},
@@ -125,9 +134,7 @@ test("buildRouteAnalysis excludes imported networks already covered by static pr
 	assert.deepEqual(routeAnalysis.missingReturnRoutes, [
 		{ network: "192.168.60.0/24", reason: "network-not-found-in-live-routes" },
 	]);
-	assert.deepEqual(routeAnalysis.natCandidates, [
-		{ network: "192.168.60.0/24", reason: "return-path-unclear" },
-	]);
+	assert.deepEqual(routeAnalysis.natCandidates, [{ network: "192.168.60.0/24", reason: "return-path-unclear" }]);
 	assert.equal(routeAnalysis.staticRoutes.length, 1);
 	assert.match(routeAnalysis.observations.join(" "), /Static private routes exist outside WireGuard/);
 });
@@ -164,24 +171,30 @@ test("enrichLinkRecord derives warnings, next actions and plan state from route 
 
 	assert.equal(link.type, "site-to-site");
 	assert.equal(link.planState, "discover");
-	assert.deepEqual(link.warnings.sort(), [
-		"exported-networks-missing",
-		"imported-network-missing-live-route",
-		"link-not-currently-active",
-		"nat-likely-needed",
-		"remote-endpoint-missing",
-		"remote-management-mode-undefined",
-		"return-path-mode-undefined",
-	].sort());
-	assert.deepEqual(link.nextActions.sort(), [
-		"decide-nat-or-static-route",
-		"define-remote-management-mode",
-		"define-return-path-mode",
-		"fix-return-path",
-		"model-exported-networks",
-		"verify-live-tunnel-state",
-		"verify-return-path",
-	].sort());
+	assert.deepEqual(
+		link.warnings.sort(),
+		[
+			"exported-networks-missing",
+			"imported-network-missing-live-route",
+			"link-not-currently-active",
+			"nat-likely-needed",
+			"remote-endpoint-missing",
+			"remote-management-mode-undefined",
+			"return-path-mode-undefined",
+		].sort(),
+	);
+	assert.deepEqual(
+		link.nextActions.sort(),
+		[
+			"decide-nat-or-static-route",
+			"define-remote-management-mode",
+			"define-return-path-mode",
+			"fix-return-path",
+			"model-exported-networks",
+			"verify-live-tunnel-state",
+			"verify-return-path",
+		].sort(),
+	);
 });
 
 test("enrichInterfaceStatus marks inactive interfaces with risky links as warning", () => {
@@ -204,10 +217,10 @@ test("enrichInterfaceStatus marks inactive interfaces with risky links as warnin
 	);
 
 	assert.equal(enriched.health, "warning");
-	assert.deepEqual(enriched.notes.sort(), [
-		"1 link(s) on this interface need review",
-		"inactive interface with imported networks",
-	].sort());
+	assert.deepEqual(
+		enriched.notes.sort(),
+		["1 link(s) on this interface need review", "inactive interface with imported networks"].sort(),
+	);
 });
 
 test("getStatus composes runtime, metadata and route analysis into one status object", async () => {
@@ -246,31 +259,35 @@ AllowedIPs = 192.168.200.0/24
 
 	await writeFile(
 		metadataFile,
-		`${JSON.stringify({
-			interfaces: {
-				wg1: {
-					role: "site-link",
-					managementMode: "imported",
-					exportedNetworks: ["10.20.0.0/24"],
-					importedNetworks: ["192.168.200.0/24"],
-					routeTargets: ["192.168.200.0/24"],
-					notes: ["field note"],
+		`${JSON.stringify(
+			{
+				interfaces: {
+					wg1: {
+						role: "site-link",
+						managementMode: "imported",
+						exportedNetworks: ["10.20.0.0/24"],
+						importedNetworks: ["192.168.200.0/24"],
+						routeTargets: ["192.168.200.0/24"],
+						notes: ["field note"],
+					},
+				},
+				links: {
+					"wg1:site-peer-key": {
+						type: "site-link",
+						name: "site-a",
+						exportedNetworks: ["10.20.0.0/24"],
+						importedNetworks: ["192.168.200.0/24"],
+						returnPathMode: "static-route",
+						remoteManagementMode: "ssh",
+						planIntent: "site-to-site",
+						planState: "validate",
+						notes: ["planned link"],
+					},
 				},
 			},
-			links: {
-				"wg1:site-peer-key": {
-					type: "site-link",
-					name: "site-a",
-					exportedNetworks: ["10.20.0.0/24"],
-					importedNetworks: ["192.168.200.0/24"],
-					returnPathMode: "static-route",
-					remoteManagementMode: "ssh",
-					planIntent: "site-to-site",
-					planState: "validate",
-					notes: ["planned link"],
-				},
-			},
-		}, null, 2)}\n`,
+			null,
+			2,
+		)}\n`,
 		"utf8",
 	);
 

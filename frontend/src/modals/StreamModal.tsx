@@ -77,10 +77,10 @@ const StreamModal = EasyModal.create(({ id, visible, remove }: Props) => {
 							</Modal.Header>
 							<Modal.Body className="p-0">
 								{errorMsg && (
-								<Alert variant="danger" onClose={() => setErrorMsg(null)} dismissible>
-									{errorMsg}
-								</Alert>
-							)}
+									<Alert variant="danger" onClose={() => setErrorMsg(null)} dismissible>
+										{errorMsg}
+									</Alert>
+								)}
 
 								<div className="card m-0 border-0">
 									<div className="card-header">
@@ -156,7 +156,9 @@ const StreamModal = EasyModal.create(({ id, visible, remove }: Props) => {
 																		type="text"
 																		className={`form-control ${form.errors.forwardingHost && form.touched.forwardingHost ? "is-invalid" : ""}`}
 																		required
-																		placeholder={intl.formatMessage({ id: "stream.forward-host.placeholder" })}
+																		placeholder={intl.formatMessage({
+																			id: "stream.forward-host.placeholder",
+																		})}
 																		{...field}
 																	/>
 																	{form.errors.forwardingHost ? (

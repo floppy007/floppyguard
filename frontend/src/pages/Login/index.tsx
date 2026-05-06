@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { Alert } from "react-bootstrap";
-import { BrandLogo, LocalePicker, Page, ThemeSwitcher } from "src/components";
-import { getToken, isTwoFactorChallenge, verify2FA } from "src/api/backend";
-import AuthStore from "src/modules/AuthStore";
-import { useHealth } from "src/hooks/useHealth";
 import type { HealthResponse } from "src/api/backend";
+import { getToken, isTwoFactorChallenge, verify2FA } from "src/api/backend";
+import { BrandLogo, LocalePicker, Page, ThemeSwitcher } from "src/components";
+import { useHealth } from "src/hooks/useHealth";
+import AuthStore from "src/modules/AuthStore";
 import styles from "./index.module.css";
 
 export default function Login() {
@@ -71,18 +71,23 @@ export default function Login() {
 				</div>
 
 				<div className={styles.cardBody}>
-					<h2 className={styles.heading}>
-						{challengeToken ? "Two-factor verification" : "Sign in"}
-					</h2>
+					<h2 className={styles.heading}>{challengeToken ? "Two-factor verification" : "Sign in"}</h2>
 
-					{status
-						? <Alert variant={status.toLowerCase().includes("failed") ? "danger" : "info"} className="py-2 px-3 small">{status}</Alert>
-						: null}
+					{status ? (
+						<Alert
+							variant={status.toLowerCase().includes("failed") ? "danger" : "info"}
+							className="py-2 px-3 small"
+						>
+							{status}
+						</Alert>
+					) : null}
 
 					{!challengeToken ? (
 						<form onSubmit={handleLogin}>
 							<div className="mb-3">
-								<label className="form-label" htmlFor="identity">Email</label>
+								<label className="form-label" htmlFor="identity">
+									Email
+								</label>
 								<input
 									id="identity"
 									type="email"
@@ -93,7 +98,9 @@ export default function Login() {
 								/>
 							</div>
 							<div className="mb-4">
-								<label className="form-label" htmlFor="secret">Password</label>
+								<label className="form-label" htmlFor="secret">
+									Password
+								</label>
 								<input
 									id="secret"
 									type="password"
@@ -110,7 +117,9 @@ export default function Login() {
 					) : (
 						<form onSubmit={handle2FA}>
 							<div className="mb-4">
-								<label className="form-label" htmlFor="code">Authenticator code</label>
+								<label className="form-label" htmlFor="code">
+									Authenticator code
+								</label>
 								<input
 									id="code"
 									className="form-control"
@@ -126,7 +135,11 @@ export default function Login() {
 								<button
 									type="button"
 									className="btn btn-ghost-secondary w-100"
-									onClick={() => { setChallengeToken(null); setCode(""); setStatus(""); }}
+									onClick={() => {
+										setChallengeToken(null);
+										setCode("");
+										setStatus("");
+									}}
 								>
 									Back
 								</button>
@@ -135,9 +148,7 @@ export default function Login() {
 					)}
 				</div>
 
-				<div className={styles.cardFooter}>
-					{getVersion()}
-				</div>
+				<div className={styles.cardFooter}>{getVersion()}</div>
 			</div>
 		</Page>
 	);
