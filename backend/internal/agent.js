@@ -1,8 +1,8 @@
+import { exec } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import * as http from "node:http";
 import * as https from "node:https";
 import { createConnection } from "node:net";
-import { exec } from "node:child_process";
 import error from "../lib/error.js";
 import Agent from "../models/agent.js";
 import internalWireGuard from "./wireguard.js";
@@ -63,12 +63,19 @@ const KNOWN_PORTS = [
 /**
  * Check if a TCP port is open on a host. Resolves true/false in ~1s.
  */
-const tcpProbe = (host, port) => new Promise((resolve) => {
-	const sock = createConnection({ host, port, timeout: 1000 });
-	sock.once("connect", () => { sock.destroy(); resolve(true); });
-	sock.once("timeout", () => { sock.destroy(); resolve(false); });
-	sock.once("error", () => resolve(false));
-});
+const tcpProbe = (host, port) =>
+	new Promise((resolve) => {
+		const sock = createConnection({ host, port, timeout: 1000 });
+		sock.once("connect", () => {
+			sock.destroy();
+			resolve(true);
+		});
+		sock.once("timeout", () => {
+			sock.destroy();
+			resolve(false);
+		});
+		sock.once("error", () => resolve(false));
+	});
 
 /**
  * Try to fetch the <title> from a URL. Returns null on failure.
@@ -77,19 +84,26 @@ const tcpProbe = (host, port) => new Promise((resolve) => {
  * Fetch a URL via curl (handles self-signed certs, redirects, timeouts reliably).
  * Returns { title, finalUrl } or null on failure/404.
  */
-const fetchTitle = (url) => new Promise((resolve) => {
-	// curl: follow redirects, ignore cert errors, 4s timeout, write final URL to stdout after body
-	const cmd = `curl -skL --max-time 4 --write-out '\\n__FINALURL__%{url_effective}' '${url.replace(/'/g, "'\\''")}' 2>/dev/null`;
-	exec(cmd, { timeout: 5000 }, (err, stdout) => {
-		if (err) { resolve(null); return; }
-		const sep = stdout.lastIndexOf("\n__FINALURL__");
-		const body = sep >= 0 ? stdout.slice(0, sep) : stdout;
-		const finalUrl = sep >= 0 ? stdout.slice(sep + 13).trim() : url;
-		if (!body.includes("<title") || /not found|404/i.test(body.slice(0, 200))) { resolve(null); return; }
-		const m = body.match(/<title[^>]*>([^<]{1,80})<\/title>/i);
-		resolve({ title: m ? m[1].trim() : null, finalUrl });
+const fetchTitle = (url) =>
+	new Promise((resolve) => {
+		// curl: follow redirects, ignore cert errors, 4s timeout, write final URL to stdout after body
+		const cmd = `curl -skL --max-time 4 --write-out '\\n__FINALURL__%{url_effective}' '${url.replace(/'/g, "'\\''")}' 2>/dev/null`;
+		exec(cmd, { timeout: 5000 }, (err, stdout) => {
+			if (err) {
+				resolve(null);
+				return;
+			}
+			const sep = stdout.lastIndexOf("\n__FINALURL__");
+			const body = sep >= 0 ? stdout.slice(0, sep) : stdout;
+			const finalUrl = sep >= 0 ? stdout.slice(sep + 13).trim() : url;
+			if (!body.includes("<title") || /not found|404/i.test(body.slice(0, 200))) {
+				resolve(null);
+				return;
+			}
+			const m = body.match(/<title[^>]*>([^<]{1,80})<\/title>/i);
+			resolve({ title: m ? m[1].trim() : null, finalUrl });
+		});
 	});
-});
 
 /**
  * Extract the first Address IP from a wg-quick config string.
@@ -149,7 +163,7 @@ const scanAllAgentServices = async () => {
 		// Only use WireGuard IP as fallback if no LAN IP found.
 		const lanIp = extractIpFromText(agent.hostname) || extractIpFromText(agent.name);
 		const wgIp = extractWgIp(agent.config_text);
-		const scanIps = lanIp ? [lanIp] : (wgIp ? [wgIp] : []);
+		const scanIps = lanIp ? [lanIp] : wgIp ? [wgIp] : [];
 		if (scanIps.length === 0) continue;
 		try {
 			// Scan all candidate IPs, merge results (prefer LAN IP URLs)
@@ -362,7 +376,7 @@ print(json.dumps(d))
 
 	// For UniFi mode, config applies using JSON; no wg_interface needed in apply call
 	const applyCallNative = `apply_config "$CFG" "$IFACE"`;
-	const applyCallUnifi  = `apply_config "$CFG"`;
+	const applyCallUnifi = `apply_config "$CFG"`;
 	const applyCall = mode === "unifi" ? applyCallUnifi : applyCallNative;
 
 	return `#!/bin/bash
@@ -619,10 +633,7 @@ const internalAgent = {
 	 * @returns {Promise<Agent>}
 	 */
 	async update(id, data) {
-		const existing = await Agent.query()
-			.where("id", id)
-			.where("is_deleted", 0)
-			.first();
+		const existing = await Agent.query().where("id", id).where("is_deleted", 0).first();
 
 		if (!existing) {
 			throw new error.ItemNotFoundError(id);
@@ -658,8 +669,7 @@ const internalAgent = {
 		if (typeof data.unifi_pass !== "undefined") patch.unifi_pass = data.unifi_pass;
 		if (typeof data.unifi_site !== "undefined") patch.unifi_site = data.unifi_site;
 
-		await Agent.query()
-			.patchAndFetchById(id, patch);
+		await Agent.query().patchAndFetchById(id, patch);
 
 		return this.getById(id);
 	},
@@ -671,10 +681,7 @@ const internalAgent = {
 	 * @returns {Promise<boolean>}
 	 */
 	async delete(id) {
-		const existing = await Agent.query()
-			.where("id", id)
-			.where("is_deleted", 0)
-			.first();
+		const existing = await Agent.query().where("id", id).where("is_deleted", 0).first();
 
 		if (!existing) {
 			throw new error.ItemNotFoundError(id);
@@ -692,10 +699,7 @@ const internalAgent = {
 	 * @returns {Promise<{ reg_token: string }>}
 	 */
 	async resetToken(id) {
-		const existing = await Agent.query()
-			.where("id", id)
-			.where("is_deleted", 0)
-			.first();
+		const existing = await Agent.query().where("id", id).where("is_deleted", 0).first();
 
 		if (!existing) {
 			throw new error.ItemNotFoundError(id);
@@ -720,10 +724,7 @@ const internalAgent = {
 	 * @returns {Promise<string>}
 	 */
 	async getInstallScript(id, publicUrl, tunnelUrl) {
-		const agent = await Agent.query()
-			.where("id", id)
-			.where("is_deleted", 0)
-			.first();
+		const agent = await Agent.query().where("id", id).where("is_deleted", 0).first();
 
 		if (!agent) {
 			throw new error.ItemNotFoundError(id);
@@ -738,9 +739,10 @@ const internalAgent = {
 		const unifiSite = agent.unifi_site || "default";
 
 		// Extra env vars for UniFi mode
-		const unifiEnvLines = mode === "unifi"
-			? `UNIFI_URL="${unifiUrl}"\nUNIFI_USER="${unifiUser}"\nUNIFI_PASS="${unifiPass}"\nUNIFI_SITE="${unifiSite}"\n`
-			: "";
+		const unifiEnvLines =
+			mode === "unifi"
+				? `UNIFI_URL="${unifiUrl}"\nUNIFI_USER="${unifiUser}"\nUNIFI_PASS="${unifiPass}"\nUNIFI_SITE="${unifiSite}"\n`
+				: "";
 
 		const loopScript = buildLoopScript(mode);
 
@@ -831,10 +833,7 @@ echo "[floppyguard-agent]   journalctl -u floppyguard-agent -f"
 	 * @returns {Promise<string>}
 	 */
 	async getInstallScriptByToken(regToken, publicUrl, tunnelUrl) {
-		const agent = await Agent.query()
-			.where("reg_token", regToken)
-			.where("is_deleted", 0)
-			.first();
+		const agent = await Agent.query().where("reg_token", regToken).where("is_deleted", 0).first();
 
 		if (!agent) {
 			throw new error.AuthError("Invalid registration token", "error.auth");
@@ -853,10 +852,7 @@ echo "[floppyguard-agent]   journalctl -u floppyguard-agent -f"
 	 * @returns {Promise<{ agent_token: string, config_hash: string|null }>}
 	 */
 	async register(regToken) {
-		const agent = await Agent.query()
-			.where("reg_token", regToken)
-			.where("is_deleted", 0)
-			.first();
+		const agent = await Agent.query().where("reg_token", regToken).where("is_deleted", 0).first();
 
 		if (!agent) {
 			throw new error.AuthError("Invalid registration token", "error.auth");
@@ -884,10 +880,7 @@ echo "[floppyguard-agent]   journalctl -u floppyguard-agent -f"
 	 * @returns {Promise<{ config_text: string|null, config_hash: string|null, wg_interface: string, poll_interval: number }>}
 	 */
 	async getConfig(agentToken) {
-		const agent = await Agent.query()
-			.where("agent_token", agentToken)
-			.where("is_deleted", 0)
-			.first();
+		const agent = await Agent.query().where("agent_token", agentToken).where("is_deleted", 0).first();
 
 		if (!agent) {
 			throw new error.AuthError("Invalid agent token", "error.auth");
@@ -909,10 +902,7 @@ echo "[floppyguard-agent]   journalctl -u floppyguard-agent -f"
 	 * @returns {Promise<string>}
 	 */
 	async getLoopScript(agentToken) {
-		const agent = await Agent.query()
-			.where("agent_token", agentToken)
-			.where("is_deleted", 0)
-			.first();
+		const agent = await Agent.query().where("agent_token", agentToken).where("is_deleted", 0).first();
 
 		if (!agent) {
 			throw new error.AuthError("Invalid agent token", "error.auth");
@@ -929,10 +919,7 @@ echo "[floppyguard-agent]   journalctl -u floppyguard-agent -f"
 	 * @returns {Promise<{ ok: boolean }>}
 	 */
 	async heartbeat(agentToken, data) {
-		const agent = await Agent.query()
-			.where("agent_token", agentToken)
-			.where("is_deleted", 0)
-			.first();
+		const agent = await Agent.query().where("agent_token", agentToken).where("is_deleted", 0).first();
 
 		if (!agent) {
 			throw new error.AuthError("Invalid agent token", "error.auth");
@@ -974,9 +961,7 @@ echo "[floppyguard-agent]   journalctl -u floppyguard-agent -f"
 	 * @returns {Promise<Array<{ agentId: number, name: string, changed: boolean, newAllowedIPs?: string[] }>>}
 	 */
 	async syncAgentConfigs(metadata) {
-		const agents = await Agent.query()
-			.where("is_deleted", 0)
-			.whereNotNull("wg_link_name");
+		const agents = await Agent.query().where("is_deleted", 0).whereNotNull("wg_link_name");
 
 		// Detect duplicate link names — if two links share a name, any agent with that
 		// wg_link_name is ambiguous and must not receive a potentially wrong config update.
@@ -984,9 +969,7 @@ echo "[floppyguard-agent]   journalctl -u floppyguard-agent -f"
 		for (const linkMeta of Object.values(metadata.links || {})) {
 			if (linkMeta.name) nameCount.set(linkMeta.name, (nameCount.get(linkMeta.name) || 0) + 1);
 		}
-		const ambiguousLinkNames = new Set(
-			[...nameCount.entries()].filter(([, c]) => c > 1).map(([n]) => n),
-		);
+		const ambiguousLinkNames = new Set([...nameCount.entries()].filter(([, c]) => c > 1).map(([n]) => n));
 
 		// Index links by name → linkMeta (only for unambiguous names)
 		const linksByName = new Map();
@@ -997,9 +980,7 @@ echo "[floppyguard-agent]   journalctl -u floppyguard-agent -f"
 		}
 
 		// Union of ALL importedNetworks across all links — used to identify "site networks"
-		const allSiteNets = new Set(
-			Object.values(metadata.links || {}).flatMap((l) => l.importedNetworks || []),
-		);
+		const allSiteNets = new Set(Object.values(metadata.links || {}).flatMap((l) => l.importedNetworks || []));
 
 		const results = [];
 
@@ -1056,10 +1037,21 @@ function _parseHubPeerAllowedIPs(configText) {
 	let inPeer = false;
 	for (const raw of configText.split(/\r?\n/)) {
 		const t = raw.trim();
-		if (t === "[Peer]") { inPeer = true; continue; }
-		if (t.startsWith("[")) { inPeer = false; continue; }
+		if (t === "[Peer]") {
+			inPeer = true;
+			continue;
+		}
+		if (t.startsWith("[")) {
+			inPeer = false;
+			continue;
+		}
 		if (inPeer && t.startsWith("AllowedIPs")) {
-			return t.slice(t.indexOf("=") + 1).trim().split(",").map((s) => s.trim()).filter(Boolean);
+			return t
+				.slice(t.indexOf("=") + 1)
+				.trim()
+				.split(",")
+				.map((s) => s.trim())
+				.filter(Boolean);
 		}
 	}
 	return [];
@@ -1071,16 +1063,25 @@ function _parseHubPeerAllowedIPs(configText) {
 function _rewriteHubPeerAllowedIPs(configText, newAllowedIPs) {
 	let inPeer = false;
 	let replaced = false;
-	return configText.split(/\r?\n/).map((raw) => {
-		const t = raw.trim();
-		if (t === "[Peer]") { inPeer = true; return raw; }
-		if (t.startsWith("[")) { inPeer = false; return raw; }
-		if (inPeer && !replaced && t.startsWith("AllowedIPs")) {
-			replaced = true;
-			return `AllowedIPs = ${newAllowedIPs.join(", ")}`;
-		}
-		return raw;
-	}).join("\n");
+	return configText
+		.split(/\r?\n/)
+		.map((raw) => {
+			const t = raw.trim();
+			if (t === "[Peer]") {
+				inPeer = true;
+				return raw;
+			}
+			if (t.startsWith("[")) {
+				inPeer = false;
+				return raw;
+			}
+			if (inPeer && !replaced && t.startsWith("AllowedIPs")) {
+				replaced = true;
+				return `AllowedIPs = ${newAllowedIPs.join(", ")}`;
+			}
+			return raw;
+		})
+		.join("\n");
 }
 
 export default internalAgent;

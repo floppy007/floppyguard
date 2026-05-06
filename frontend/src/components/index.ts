@@ -1,5 +1,6 @@
-export * from "./Button";
 export * from "./BrandLogo";
+export * from "./Button";
+export * from "./DonutGauge";
 export * from "./EmptyData";
 export * from "./ErrorNotFound";
 export * from "./Flag";
@@ -10,6 +11,7 @@ export * from "./LoadingPage";
 export * from "./LocalePicker";
 export * from "./NavLink";
 export * from "./Page";
+export * from "./PeerSparkline";
 export * from "./SiteContainer";
 export * from "./SiteFooter";
 export * from "./SiteHeader";

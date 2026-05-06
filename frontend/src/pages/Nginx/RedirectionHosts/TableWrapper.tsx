@@ -61,34 +61,34 @@ export default function TableWrapper() {
 							</h2>
 						</div>
 						<div className="platform-admin-tools">
+							{data?.length ? (
+								<div className="input-group input-group-flat platform-search">
+									<span className="input-group-text input-group-text-sm">
+										<IconSearch size={16} />
+									</span>
+									<input
+										id="advanced-table-search"
+										type="text"
+										className="form-control form-control-sm"
+										autoComplete="off"
+										onChange={(e: any) => setSearch(e.target.value.toLowerCase().trim())}
+									/>
+								</div>
+							) : null}
+							<Button size="sm" onClick={() => showHelpModal("RedirectionHosts", "yellow")}>
+								<IconHelp size={20} />
+							</Button>
+							<HasPermission section={REDIRECTION_HOSTS} permission={MANAGE} hideError>
 								{data?.length ? (
-									<div className="input-group input-group-flat platform-search">
-										<span className="input-group-text input-group-text-sm">
-											<IconSearch size={16} />
-										</span>
-										<input
-											id="advanced-table-search"
-											type="text"
-											className="form-control form-control-sm"
-											autoComplete="off"
-											onChange={(e: any) => setSearch(e.target.value.toLowerCase().trim())}
-										/>
-									</div>
+									<Button
+										size="sm"
+										className="btn-yellow"
+										onClick={() => showRedirectionHostModal("new")}
+									>
+										<T id="object.add" tData={{ object: "redirection-host" }} />
+									</Button>
 								) : null}
-								<Button size="sm" onClick={() => showHelpModal("RedirectionHosts", "yellow")}>
-									<IconHelp size={20} />
-								</Button>
-								<HasPermission section={REDIRECTION_HOSTS} permission={MANAGE} hideError>
-									{data?.length ? (
-										<Button
-											size="sm"
-											className="btn-yellow"
-											onClick={() => showRedirectionHostModal("new")}
-										>
-											<T id="object.add" tData={{ object: "redirection-host" }} />
-											</Button>
-										) : null}
-									</HasPermission>
+							</HasPermission>
 						</div>
 					</div>
 				</div>

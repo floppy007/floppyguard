@@ -1,5 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createAgent, deleteAgent, getAgents, updateAgent, type Agent, type AgentCreateData, type AgentUpdateData } from "src/api/backend";
+import {
+	type Agent,
+	type AgentCreateData,
+	type AgentUpdateData,
+	createAgent,
+	deleteAgent,
+	getAgents,
+	updateAgent,
+} from "src/api/backend";
 
 const useAgents = (options = {}) => {
 	return useQuery<Agent[], Error>({

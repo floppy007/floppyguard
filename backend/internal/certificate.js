@@ -491,7 +491,7 @@ const internalCertificate = {
 	writeCustomCert: async (certificate) => {
 		logger.info("Writing Custom Certificate:", certificate);
 
-			const dir = `${customSslRoot}/npm-${certificate.id}`;
+		const dir = `${customSslRoot}/npm-${certificate.id}`;
 
 		return new Promise((resolve, reject) => {
 			if (certificate.provider === "letsencrypt") {
@@ -832,8 +832,8 @@ const internalCertificate = {
 			`Requesting LetsEncrypt certificates via ${dnsPlugin.name} for Cert #${certificate.id}: ${certificate.domain_names.join(", ")}`,
 		);
 
-			const credentialsLocation = `${letsencryptRoot}/credentials/credentials-${certificate.id}`;
-			fs.mkdirSync(`${letsencryptRoot}/credentials`, { recursive: true });
+		const credentialsLocation = `${letsencryptRoot}/credentials/credentials-${certificate.id}`;
+		fs.mkdirSync(`${letsencryptRoot}/credentials`, { recursive: true });
 		fs.writeFileSync(credentialsLocation, certificate.meta.dns_provider_credentials, { mode: 0o600 });
 
 		// Whether the plugin has a --<name>-credentials argument
@@ -1118,7 +1118,7 @@ const internalCertificate = {
 
 		try {
 			const result = await utils.execFile(certbotCommand, args, adds.opts);
-				await utils.exec(`rm -f '${letsencryptRoot}/credentials/credentials-${certificate.id}' || true`);
+			await utils.exec(`rm -f '${letsencryptRoot}/credentials/credentials-${certificate.id}' || true`);
 			logger.info(result);
 			return result;
 		} catch (err) {
@@ -1324,7 +1324,7 @@ const internalCertificate = {
 		const opts = {};
 		if (certificate_id && dns_provider === "route53") {
 			opts.env = process.env;
-				opts.env.AWS_CONFIG_FILE = `${letsencryptRoot}/credentials/credentials-${certificate_id}`;
+			opts.env.AWS_CONFIG_FILE = `${letsencryptRoot}/credentials/credentials-${certificate_id}`;
 		}
 
 		if (dns_provider === "duckdns") {
@@ -1334,9 +1334,9 @@ const internalCertificate = {
 		return { args: args, opts: opts };
 	},
 
-		getLiveCertPath: (certificateId) => {
-			return `${letsencryptRoot}/live/npm-${certificateId}`;
-		},
-	};
+	getLiveCertPath: (certificateId) => {
+		return `${letsencryptRoot}/live/npm-${certificateId}`;
+	},
+};
 
 export default internalCertificate;

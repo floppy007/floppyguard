@@ -351,6 +351,8 @@ export interface WireGuardMetadataLinkPatch {
 	returnPathMode?: WireGuardReturnPathMode;
 	planIntent?: string;
 	planState?: string;
+	dns?: string[];
+	fullTunnel?: boolean;
 	notes?: string[];
 }
 
@@ -360,6 +362,7 @@ export interface WireGuardMetadataInterfacePatch {
 	importedNetworks?: string[];
 	exportedNetworks?: string[];
 	routeTargets?: string[];
+	dns?: string[];
 	notes?: string[];
 }
 

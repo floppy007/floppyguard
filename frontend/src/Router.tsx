@@ -1,17 +1,9 @@
 import { lazy, Suspense, useEffect } from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
-import {
-	ErrorNotFound,
-	LoadingPage,
-	Page,
-	SiteContainer,
-	SiteFooter,
-	SiteHeader,
-	Unhealthy,
-} from "src/components";
+import type { HealthResponse } from "src/api/backend";
+import { ErrorNotFound, LoadingPage, Page, SiteContainer, SiteFooter, SiteHeader, Unhealthy } from "src/components";
 import { useAuthState } from "src/context";
 import { useHealth } from "src/hooks";
-import type { HealthResponse } from "src/api/backend";
 
 const Setup = lazy(() => import("src/pages/Setup"));
 const Login = lazy(() => import("src/pages/Login"));

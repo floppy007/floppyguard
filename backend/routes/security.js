@@ -1,8 +1,8 @@
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import express from "express";
-import jwtdecode from "../lib/express/jwt-decode.js";
 import error from "../lib/error.js";
+import jwtdecode from "../lib/express/jwt-decode.js";
 import { debug, express as logger } from "../logger.js";
 
 const execAsync = promisify(exec);
@@ -32,10 +32,10 @@ function parseJailStatus(raw) {
 	const bannedRaw = get("Banned IP list");
 	return {
 		currentlyFailed: Number.parseInt(get("Currently failed"), 10) || 0,
-		totalFailed:     Number.parseInt(get("Total failed"),     10) || 0,
+		totalFailed: Number.parseInt(get("Total failed"), 10) || 0,
 		currentlyBanned: Number.parseInt(get("Currently banned"), 10) || 0,
-		totalBanned:     Number.parseInt(get("Total banned"),     10) || 0,
-		bannedIps:       bannedRaw ? bannedRaw.split(/\s+/).filter(Boolean) : [],
+		totalBanned: Number.parseInt(get("Total banned"), 10) || 0,
+		bannedIps: bannedRaw ? bannedRaw.split(/\s+/).filter(Boolean) : [],
 	};
 }
 
@@ -43,8 +43,11 @@ function parseJailStatus(raw) {
  * GET /api/security/fail2ban
  * Returns all jails and their current status.
  */
-router.route("/fail2ban")
-	.options((_, res) => { res.sendStatus(204); })
+router
+	.route("/fail2ban")
+	.options((_, res) => {
+		res.sendStatus(204);
+	})
 	.all(jwtdecode())
 	.get(async (req, res, next) => {
 		try {
@@ -54,7 +57,12 @@ router.route("/fail2ban")
 			}
 
 			const m = statusRaw.match(/Jail list:\s*(.+)/);
-			const jailNames = m ? m[1].split(",").map((s) => s.trim()).filter(Boolean) : [];
+			const jailNames = m
+				? m[1]
+						.split(",")
+						.map((s) => s.trim())
+						.filter(Boolean)
+				: [];
 
 			const jails = await Promise.all(
 				jailNames.map(async (name) => {
@@ -74,8 +82,11 @@ router.route("/fail2ban")
  * DELETE /api/security/fail2ban/:jail/:ip
  * Unban an IP from a specific jail.
  */
-router.route("/fail2ban/:jail/:ip")
-	.options((_, res) => { res.sendStatus(204); })
+router
+	.route("/fail2ban/:jail/:ip")
+	.options((_, res) => {
+		res.sendStatus(204);
+	})
 	.all(jwtdecode())
 	.delete(async (req, res, next) => {
 		try {

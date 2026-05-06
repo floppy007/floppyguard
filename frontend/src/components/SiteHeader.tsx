@@ -1,4 +1,4 @@
-import { IconLock, IconLogout, IconShieldLock, IconUser } from "@tabler/icons-react";
+import { IconBell, IconLock, IconLogout, IconShieldLock, IconUser } from "@tabler/icons-react";
 import { BrandLogo, LocalePicker, NavLink, SiteMenu, ThemeSwitcher } from "src/components";
 import { useAuthState } from "src/context";
 import { useUser } from "src/hooks";
@@ -10,6 +10,12 @@ export function SiteHeader() {
 	const { data: currentUser } = useUser("me");
 	const isAdmin = currentUser?.roles.includes("admin");
 	const { logout } = useAuthState();
+
+	const initials = (currentUser?.nickname || "?")
+		.split(/\s+/)
+		.map((w) => w[0]?.toUpperCase())
+		.slice(0, 2)
+		.join("");
 
 	return (
 		<header className={`navbar navbar-expand-md d-print-none ${styles.header}`}>
@@ -25,22 +31,25 @@ export function SiteHeader() {
 				>
 					<span className="navbar-toggler-icon" />
 				</button>
-				<div className={`navbar-brand navbar-brand-autodark pe-0 pe-md-3 ${styles.brand}`}>
+				<div className={`navbar-brand navbar-brand-autodark pe-0 ${styles.brand}`}>
 					<NavLink to="/">
 						<div className={styles.logo}>
-							<BrandLogo className={styles.logoWordmark} alt="FloppyGuard Platform" />
+							<BrandLogo className={styles.logoImg} alt="FloppyGuard" />
 						</div>
 					</NavLink>
 				</div>
 				<SiteMenu className={styles.menuRow} />
 				<div className={styles.tools}>
 					<div className={styles.toolsRail}>
-						<div className="nav-item">
-							<LocalePicker />
-						</div>
-						<div className="nav-item">
+						<div className="nav-item d-none d-md-block">
 							<ThemeSwitcher />
 						</div>
+						<div className="nav-item d-none d-md-block">
+							<LocalePicker />
+						</div>
+						<button type="button" className={styles.btnIcon} title="Notifications">
+							<IconBell size={15} />
+						</button>
 					</div>
 					<div className="nav-item d-md-flex">
 						<div className="nav-item dropdown">
@@ -50,23 +59,25 @@ export function SiteHeader() {
 								data-bs-toggle="dropdown"
 								aria-label="Open user menu"
 							>
-								<span
-									className="avatar avatar-sm"
-									style={{
-										backgroundImage: `url(${currentUser?.avatar || "/images/default-avatar.jpg"})`,
-									}}
-								/>
-								<div className={styles.profileMeta}>
-									<div className={styles.profileName}>{currentUser?.nickname}</div>
-									<div className={styles.profileRole}>
-										<T id={isAdmin ? "role.admin" : "role.standard-user"} />
-									</div>
-								</div>
+								{currentUser?.avatar ? (
+									<span
+										className={styles.profileAvatar}
+										style={{
+											backgroundImage: `url(${currentUser.avatar})`,
+											backgroundSize: "cover",
+										}}
+									/>
+								) : (
+									<span className={styles.profileAvatar}>{initials}</span>
+								)}
 							</a>
 							<div className="dropdown-menu dropdown-menu-end dropdown-menu-arrow">
 								<div className="d-md-none">
-									{/* biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/useKeyWithClickEvents: This div is not interactive. */}
-									<div className="p-2 pb-1 pe-1 d-flex align-items-center" onClick={e => e.stopPropagation()}>
+									{/* biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/useKeyWithClickEvents: wrapper */}
+									<div
+										className="p-2 pb-1 pe-1 d-flex align-items-center"
+										onClick={(e) => e.stopPropagation()}
+									>
 										<div className="ps-2 pe-1 me-auto">
 											<div>{currentUser?.nickname}</div>
 											<div className="mt-1 small text-secondary text-nowrap">

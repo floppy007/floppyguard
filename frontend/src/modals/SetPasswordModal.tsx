@@ -76,10 +76,7 @@ const SetPasswordModal = EasyModal.create(({ id, visible, remove }: Props) => {
 														href="#"
 														onClick={(e) => {
 															e.preventDefault();
-															form.setFieldValue(
-																field.name,
-																generatePassword(12),
-															);
+															form.setFieldValue(field.name, generatePassword(12));
 															setShowPassword(true);
 														}}
 													>

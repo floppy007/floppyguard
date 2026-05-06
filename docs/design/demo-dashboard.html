@@ -1,1073 +1,784 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="light">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>FloppyGuard · Dashboard Demo</title>
+<title>FloppyGuard · Dashboard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
 <style>
-/* ─── Reset & Base ──────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --font: 'Inter', system-ui, sans-serif;
-  --mono: 'JetBrains Mono', monospace;
-  --radius-sm: 8px;
-  --radius: 12px;
-  --radius-lg: 18px;
-  --sidebar-w: 228px;
-  --header-h: 64px;
-  --transition: 0.18s ease;
-
-  /* Accent */
-  --blue: #4f8ef7;
-  --blue-dim: rgba(79,142,247,.12);
-  --green: #34c77b;
-  --green-dim: rgba(52,199,123,.12);
-  --amber: #f5a623;
-  --amber-dim: rgba(245,166,35,.12);
-  --red: #f05257;
-  --red-dim: rgba(240,82,87,.12);
-  --cyan: #22d3ee;
-  --cyan-dim: rgba(34,211,238,.12);
-  --purple: #a78bfa;
-  --purple-dim: rgba(167,139,250,.12);
+  --font: 'Inter', -apple-system, system-ui, sans-serif;
+  --mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, monospace;
+  --primary: #066fd1;
+  --primary-rgb: 6,111,209;
+  --green: #2fb344;
+  --green-rgb: 47,179,68;
+  --red: #d63939;
+  --red-rgb: 214,57,57;
+  --yellow: #f59f00;
+  --yellow-rgb: 245,159,0;
+  --azure: #4299e1;
+  --azure-rgb: 66,153,225;
+  --purple: #a855f7;
+  --purple-rgb: 168,85,247;
+  --border-radius: 8px;
 }
 
-/* ─── Themes ────────────────────────────────────────────────── */
-[data-theme="dark"] {
-  --bg:          #0b0d14;
-  --surface:     #111420;
-  --card:        #181c2e;
-  --card-hover:  #1e2236;
-  --border:      #252a40;
-  --border-dim:  #1c2033;
-  --text:        #e8ecf8;
-  --text-2:      #8892b0;
-  --text-3:      #4a5568;
-  --sidebar-bg:  #0d1021;
-  --sidebar-border: #1a1f35;
-  --header-bg:   rgba(11,13,20,.88);
-  --glow:        rgba(79,142,247,.08);
-  --chart-grid:  rgba(255,255,255,.04);
-}
 [data-theme="light"] {
-  --bg:          #f0f2f8;
-  --surface:     #ffffff;
-  --card:        #ffffff;
-  --card-hover:  #f7f8fc;
-  --border:      #e2e5ef;
-  --border-dim:  #eceef6;
-  --text:        #1a1d2e;
-  --text-2:      #5a6278;
-  --text-3:      #9ba3bf;
-  --sidebar-bg:  #111728;
-  --sidebar-border: #1c2338;
-  --header-bg:   rgba(240,242,248,.9);
-  --glow:        rgba(79,142,247,.05);
-  --chart-grid:  rgba(0,0,0,.04);
+  --body-bg: #f9fafb;
+  --body-color: #1f2937;
+  --secondary: #6b7280;
+  --surface: #ffffff;
+  --border: #e5e7eb;
+  --border-t: rgba(4,32,69,.1);
+  --muted: #9ca3af;
+  --chart-grid: rgba(0,0,0,.06);
+  --donut-track: #f0f0f0;
+}
+[data-theme="dark"] {
+  --body-bg: #111827;
+  --body-color: #e5e7eb;
+  --secondary: #9ca3af;
+  --surface: #1f2937;
+  --border: rgb(46,60,81);
+  --border-t: rgba(72,110,149,.14);
+  --muted: #6b7280;
+  --chart-grid: rgba(255,255,255,.06);
+  --donut-track: #374151;
 }
 
-/* ─── Scrollbar ─────────────────────────────────────────────── */
-::-webkit-scrollbar { width: 4px; height: 4px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
-
-/* ─── Layout ────────────────────────────────────────────────── */
 body {
   font-family: var(--font);
-  background: var(--bg);
-  color: var(--text);
-  display: flex;
+  font-size: .875rem;
+  line-height: 1.5;
+  background: var(--body-bg);
+  color: var(--body-color);
   min-height: 100vh;
-  overflow-x: hidden;
-  transition: background var(--transition), color var(--transition);
+  transition: background .15s, color .15s;
 }
 
-/* ─── Sidebar ───────────────────────────────────────────────── */
-.sidebar {
-  position: fixed; left: 0; top: 0; bottom: 0;
-  width: var(--sidebar-w);
-  background: var(--sidebar-bg);
-  border-right: 1px solid var(--sidebar-border);
-  display: flex;
-  flex-direction: column;
-  z-index: 100;
-  overflow: hidden;
-}
-
-.sidebar-brand {
-  height: var(--header-h);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 20px;
-  border-bottom: 1px solid var(--sidebar-border);
-  flex-shrink: 0;
-}
-
-.brand-logo {
-  width: 32px; height: 32px;
-  background: linear-gradient(135deg, var(--blue), var(--purple));
-  border-radius: 9px;
-  display: grid; place-items: center;
-  font-weight: 700; font-size: 15px; color: #fff;
-  flex-shrink: 0;
-  box-shadow: 0 4px 16px rgba(79,142,247,.3);
-}
-
-.brand-name {
-  font-size: 15px; font-weight: 600;
-  color: #e8ecf8;
-  letter-spacing: -.02em;
-}
-.brand-version {
-  font-size: 10px;
-  color: rgba(255,255,255,.28);
-  margin-top: 1px;
-  font-family: var(--mono);
-}
-
-.sidebar-nav {
-  flex: 1;
-  padding: 12px 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-}
-
-.nav-section {
-  padding: 8px 16px 4px;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: .08em;
-  text-transform: uppercase;
-  color: rgba(255,255,255,.2);
-}
-
-.nav-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 20px;
-  margin: 1px 8px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: background var(--transition), color var(--transition);
-  color: rgba(255,255,255,.48);
-  font-size: 13.5px;
-  font-weight: 450;
-  text-decoration: none;
-  position: relative;
-  user-select: none;
-}
-.nav-item:hover { background: rgba(255,255,255,.06); color: rgba(255,255,255,.8); }
-.nav-item.active {
-  background: var(--blue-dim);
-  color: var(--blue);
-}
-.nav-item.active::before {
-  content: '';
-  position: absolute; left: -8px;
-  top: 50%; transform: translateY(-50%);
-  width: 3px; height: 60%;
-  background: var(--blue);
-  border-radius: 0 3px 3px 0;
-}
-
-.nav-icon {
-  width: 18px; height: 18px;
-  flex-shrink: 0;
-  opacity: .7;
-}
-.nav-item.active .nav-icon { opacity: 1; }
-
-.nav-badge {
-  margin-left: auto;
-  background: var(--blue-dim);
-  color: var(--blue);
-  font-size: 10px; font-weight: 600;
-  padding: 2px 7px;
-  border-radius: 999px;
-}
-
-.sidebar-footer {
-  padding: 16px;
-  border-top: 1px solid var(--sidebar-border);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-}
-.sidebar-avatar {
-  width: 32px; height: 32px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--blue), var(--purple));
-  display: grid; place-items: center;
-  font-size: 12px; font-weight: 600; color: #fff;
-  flex-shrink: 0;
-}
-.sidebar-user-name { font-size: 13px; font-weight: 500; color: rgba(255,255,255,.8); }
-.sidebar-user-role { font-size: 11px; color: rgba(255,255,255,.28); }
-
-/* ─── Main Area ─────────────────────────────────────────────── */
-.main {
-  margin-left: var(--sidebar-w);
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 100vh;
-}
-
-/* ─── Header ────────────────────────────────────────────────── */
+/* ─── Header ───────────────────────────────────────────────── */
 .header {
-  position: sticky; top: 0; z-index: 90;
-  height: var(--header-h);
-  background: var(--header-bg);
-  backdrop-filter: blur(20px) saturate(1.3);
+  position: sticky; top: 0; z-index: 100;
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  backdrop-filter: blur(12px) saturate(1.2);
   border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 3px rgba(0,0,0,.04);
+}
+.header-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 1.25rem;
   display: flex;
   align-items: center;
-  padding: 0 28px;
-  gap: 16px;
+  height: 56px;
+  gap: 1rem;
 }
 
-.header-title {
-  font-size: 15px; font-weight: 600;
-  letter-spacing: -.02em;
-  flex: 1;
-}
-.header-breadcrumb {
-  font-size: 11px;
-  color: var(--text-2);
-  font-weight: 400;
-  margin-top: 1px;
+.brand { display: flex; align-items: center; gap: .5rem; text-decoration: none; flex-shrink: 0; }
+.brand-logo-img {
+  height: 28px; width: auto;
+  filter: drop-shadow(0 2px 6px rgba(0,0,0,.15));
 }
 
-.header-actions { display: flex; align-items: center; gap: 8px; }
+/* ─── Nav ──────────────────────────────────────────────────── */
+.nav { display: flex; align-items: center; gap: 2px; flex: 1; margin-left: .5rem; }
+.nav-link {
+  display: inline-flex; align-items: center; gap: .4rem;
+  padding: .4rem .7rem;
+  border-radius: 6px;
+  font-size: .8125rem; font-weight: 500;
+  color: var(--secondary);
+  text-decoration: none;
+  transition: background .12s, color .12s;
+}
+.nav-link:hover { background: rgba(var(--primary-rgb),.08); color: var(--body-color); }
+.nav-link.active { background: rgba(var(--primary-rgb),.12); color: var(--primary); }
+.nav-link svg { width: 16px; height: 16px; }
+.nav-count {
+  font-size: .7rem; font-weight: 600;
+  background: rgba(var(--primary-rgb),.1); color: var(--primary);
+  padding: 0 5px; border-radius: 10px; margin-left: 2px;
+}
 
+.tools { display: flex; align-items: center; gap: .5rem; margin-left: auto; }
 .btn-icon {
-  width: 36px; height: 36px;
-  border: 1px solid var(--border);
-  background: var(--card);
-  border-radius: var(--radius-sm);
-  display: grid; place-items: center;
-  cursor: pointer;
-  color: var(--text-2);
-  transition: all var(--transition);
+  width: 32px; height: 32px; border: 1px solid var(--border);
+  background: var(--surface); border-radius: 6px;
+  display: grid; place-items: center; cursor: pointer;
+  color: var(--secondary); transition: all .12s;
 }
-.btn-icon:hover { border-color: var(--blue); color: var(--blue); background: var(--blue-dim); }
+.btn-icon:hover { border-color: var(--primary); color: var(--primary); }
 
-.status-dot {
-  width: 8px; height: 8px; border-radius: 50%;
-  background: var(--green);
-  box-shadow: 0 0 0 3px var(--green-dim);
-  display: inline-block;
+.theme-toggle {
+  display: flex; gap: 1px; background: var(--border);
+  border-radius: 6px; padding: 2px;
 }
-.status-text { font-size: 12px; color: var(--text-2); }
+.theme-opt {
+  padding: 3px 8px; border-radius: 4px; font-size: .7rem;
+  font-weight: 600; color: var(--muted); cursor: pointer;
+  user-select: none; transition: all .12s;
+}
+.theme-opt.active { background: var(--surface); color: var(--primary); box-shadow: 0 1px 2px rgba(0,0,0,.06); }
 
-/* ─── Content ───────────────────────────────────────────────── */
-.content {
-  flex: 1;
-  padding: 24px 28px;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
+.avatar {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--green); display: grid; place-items: center;
+  font-size: 10px; font-weight: 700; color: #fff;
 }
 
-/* ─── Grid ──────────────────────────────────────────────────── */
-.grid { display: grid; gap: 16px; }
-.grid-4 { grid-template-columns: repeat(4, 1fr); }
-.grid-3 { grid-template-columns: repeat(3, 1fr); }
-.grid-2 { grid-template-columns: 1fr 1fr; }
-.grid-7-5 { grid-template-columns: 7fr 5fr; }
-.grid-1-1-1 { grid-template-columns: 1fr 1fr 1fr; }
+/* ─── Page ─────────────────────────────────────────────────── */
+.page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 3rem;
+  display: flex; flex-direction: column; gap: 1.5rem;
+}
 
-/* ─── Card ──────────────────────────────────────────────────── */
+.page-title { font-size: 1.25rem; font-weight: 700; letter-spacing: -.02em; }
+.page-sub { font-size: .8125rem; color: var(--secondary); }
+
+/* ─── Card ─────────────────────────────────────────────────── */
 .card {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  overflow: hidden;
-  transition: background var(--transition), border-color var(--transition);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border-t);
+  border-radius: var(--border-radius);
+  box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 16px -4px rgba(0,0,0,.06);
+  transition: box-shadow .15s, border-color .15s;
+}
+.card:hover {
+  box-shadow: 0 2px 4px rgba(0,0,0,.05), 0 8px 24px -4px rgba(0,0,0,.1);
 }
 
 .card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 20px 0;
+  padding: .875rem 1.25rem;
+  border-bottom: 1px solid var(--border-t);
+  display: flex; align-items: center; justify-content: space-between;
 }
-.card-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text);
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-.card-title svg { color: var(--text-2); }
-.card-action {
-  font-size: 11.5px;
-  color: var(--blue);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  text-decoration: none;
-}
-.card-action:hover { opacity: .8; }
+.card-title { font-size: .8125rem; font-weight: 700; display: flex; align-items: center; gap: .4rem; }
+.card-title svg { width: 15px; height: 15px; color: var(--secondary); }
+.card-action { font-size: .75rem; color: var(--primary); text-decoration: none; font-weight: 500; }
+.card-action:hover { text-decoration: underline; }
+.card-body { padding: 1.25rem; }
 
-.card-body { padding: 16px 20px; }
+/* ─── Grid ─────────────────────────────────────────────────── */
+.row { display: grid; gap: 1rem; }
+.row-4 { grid-template-columns: repeat(4, 1fr); }
+.row-3 { grid-template-columns: repeat(3, 1fr); }
+.row-2 { grid-template-columns: 1fr 1fr; }
+.row-7-5 { grid-template-columns: 7fr 5fr; }
 
-/* ─── Stat Cards ────────────────────────────────────────────── */
-.stat-card {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 18px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  position: relative;
-  overflow: hidden;
-  transition: border-color var(--transition), transform .15s;
-  cursor: default;
+/* ─── Stat card with donut ────────────────────────────────── */
+.stat {
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border-t);
+  border-radius: var(--border-radius);
+  padding: 1.25rem;
+  box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 16px -4px rgba(0,0,0,.06);
+  transition: box-shadow .15s, transform .15s;
+  display: flex; align-items: center; gap: 1rem;
 }
-.stat-card:hover { border-color: var(--border-dim); transform: translateY(-1px); }
-.stat-card::before {
-  content: '';
-  position: absolute;
-  top: -40px; right: -30px;
-  width: 100px; height: 100px;
-  border-radius: 50%;
-  background: var(--accent-glow, var(--glow));
-  filter: blur(30px);
-  pointer-events: none;
+.stat:hover {
+  box-shadow: 0 2px 4px rgba(0,0,0,.05), 0 8px 24px -4px rgba(0,0,0,.1);
+  transform: translateY(-1px);
 }
+.stat-donut { flex-shrink: 0; position: relative; width: 56px; height: 56px; }
+.stat-donut svg { width: 56px; height: 56px; transform: rotate(-90deg); }
+.stat-donut-center {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: .75rem; font-weight: 700; color: var(--body-color);
+}
+.stat-info { flex: 1; min-width: 0; }
+.stat-label { font-size: .6875rem; color: var(--secondary); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.stat-value { font-size: 1.35rem; font-weight: 700; letter-spacing: -.03em; line-height: 1.2; margin: .15rem 0; }
+.stat-sub { font-size: .7rem; color: var(--muted); }
+.stat-trend { font-size: .7rem; display: flex; align-items: center; gap: .25rem; margin-top: .2rem; }
+.up { color: var(--green); }
+.warn { color: var(--yellow); }
 
-.stat-icon {
-  width: 38px; height: 38px;
-  border-radius: 10px;
-  display: grid; place-items: center;
-  flex-shrink: 0;
-}
-
-.stat-meta { font-size: 11.5px; color: var(--text-2); }
-.stat-value {
-  font-size: 26px;
-  font-weight: 700;
-  letter-spacing: -.04em;
-  line-height: 1;
-  color: var(--text);
-}
-.stat-sub {
-  font-size: 11px;
-  color: var(--text-3);
-  margin-top: 2px;
-}
-
-.stat-trend {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-}
-.trend-up { color: var(--green); }
-.trend-warn { color: var(--amber); }
-
-/* ─── Sparkline (stat card) ─────────────────────────────────── */
-.stat-sparkline {
-  position: absolute;
-  bottom: 0; right: 0;
-  width: 90px; height: 44px;
-  opacity: .5;
-}
-
-/* ─── Gateway Panels ────────────────────────────────────────── */
-.panel-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+/* ─── Panel grid ───────────────────────────────────────────── */
+.panels { display: grid; grid-template-columns: 1fr 1fr; gap: .625rem; }
 .panel {
-  background: var(--surface);
-  border: 1px solid var(--border-dim);
-  border-radius: var(--radius-sm);
-  padding: 12px 14px;
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+  border: 1px solid var(--border-t);
+  border-radius: 6px;
+  padding: .75rem;
 }
-.panel-label { font-size: 10.5px; color: var(--text-2); margin-bottom: 4px; text-transform: uppercase; letter-spacing: .06em; }
-.panel-value { font-size: 14px; font-weight: 600; color: var(--text); }
-.panel-sub { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+.panel-label { font-size: .6875rem; color: var(--secondary); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; margin-bottom: .2rem; }
+.panel-value { font-size: .8125rem; font-weight: 600; }
+.panel-sub { font-size: .75rem; color: var(--muted); margin-top: .15rem; }
 
-/* ─── Link List ─────────────────────────────────────────────── */
-.link-list { display: flex; flex-direction: column; }
-.link-item {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 12px 20px;
-  border-bottom: 1px solid var(--border-dim);
-}
-.link-item:last-child { border-bottom: none; }
-.link-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.link-name { font-size: 13px; font-weight: 500; }
-.link-sub { font-size: 11px; color: var(--text-2); }
-.link-bars { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.link-bar-wrap { display: flex; align-items: center; gap: 6px; }
-.link-bar-label { font-size: 10px; color: var(--text-3); width: 12px; flex-shrink: 0; }
-.link-bar-track {
-  flex: 1; height: 4px; background: var(--border);
-  border-radius: 2px; overflow: hidden;
-}
-.link-bar-fill { height: 100%; border-radius: 2px; transition: width .5s ease; }
-.link-bar-val { font-size: 10px; font-family: var(--mono); color: var(--text-2); min-width: 36px; text-align: right; }
+/* ─── Peer list with sparklines ───────────────────────────── */
+.peer { padding: .875rem 1.25rem; border-bottom: 1px solid var(--border-t); }
+.peer:last-child { border-bottom: 0; }
+.peer-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: .5rem; }
+.peer-name { font-size: .8125rem; font-weight: 600; }
+.peer-meta { font-size: .6875rem; color: var(--muted); }
+.peer-bottom { display: flex; align-items: center; gap: 1rem; }
+.peer-spark { flex: 1; min-width: 0; }
+.peer-spark svg { width: 100%; height: 32px; display: block; }
+.peer-stats { display: flex; gap: .75rem; flex-shrink: 0; }
+.peer-stat { text-align: right; }
+.peer-stat-dir { font-size: .6rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+.peer-stat-val { font-size: .75rem; font-weight: 600; font-family: var(--mono); }
+.peer-health { display: flex; align-items: center; gap: .35rem; flex-shrink: 0; }
+.peer-health-label { font-size: .6875rem; color: var(--muted); }
 
-/* ─── Badge ─────────────────────────────────────────────────── */
+/* ─── Badge ────────────────────────────────────────────────── */
 .badge {
-  display: inline-flex; align-items: center;
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 10.5px; font-weight: 500;
-  gap: 4px;
+  display: inline-flex; align-items: center; gap: .2rem;
+  padding: .125rem .5rem; border-radius: 4px;
+  font-size: .6875rem; font-weight: 500;
 }
-.badge-green { background: var(--green-dim); color: var(--green); }
-.badge-blue  { background: var(--blue-dim);  color: var(--blue); }
-.badge-amber { background: var(--amber-dim); color: var(--amber); }
-.badge-red   { background: var(--red-dim);   color: var(--red); }
-.badge-dim   { background: rgba(255,255,255,.06); color: var(--text-2); }
+.badge-green { background: rgba(var(--green-rgb),.1); color: var(--green); }
+.badge-muted { background: var(--border); color: var(--secondary); }
 
-/* ─── Bandwidth Charts ──────────────────────────────────────── */
-.chart-container {
-  padding: 0 4px 4px;
-  position: relative;
-}
+/* ─── Chart ────────────────────────────────────────────────── */
+.chart-wrap { padding: .5rem 1rem .75rem; }
 .chart-svg { width: 100%; display: block; overflow: visible; }
 
-/* ─── Fail2ban Table ────────────────────────────────────────── */
+/* ─── Table ────────────────────────────────────────────────── */
 .table { width: 100%; border-collapse: collapse; }
 .table th {
-  font-size: 10.5px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: .06em;
-  color: var(--text-2);
-  padding: 8px 20px;
-  border-bottom: 1px solid var(--border-dim);
-  text-align: left;
+  font-size: .6875rem; font-weight: 600; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--secondary);
+  padding: .75rem 1.25rem; border-bottom: 1px solid var(--border);
+  text-align: left; white-space: nowrap;
 }
 .table td {
-  padding: 10px 20px;
-  font-size: 13px;
-  border-bottom: 1px solid var(--border-dim);
-  color: var(--text);
+  padding: .875rem 1.25rem; font-size: .8125rem;
+  border-bottom: 1px solid var(--border-t);
 }
-.table tr:last-child td { border-bottom: none; }
-.table tr:hover td { background: rgba(255,255,255,.018); }
-.table .num { font-family: var(--mono); font-size: 12.5px; }
-.text-right { text-align: right; }
+.table tr:last-child td { border-bottom: 0; }
+.table tr:hover td { background: rgba(var(--primary-rgb),.03); }
+.text-r { text-align: right; }
 
 .ip-chip {
   display: inline-flex; align-items: center;
-  background: var(--red-dim);
-  color: var(--red);
-  border-radius: 5px;
-  font-family: var(--mono);
-  font-size: 11px;
-  padding: 2px 7px;
-  gap: 5px;
-  margin: 2px;
-}
-.ip-chip-x {
-  cursor: pointer;
-  opacity: .6;
-  font-size: 13px;
-  line-height: 1;
-}
-.ip-chip-x:hover { opacity: 1; }
-
-/* ─── Theme toggle ──────────────────────────────────────────── */
-.theme-toggle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: var(--border);
-  border-radius: 999px;
-  padding: 3px;
-  cursor: pointer;
-}
-.theme-opt {
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text-2);
-  transition: all .15s;
-  user-select: none;
-}
-.theme-opt.active {
-  background: var(--card);
-  color: var(--blue);
-  box-shadow: 0 1px 4px rgba(0,0,0,.15);
+  background: rgba(var(--red-rgb),.08); color: var(--red);
+  border-radius: 4px; font-family: var(--mono);
+  font-size: .75rem; padding: .1rem .4rem; gap: .3rem;
 }
 
-/* ─── Scrollable link list ──────────────────────────────────── */
-.scroll-y { overflow-y: auto; max-height: 260px; }
+/* ─── Live dot ─────────────────────────────────────────────── */
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: pulse 2s ease-in-out infinite; display: inline-block; }
 
-/* ─── Section heading ───────────────────────────────────────── */
-.section-label {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: .08em;
-  color: var(--text-3);
-  padding: 0 2px;
+/* ─── Footer ───────────────────────────────────────────────── */
+.footer {
+  max-width: 1200px; margin: 0 auto; padding: 1rem 1.25rem;
+  border-top: 1px solid var(--border);
+  display: flex; justify-content: space-between;
+  font-size: .75rem; color: var(--muted);
 }
+.footer a { color: var(--secondary); text-decoration: none; }
+.footer a:hover { color: var(--body-color); }
 
-/* ─── Live dot ──────────────────────────────────────────────── */
-@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
-.live-dot {
-  width: 6px; height: 6px; border-radius: 50%;
-  background: var(--green);
-  animation: pulse 2s ease-in-out infinite;
-  display: inline-block;
-}
-
-/* ─── Separator ─────────────────────────────────────────────── */
-.sep { height: 1px; background: var(--border-dim); margin: 4px 0; }
-
-/* ─── Page switch link ──────────────────────────────────────── */
-.page-link {
-  display: inline-flex; align-items: center; gap: 5px;
-  background: var(--blue-dim);
-  color: var(--blue);
-  border-radius: var(--radius-sm);
-  padding: 7px 14px;
-  font-size: 12.5px; font-weight: 500;
-  text-decoration: none;
-  border: 1px solid rgba(79,142,247,.2);
-  transition: opacity .15s;
-}
-.page-link:hover { opacity: .85; }
+@media (max-width: 1024px) { .row-4 { grid-template-columns: 1fr 1fr; } .row-7-5, .row-3 { grid-template-columns: 1fr; } }
+@media (max-width: 640px) { .row-4, .row-2 { grid-template-columns: 1fr; } .nav { display: none; } }
 </style>
 </head>
 <body>
 
-<!-- ─── Sidebar ────────────────────────────────────────────── -->
-<aside class="sidebar">
-  <div class="sidebar-brand">
-    <div class="brand-logo">FG</div>
-    <div>
-      <div class="brand-name">FloppyGuard</div>
-      <div class="brand-version">v1.2.4</div>
-    </div>
-  </div>
-
-  <nav class="sidebar-nav">
-    <div class="nav-section">Main</div>
-
-    <a class="nav-item active" href="#">
-      <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-        <rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/>
-        <rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>
-      </svg>
-      Dashboard
+<header class="header">
+  <div class="header-inner">
+    <a class="brand" href="#">
+      <img src="/images/floppyguard-logo-sm.png" alt="FloppyGuard" class="brand-logo-img" />
     </a>
 
-    <a class="nav-item" href="demo-traffic.html">
-      <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-      </svg>
-      Traffic
-    </a>
-
-    <div class="nav-section" style="margin-top:8px">Hosts</div>
-
-    <a class="nav-item" href="#">
-      <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-        <rect x="2" y="6" width="20" height="12" rx="2"/>
-        <circle cx="12" cy="12" r="2"/>
-      </svg>
-      Proxy Hosts
-      <span class="nav-badge">12</span>
-    </a>
-
-    <a class="nav-item" href="#">
-      <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-        <path d="M5 12h14M12 5l7 7-7 7"/>
-      </svg>
-      Redirections
-    </a>
-
-    <a class="nav-item" href="#">
-      <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
-      </svg>
-      Dead Hosts
-    </a>
-
-    <div class="nav-section" style="margin-top:8px">VPN</div>
-
-    <a class="nav-item" href="#">
-      <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-      </svg>
-      WireGuard
-    </a>
-
-    <div class="nav-section" style="margin-top:8px">Admin</div>
-
-    <a class="nav-item" href="#">
-      <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-        <circle cx="12" cy="8" r="4"/><path d="M6 20v-2a6 6 0 0 1 12 0v2"/>
-      </svg>
-      Users
-    </a>
-    <a class="nav-item" href="#">
-      <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-        <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-      </svg>
-      Settings
-    </a>
-  </nav>
-
-  <div class="sidebar-footer">
-    <div class="sidebar-avatar">FH</div>
-    <div>
-      <div class="sidebar-user-name">Florian Hesse</div>
-      <div class="sidebar-user-role">Administrator</div>
-    </div>
-  </div>
-</aside>
-
-<!-- ─── Main ───────────────────────────────────────────────── -->
-<div class="main">
-
-  <!-- Header -->
-  <header class="header">
-    <div style="flex:1">
-      <div class="header-title">Dashboard</div>
-      <div class="header-breadcrumb">FloppyGuard · Overview</div>
-    </div>
-
-    <div style="display:flex;align-items:center;gap:6px">
-      <span class="live-dot"></span>
-      <span class="status-text">All systems nominal</span>
-    </div>
-
-    <div class="header-actions">
-      <div class="theme-toggle" onclick="toggleTheme()">
-        <div class="theme-opt" id="opt-dark">Dark</div>
-        <div class="theme-opt" id="opt-light">Light</div>
-      </div>
-
-      <a href="demo-traffic.html" class="page-link">
-        <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-        </svg>
-        Traffic page →
+    <nav class="nav">
+      <a class="nav-link active" href="#">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+        Dashboard
       </a>
+      <a class="nav-link" href="demo-traffic.html">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        Traffic
+      </a>
+      <a class="nav-link" href="#">
+        <img src="/images/logo-no-text.svg" style="width:16px;height:16px" alt="NPM" />
+        Proxy Hosts <span class="nav-count">12</span>
+      </a>
+      <a class="nav-link" href="#">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        Redirections
+      </a>
+      <a class="nav-link" href="#">
+        <img src="/images/wireguard-icon.svg" style="width:16px;height:16px" alt="WG" />
+        WireGuard
+      </a>
+      <a class="nav-link" href="#">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M6 20v-2a6 6 0 0 1 12 0v2"/></svg>
+        Users
+      </a>
+    </nav>
 
-      <div class="btn-icon" title="Notifications">
-        <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/>
+    <div class="tools">
+      <div class="theme-toggle" onclick="toggleTheme()">
+        <div class="theme-opt" id="opt-light">Light</div>
+        <div class="theme-opt" id="opt-dark">Dark</div>
+      </div>
+      <button class="btn-icon" title="Notifications">
+        <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      </button>
+      <div class="avatar">FH</div>
+    </div>
+  </div>
+</header>
+
+<div class="page">
+
+  <div>
+    <h1 class="page-title">Dashboard</h1>
+    <p class="page-sub">
+      <span class="dot" style="margin-right:4px"></span>
+      All systems nominal
+    </p>
+  </div>
+
+  <!-- ═══ Stat cards with donut gauges ═══ -->
+  <div class="row row-4">
+
+    <div class="stat">
+      <div class="stat-donut">
+        <svg viewBox="0 0 36 36">
+          <circle cx="18" cy="18" r="14" fill="none" stroke="var(--donut-track)" stroke-width="3.5"/>
+          <circle cx="18" cy="18" r="14" fill="none" stroke="var(--green)" stroke-width="3.5"
+            stroke-dasharray="73.3 88" stroke-linecap="round"/>
+        </svg>
+        <div class="stat-donut-center">83%</div>
+      </div>
+      <div class="stat-info">
+        <div class="stat-label">Proxy Hosts</div>
+        <div class="stat-value">10 <span style="font-size:.8rem;font-weight:400;color:var(--secondary)">/ 12</span></div>
+        <div class="stat-sub">10 active &middot; 2 disabled</div>
+        <div class="stat-trend up">&#8593; 2 added this week</div>
+      </div>
+    </div>
+
+    <div class="stat">
+      <div class="stat-donut">
+        <svg viewBox="0 0 36 36">
+          <circle cx="18" cy="18" r="14" fill="none" stroke="var(--donut-track)" stroke-width="3.5"/>
+          <circle cx="18" cy="18" r="14" fill="none" stroke="var(--primary)" stroke-width="3.5"
+            stroke-dasharray="88 88" stroke-linecap="round"/>
+        </svg>
+        <div class="stat-donut-center" style="font-size:.65rem">
+          <span class="dot" style="width:5px;height:5px"></span>
+        </div>
+      </div>
+      <div class="stat-info">
+        <div class="stat-label">WG Interfaces</div>
+        <div class="stat-value">1 <span style="font-size:.8rem;font-weight:400;color:var(--secondary)">/ 1</span></div>
+        <div class="stat-sub">wg0 active</div>
+        <div class="stat-trend up">100% online</div>
+      </div>
+    </div>
+
+    <div class="stat">
+      <div class="stat-donut">
+        <svg viewBox="0 0 36 36">
+          <circle cx="18" cy="18" r="14" fill="none" stroke="var(--donut-track)" stroke-width="3.5"/>
+          <circle cx="18" cy="18" r="14" fill="none" stroke="var(--purple)" stroke-width="3.5"
+            stroke-dasharray="58.7 88" stroke-linecap="round"/>
+        </svg>
+        <div class="stat-donut-center">67%</div>
+      </div>
+      <div class="stat-info">
+        <div class="stat-label">Active Peers</div>
+        <div class="stat-value">2 <span style="font-size:.8rem;font-weight:400;color:var(--secondary)">/ 3</span></div>
+        <div class="stat-sub">1 peer idle</div>
+        <div class="stat-trend warn">1 no handshake &gt;3 min</div>
+      </div>
+    </div>
+
+    <div class="stat">
+      <div class="stat-donut">
+        <svg viewBox="0 0 36 36">
+          <circle cx="18" cy="18" r="14" fill="none" stroke="var(--donut-track)" stroke-width="3.5"/>
+          <circle cx="18" cy="18" r="14" fill="none" stroke="var(--green)" stroke-width="3.5"
+            stroke-dasharray="88 88" stroke-linecap="round"/>
+        </svg>
+        <div class="stat-donut-center" style="font-size:.65rem">
+          <span class="dot" style="width:5px;height:5px"></span>
+        </div>
+      </div>
+      <div class="stat-info">
+        <div class="stat-label">Certificates</div>
+        <div class="stat-value">8</div>
+        <div class="stat-sub">All valid</div>
+        <div class="stat-trend up">Next renewal in 14d</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═══ Gateway + Peer Connections with sparklines ═══ -->
+  <div class="row row-7-5">
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+          Gateway Overview
+        </div>
+        <a class="card-action" href="#">Routing details &rarr;</a>
+      </div>
+      <div class="card-body">
+        <div class="panels">
+          <div class="panel">
+            <div class="panel-label">Hub Interface</div>
+            <div class="panel-value">wg0</div>
+            <div class="panel-sub">10.10.0.1/24 &middot; 95.216.66.221</div>
+          </div>
+          <div class="panel">
+            <div class="panel-label">Total Traffic</div>
+            <div class="panel-value">4.2 GB / 1.8 GB</div>
+            <div class="panel-sub">3 peer networks &middot; 6 private routes</div>
+          </div>
+          <div class="panel">
+            <div class="panel-label">Topology</div>
+            <div class="panel-value">2 site &middot; 0 hub &middot; 1 client</div>
+            <div class="panel-sub" style="color:var(--green)">No route risks &middot; 8 WG routes</div>
+          </div>
+          <div class="panel">
+            <div class="panel-label">Status</div>
+            <div class="panel-sub" style="color:var(--green);margin-top:.25rem">&#10003; All links operational</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          Peer Connections
+          <span class="dot" style="width:4px;height:4px;margin-left:2px"></span>
+        </div>
+        <a class="card-action" href="demo-traffic.html">Traffic &rarr;</a>
+      </div>
+
+      <!-- Peer: Hinderlich -->
+      <div class="peer">
+        <div class="peer-top">
+          <div>
+            <div class="peer-name">Hinderlich</div>
+            <div class="peer-meta">site-to-site &middot; wg0 &middot; handshake 12s ago</div>
+          </div>
+          <span class="badge badge-green">&#9679; Active</span>
+        </div>
+        <div class="peer-bottom">
+          <div class="peer-spark">
+            <svg id="spark-h" viewBox="0 0 200 32" preserveAspectRatio="none">
+              <defs><linearGradient id="sg-h" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--green)" stop-opacity=".15"/><stop offset="100%" stop-color="var(--green)" stop-opacity="0"/></linearGradient></defs>
+              <path id="spark-h-a" fill="url(#sg-h)"/>
+              <path id="spark-h-l" fill="none" stroke="var(--green)" stroke-width="1.2" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <div class="peer-stats">
+            <div class="peer-stat">
+              <div class="peer-stat-dir" style="color:var(--green)">&#8595; RX</div>
+              <div class="peer-stat-val">2.1 GB</div>
+            </div>
+            <div class="peer-stat">
+              <div class="peer-stat-dir" style="color:var(--primary)">&#8593; TX</div>
+              <div class="peer-stat-val">890 MB</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Peer: Floppy Home -->
+      <div class="peer">
+        <div class="peer-top">
+          <div>
+            <div class="peer-name">Floppy Home</div>
+            <div class="peer-meta">site-to-site &middot; wg0 &middot; handshake 38s ago</div>
+          </div>
+          <span class="badge badge-green">&#9679; Active</span>
+        </div>
+        <div class="peer-bottom">
+          <div class="peer-spark">
+            <svg id="spark-f" viewBox="0 0 200 32" preserveAspectRatio="none">
+              <defs><linearGradient id="sg-f" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--primary)" stop-opacity=".15"/><stop offset="100%" stop-color="var(--primary)" stop-opacity="0"/></linearGradient></defs>
+              <path id="spark-f-a" fill="url(#sg-f)"/>
+              <path id="spark-f-l" fill="none" stroke="var(--primary)" stroke-width="1.2" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <div class="peer-stats">
+            <div class="peer-stat">
+              <div class="peer-stat-dir" style="color:var(--green)">&#8595; RX</div>
+              <div class="peer-stat-val">1.1 GB</div>
+            </div>
+            <div class="peer-stat">
+              <div class="peer-stat-dir" style="color:var(--primary)">&#8593; TX</div>
+              <div class="peer-stat-val">620 MB</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Peer: iPhone Floppy -->
+      <div class="peer">
+        <div class="peer-top">
+          <div>
+            <div class="peer-name">iPhone Floppy</div>
+            <div class="peer-meta">client &middot; wg0 &middot; handshake 4m ago</div>
+          </div>
+          <span class="badge badge-muted">&#9675; Idle</span>
+        </div>
+        <div class="peer-bottom">
+          <div class="peer-spark">
+            <svg id="spark-i" viewBox="0 0 200 32" preserveAspectRatio="none">
+              <defs><linearGradient id="sg-i" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--muted)" stop-opacity=".1"/><stop offset="100%" stop-color="var(--muted)" stop-opacity="0"/></linearGradient></defs>
+              <path id="spark-i-a" fill="url(#sg-i)"/>
+              <path id="spark-i-l" fill="none" stroke="var(--muted)" stroke-width="1.2" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <div class="peer-stats">
+            <div class="peer-stat">
+              <div class="peer-stat-dir" style="color:var(--green)">&#8595; RX</div>
+              <div class="peer-stat-val">280 MB</div>
+            </div>
+            <div class="peer-stat">
+              <div class="peer-stat-dir" style="color:var(--primary)">&#8593; TX</div>
+              <div class="peer-stat-val">140 MB</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══ Bandwidth charts ═══ -->
+  <div class="row row-2">
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          <span style="width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block"></span>
+          Received &middot; bytes/s
+          <span class="dot" style="width:4px;height:4px"></span>
+        </div>
+        <span style="font-size:.75rem;color:var(--secondary);font-family:var(--mono)" id="rx-rate">&mdash;</span>
+      </div>
+      <div class="chart-wrap">
+        <svg id="chart-rx" class="chart-svg" height="120" viewBox="0 0 560 120" preserveAspectRatio="none">
+          <defs><linearGradient id="g-rx" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#2fb344" stop-opacity=".18"/><stop offset="100%" stop-color="#2fb344" stop-opacity="0"/></linearGradient></defs>
+          <line x1="0" y1="30" x2="560" y2="30" stroke="var(--chart-grid)"/><line x1="0" y1="60" x2="560" y2="60" stroke="var(--chart-grid)"/><line x1="0" y1="90" x2="560" y2="90" stroke="var(--chart-grid)"/>
+          <path id="rx-a" fill="url(#g-rx)"/><path id="rx-l" fill="none" stroke="#2fb344" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+          <text x="4" y="116" font-size="9" fill="var(--muted)" font-family="var(--mono)">-10m</text><text x="270" y="116" font-size="9" fill="var(--muted)" font-family="var(--mono)" text-anchor="middle">-5m</text><text x="548" y="116" font-size="9" fill="var(--muted)" font-family="var(--mono)" text-anchor="end">now</text>
         </svg>
       </div>
     </div>
-  </header>
 
-  <!-- Content -->
-  <div class="content">
-
-    <!-- Stat cards -->
-    <div class="grid grid-4">
-
-      <div class="stat-card" style="--accent-glow: rgba(79,142,247,.1)">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between">
-          <div>
-            <div class="stat-meta">Proxy Hosts</div>
-            <div class="stat-value">12</div>
-            <div class="stat-sub">10 active · 2 disabled</div>
-          </div>
-          <div class="stat-icon" style="background:var(--blue-dim);color:var(--blue)">
-            <svg width="19" height="19" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/>
-            </svg>
-          </div>
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          <span style="width:7px;height:7px;border-radius:50%;background:var(--primary);display:inline-block"></span>
+          Sent &middot; bytes/s
+          <span class="dot" style="width:4px;height:4px"></span>
         </div>
-        <div class="stat-trend trend-up">↑ 2 added this week</div>
-        <svg class="stat-sparkline" viewBox="0 0 90 44" preserveAspectRatio="none">
-          <polyline points="0,38 15,30 30,32 45,22 60,18 75,12 90,8" fill="none" stroke="var(--blue)" stroke-width="1.5" opacity=".5"/>
+        <span style="font-size:.75rem;color:var(--secondary);font-family:var(--mono)" id="tx-rate">&mdash;</span>
+      </div>
+      <div class="chart-wrap">
+        <svg id="chart-tx" class="chart-svg" height="120" viewBox="0 0 560 120" preserveAspectRatio="none">
+          <defs><linearGradient id="g-tx" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#066fd1" stop-opacity=".18"/><stop offset="100%" stop-color="#066fd1" stop-opacity="0"/></linearGradient></defs>
+          <line x1="0" y1="30" x2="560" y2="30" stroke="var(--chart-grid)"/><line x1="0" y1="60" x2="560" y2="60" stroke="var(--chart-grid)"/><line x1="0" y1="90" x2="560" y2="90" stroke="var(--chart-grid)"/>
+          <path id="tx-a" fill="url(#g-tx)"/><path id="tx-l" fill="none" stroke="#066fd1" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+          <text x="4" y="116" font-size="9" fill="var(--muted)" font-family="var(--mono)">-10m</text><text x="270" y="116" font-size="9" fill="var(--muted)" font-family="var(--mono)" text-anchor="middle">-5m</text><text x="548" y="116" font-size="9" fill="var(--muted)" font-family="var(--mono)" text-anchor="end">now</text>
         </svg>
       </div>
-
-      <div class="stat-card" style="--accent-glow: rgba(52,199,123,.1)">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between">
-          <div>
-            <div class="stat-meta">WG Interfaces</div>
-            <div class="stat-value">1 <span style="font-size:14px;font-weight:400;color:var(--text-2)">/ 1</span></div>
-            <div class="stat-sub">wg0 active</div>
-          </div>
-          <div class="stat-icon" style="background:var(--green-dim);color:var(--green)">
-            <svg width="19" height="19" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-            </svg>
-          </div>
-        </div>
-        <div class="stat-trend trend-up">
-          <span class="live-dot" style="width:5px;height:5px;margin-right:2px"></span> Live
-        </div>
-      </div>
-
-      <div class="stat-card" style="--accent-glow: rgba(167,139,250,.1)">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between">
-          <div>
-            <div class="stat-meta">Active Peers</div>
-            <div class="stat-value">2 <span style="font-size:14px;font-weight:400;color:var(--text-2)">/ 3</span></div>
-            <div class="stat-sub">1 peer idle</div>
-          </div>
-          <div class="stat-icon" style="background:var(--purple-dim);color:var(--purple)">
-            <svg width="19" height="19" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
-              <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>
-            </svg>
-          </div>
-        </div>
-        <div class="stat-trend trend-warn">1 peer no handshake &gt;3 min</div>
-      </div>
-
-      <div class="stat-card" style="--accent-glow: rgba(34,211,238,.1)">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between">
-          <div>
-            <div class="stat-meta">Logical Links</div>
-            <div class="stat-value">3</div>
-            <div class="stat-sub">2 site · 1 client</div>
-          </div>
-          <div class="stat-icon" style="background:var(--cyan-dim);color:var(--cyan)">
-            <svg width="19" height="19" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/>
-              <path d="M12 7v4M8.5 17.5l3.5-6.5M15.5 17.5l-3.5-6.5"/>
-            </svg>
-          </div>
-        </div>
-        <div class="stat-trend trend-up">All routes healthy</div>
-      </div>
-
     </div>
+  </div>
 
-    <!-- Gateway overview + Link preview -->
-    <div class="grid grid-7-5">
-
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">
-            <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path d="M3 12h18M3 6h18M3 18h18"/>
-            </svg>
-            Gateway Overview
-          </div>
-          <a class="card-action" href="#">Routing details →</a>
-        </div>
-        <div class="card-body">
-          <div class="panel-grid">
-            <div class="panel">
-              <div class="panel-label">Hub Interface</div>
-              <div class="panel-value">wg0</div>
-              <div class="panel-sub">10.10.0.1/24 · 95.216.66.221</div>
-            </div>
-            <div class="panel">
-              <div class="panel-label">Total Traffic</div>
-              <div class="panel-value">4.2 GB / 1.8 GB</div>
-              <div class="panel-sub">3 peer networks · 6 private routes</div>
-            </div>
-            <div class="panel">
-              <div class="panel-label">Topology</div>
-              <div class="panel-value">2 site · 0 hub · 1 client</div>
-              <div class="panel-sub" style="color:var(--green)">No route risks · 8 WG routes</div>
-            </div>
-            <div class="panel">
-              <div class="panel-label">Next Steps</div>
-              <div class="panel-sub" style="color:var(--green);margin-top:4px">✓ All links operational</div>
-            </div>
-          </div>
-        </div>
+  <!-- ═══ Secondary stats row ═══ -->
+  <div class="row row-3">
+    <div class="stat">
+      <div class="stat-donut">
+        <svg viewBox="0 0 36 36">
+          <circle cx="18" cy="18" r="14" fill="none" stroke="var(--donut-track)" stroke-width="3.5"/>
+          <circle cx="18" cy="18" r="14" fill="none" stroke="var(--yellow)" stroke-width="3.5"
+            stroke-dasharray="88 88" stroke-linecap="round"/>
+        </svg>
+        <div class="stat-donut-center" style="font-size:.7rem;color:var(--yellow)">4</div>
       </div>
-
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">
-            <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-            </svg>
-            Peer Links
-          </div>
-          <a class="card-action" href="demo-traffic.html">Traffic →</a>
-        </div>
-        <div class="link-list scroll-y">
-          <div class="link-item">
-            <div class="link-top">
-              <div>
-                <div class="link-name">Hinderlich</div>
-                <div class="link-sub">site-to-site · wg0</div>
-              </div>
-              <span class="badge badge-green">● Active</span>
-            </div>
-            <div class="link-bars">
-              <div class="link-bar-wrap">
-                <div class="link-bar-label" style="color:var(--green)">↓</div>
-                <div class="link-bar-track"><div class="link-bar-fill" style="width:72%;background:var(--green)"></div></div>
-                <div class="link-bar-val">2.1 GB</div>
-              </div>
-              <div class="link-bar-wrap">
-                <div class="link-bar-label" style="color:var(--blue)">↑</div>
-                <div class="link-bar-track"><div class="link-bar-fill" style="width:45%;background:var(--blue)"></div></div>
-                <div class="link-bar-val">890 MB</div>
-              </div>
-            </div>
-          </div>
-          <div class="link-item">
-            <div class="link-top">
-              <div>
-                <div class="link-name">Floppy Home</div>
-                <div class="link-sub">site-to-site · wg0</div>
-              </div>
-              <span class="badge badge-green">● Active</span>
-            </div>
-            <div class="link-bars">
-              <div class="link-bar-wrap">
-                <div class="link-bar-label" style="color:var(--green)">↓</div>
-                <div class="link-bar-track"><div class="link-bar-fill" style="width:38%;background:var(--green)"></div></div>
-                <div class="link-bar-val">1.1 GB</div>
-              </div>
-              <div class="link-bar-wrap">
-                <div class="link-bar-label" style="color:var(--blue)">↑</div>
-                <div class="link-bar-track"><div class="link-bar-fill" style="width:29%;background:var(--blue)"></div></div>
-                <div class="link-bar-val">620 MB</div>
-              </div>
-            </div>
-          </div>
-          <div class="link-item">
-            <div class="link-top">
-              <div>
-                <div class="link-name">iPhone Floppy</div>
-                <div class="link-sub">client · wg0</div>
-              </div>
-              <span class="badge badge-dim">○ Idle</span>
-            </div>
-            <div class="link-bars">
-              <div class="link-bar-wrap">
-                <div class="link-bar-label" style="color:var(--green)">↓</div>
-                <div class="link-bar-track"><div class="link-bar-fill" style="width:8%;background:var(--green)"></div></div>
-                <div class="link-bar-val">280 MB</div>
-              </div>
-              <div class="link-bar-wrap">
-                <div class="link-bar-label" style="color:var(--blue)">↑</div>
-                <div class="link-bar-track"><div class="link-bar-fill" style="width:5%;background:var(--blue)"></div></div>
-                <div class="link-bar-val">140 MB</div>
-              </div>
-            </div>
-          </div>
-        </div>
+      <div class="stat-info">
+        <div class="stat-label">Redirections</div>
+        <div class="stat-value" style="font-size:1.15rem">4 active</div>
+        <div class="stat-sub">All operational</div>
       </div>
     </div>
-
-    <!-- Live Bandwidth Charts -->
-    <div class="grid grid-2">
-
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title" style="gap:8px">
-            <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px var(--green-dim)"></span>
-            Received · bytes/s
-            <span class="live-dot" style="width:5px;height:5px"></span>
-          </div>
-          <span style="font-size:11px;color:var(--text-2);font-family:var(--mono)" id="rx-rate-label">124.3 KB/s</span>
-        </div>
-        <div class="chart-container" style="padding:8px 16px 12px">
-          <svg id="chart-rx" class="chart-svg" height="130" viewBox="0 0 560 130" preserveAspectRatio="none">
-            <defs>
-              <linearGradient id="grad-rx" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stop-color="#34c77b" stop-opacity="0.25"/>
-                <stop offset="100%" stop-color="#34c77b" stop-opacity="0"/>
-              </linearGradient>
-            </defs>
-            <!-- Grid lines -->
-            <line x1="0" y1="32" x2="560" y2="32" stroke="var(--chart-grid)" stroke-width="1"/>
-            <line x1="0" y1="65" x2="560" y2="65" stroke="var(--chart-grid)" stroke-width="1"/>
-            <line x1="0" y1="97" x2="560" y2="97" stroke="var(--chart-grid)" stroke-width="1"/>
-            <!-- Paths filled dynamically -->
-            <path id="rx-area" fill="url(#grad-rx)"/>
-            <path id="rx-line" fill="none" stroke="#34c77b" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-            <!-- X axis labels -->
-            <text x="4"   y="126" font-size="9" fill="var(--text-3)" font-family="var(--mono)">-10m</text>
-            <text x="270" y="126" font-size="9" fill="var(--text-3)" font-family="var(--mono)" text-anchor="middle">-5m</text>
-            <text x="548" y="126" font-size="9" fill="var(--text-3)" font-family="var(--mono)" text-anchor="end">now</text>
-          </svg>
-        </div>
+    <div class="stat">
+      <div class="stat-donut">
+        <svg viewBox="0 0 36 36">
+          <circle cx="18" cy="18" r="14" fill="none" stroke="var(--donut-track)" stroke-width="3.5"/>
+          <circle cx="18" cy="18" r="14" fill="none" stroke="var(--azure)" stroke-width="3.5"
+            stroke-dasharray="88 88" stroke-linecap="round"/>
+        </svg>
+        <div class="stat-donut-center" style="font-size:.7rem;color:var(--azure)">2</div>
       </div>
-
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title" style="gap:8px">
-            <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--blue);box-shadow:0 0 0 3px var(--blue-dim)"></span>
-            Sent · bytes/s
-            <span class="live-dot" style="width:5px;height:5px"></span>
-          </div>
-          <span style="font-size:11px;color:var(--text-2);font-family:var(--mono)" id="tx-rate-label">48.7 KB/s</span>
-        </div>
-        <div class="chart-container" style="padding:8px 16px 12px">
-          <svg id="chart-tx" class="chart-svg" height="130" viewBox="0 0 560 130" preserveAspectRatio="none">
-            <defs>
-              <linearGradient id="grad-tx" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stop-color="#4f8ef7" stop-opacity="0.25"/>
-                <stop offset="100%" stop-color="#4f8ef7" stop-opacity="0"/>
-              </linearGradient>
-            </defs>
-            <line x1="0" y1="32" x2="560" y2="32" stroke="var(--chart-grid)" stroke-width="1"/>
-            <line x1="0" y1="65" x2="560" y2="65" stroke="var(--chart-grid)" stroke-width="1"/>
-            <line x1="0" y1="97" x2="560" y2="97" stroke="var(--chart-grid)" stroke-width="1"/>
-            <path id="tx-area" fill="url(#grad-tx)"/>
-            <path id="tx-line" fill="none" stroke="#4f8ef7" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-            <text x="4"   y="126" font-size="9" fill="var(--text-3)" font-family="var(--mono)">-10m</text>
-            <text x="270" y="126" font-size="9" fill="var(--text-3)" font-family="var(--mono)" text-anchor="middle">-5m</text>
-            <text x="548" y="126" font-size="9" fill="var(--text-3)" font-family="var(--mono)" text-anchor="end">now</text>
-          </svg>
-        </div>
-      </div>
-
-    </div>
-
-    <!-- Secondary cards + Fail2ban -->
-    <div class="grid grid-4">
-      <div class="stat-card">
-        <div class="stat-icon" style="background:var(--amber-dim);color:var(--amber);margin-bottom:4px">
-          <svg width="19" height="19" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path d="M5 12h14M12 5l7 7-7 7"/>
-          </svg>
-        </div>
-        <div class="stat-meta">Redirections</div>
-        <div class="stat-value" style="font-size:20px">4</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon" style="background:var(--cyan-dim);color:var(--cyan);margin-bottom:4px">
-          <svg width="19" height="19" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
-          </svg>
-        </div>
-        <div class="stat-meta">Streams</div>
-        <div class="stat-value" style="font-size:20px">2</div>
-      </div>
-      <div class="stat-card" style="grid-column:span 2">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-          <div style="display:flex;align-items:center;gap:8px">
-            <div class="stat-icon" style="background:var(--red-dim);color:var(--red)">
-              <svg width="19" height="19" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-              </svg>
-            </div>
-            <div>
-              <div style="font-size:13px;font-weight:600">Fail2Ban</div>
-              <div style="font-size:11px;color:var(--text-2)">2 jails active</div>
-            </div>
-          </div>
-          <span class="badge badge-green">Active</span>
-        </div>
-        <div style="display:flex;gap:20px;font-size:12px">
-          <div>
-            <div style="color:var(--text-2)">nginx-http-auth</div>
-            <div style="font-family:var(--mono)">0 banned <span style="color:var(--text-3)">/ 12 failed</span></div>
-          </div>
-          <div>
-            <div style="color:var(--text-2)">sshd</div>
-            <div>
-              <span class="ip-chip" style="font-size:10px;padding:1px 5px">
-                51.38.82.14 <span class="ip-chip-x">×</span>
-              </span>
-              <span style="color:var(--text-3);font-size:11px"> / 847 failed</span>
-            </div>
-          </div>
-        </div>
+      <div class="stat-info">
+        <div class="stat-label">Streams</div>
+        <div class="stat-value" style="font-size:1.15rem">2 active</div>
+        <div class="stat-sub">TCP forwarding</div>
       </div>
     </div>
+    <div class="stat">
+      <div class="stat-donut">
+        <svg viewBox="0 0 36 36">
+          <circle cx="18" cy="18" r="14" fill="none" stroke="var(--donut-track)" stroke-width="3.5"/>
+          <circle cx="18" cy="18" r="14" fill="none" stroke="var(--red)" stroke-width="3.5"
+            stroke-dasharray="88 88" stroke-linecap="round"/>
+        </svg>
+        <div class="stat-donut-center" style="font-size:.7rem;color:var(--red)">1</div>
+      </div>
+      <div class="stat-info">
+        <div class="stat-label">Dead Hosts</div>
+        <div class="stat-value" style="font-size:1.15rem">1 blocked</div>
+        <div class="stat-sub">Serving 410 Gone</div>
+      </div>
+    </div>
+  </div>
 
-  </div><!-- /content -->
-</div><!-- /main -->
+  <!-- ═══ Fail2Ban ═══ -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        Fail2Ban
+      </div>
+      <div style="display:flex;align-items:center;gap:.75rem">
+        <span class="badge badge-green">Active</span>
+        <span style="font-size:.75rem;color:var(--secondary)">2 jails &middot; 1 banned &middot; 859 total failed</span>
+      </div>
+    </div>
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Jail</th>
+          <th>Filter</th>
+          <th>Status</th>
+          <th class="text-r">Currently Banned</th>
+          <th class="text-r">Total Banned</th>
+          <th class="text-r">Failed Attempts</th>
+          <th>Banned IPs</th>
+          <th>Log Path</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="font-weight:600">sshd</td>
+          <td style="font-family:var(--mono);font-size:.75rem;color:var(--secondary)">sshd</td>
+          <td><span class="badge badge-green">Active</span></td>
+          <td class="text-r" style="font-family:var(--mono);font-weight:600;color:var(--red)">1</td>
+          <td class="text-r" style="font-family:var(--mono)">23</td>
+          <td class="text-r" style="font-family:var(--mono)">847</td>
+          <td><span class="ip-chip">51.38.82.14 &times;</span></td>
+          <td style="font-family:var(--mono);font-size:.7rem;color:var(--muted)">/var/log/auth.log</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600">nginx-http-auth</td>
+          <td style="font-family:var(--mono);font-size:.75rem;color:var(--secondary)">nginx-http-auth</td>
+          <td><span class="badge badge-green">Active</span></td>
+          <td class="text-r" style="font-family:var(--mono)">0</td>
+          <td class="text-r" style="font-family:var(--mono)">0</td>
+          <td class="text-r" style="font-family:var(--mono)">12</td>
+          <td style="color:var(--muted)">&mdash;</td>
+          <td style="font-family:var(--mono);font-size:.7rem;color:var(--muted)">/var/log/nginx/error.log</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+</div>
+
+<div class="footer">
+  <span>FloppyGuard v1.2.4 &middot; Design Demo</span>
+  <a href="demo-traffic.html">Traffic &rarr;</a>
+</div>
 
 <script>
-// ─── Theme toggle ────────────────────────────────────────────
 function toggleTheme() {
-  const html = document.documentElement;
-  const isDark = html.getAttribute('data-theme') === 'dark';
-  html.setAttribute('data-theme', isDark ? 'light' : 'dark');
-  updateThemeButtons();
+  const h = document.documentElement;
+  h.setAttribute('data-theme', h.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+  upd();
 }
-function updateThemeButtons() {
-  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-  document.getElementById('opt-dark').classList.toggle('active', isDark);
-  document.getElementById('opt-light').classList.toggle('active', !isDark);
+function upd() {
+  const d = document.documentElement.getAttribute('data-theme') === 'dark';
+  document.getElementById('opt-dark').classList.toggle('active', d);
+  document.getElementById('opt-light').classList.toggle('active', !d);
 }
-updateThemeButtons();
+upd();
 
-// ─── Chart data + animation ──────────────────────────────────
-const W = 560, H = 110, BOTTOM = 110, N = 60;
+/* ─── Helpers ─── */
+const W=560, B=100, N=60, SW=200, SH=32, SN=30;
 
-function noise(t, freq, amp) {
-  return Math.sin(t * freq) * amp + Math.sin(t * freq * 2.3 + 1.2) * amp * .4
-       + Math.sin(t * freq * 0.7 + 2.5) * amp * .2;
-}
+function ns(t,f,a){ return Math.sin(t*f)*a + Math.sin(t*f*2.3+1.2)*a*.4 + Math.sin(t*f*.7+2.5)*a*.2; }
 
-function genSeries(baseVal, variance, now) {
-  return Array.from({ length: N }, (_, i) => {
-    const t = (now - (N - 1 - i) * 10) / 1000;
-    const v = Math.max(0, baseVal + noise(t, .18, variance) + noise(t, .07, variance * .5));
-    return v;
+function gen(b,v,n,count){
+  count = count || N;
+  return Array.from({length:count},(_,i)=>{
+    const t=(n-(count-1-i)*10)/1000;
+    return Math.max(0, b + ns(t,.18,v) + ns(t,.07,v*.5));
   });
 }
 
-function buildPath(data, yMax, fill = false) {
-  const pts = data.map((v, i) => {
-    const x = (i / (N - 1)) * W;
-    const y = BOTTOM - (v / yMax) * BOTTOM;
-    return [x.toFixed(1), y.toFixed(1)];
-  });
-  if (fill) {
-    const last = pts[pts.length - 1];
-    const first = pts[0];
-    return `M ${pts.map(p => p.join(',')).join(' L ')} L ${last[0]},${BOTTOM} L ${first[0]},${BOTTOM} Z`;
+function mkPath(d, w, h, mx, fill){
+  const pts = d.map((v,i)=> [ (i/(d.length-1))*w, h - v/mx*h ]);
+  const line = pts.map(p => p[0].toFixed(1)+','+p[1].toFixed(1)).join(' L ');
+  if(fill){
+    return `M ${line} L ${pts[pts.length-1][0].toFixed(1)},${h} L ${pts[0][0].toFixed(1)},${h} Z`;
   }
-  return `M ${pts.map(p => p.join(',')).join(' L ')}`;
+  return `M ${line}`;
 }
 
-// State
-let rxBase = 110000, txBase = 45000; // bytes/s
+function fmt(b){ if(b<1024) return b+' B/s'; if(b<1048576) return (b/1024).toFixed(1)+' KB/s'; return (b/1048576).toFixed(2)+' MB/s'; }
 
-function fmt(bps) {
-  if (bps < 1024) return bps + ' B/s';
-  if (bps < 1024*1024) return (bps/1024).toFixed(1) + ' KB/s';
-  return (bps/1024/1024).toFixed(2) + ' MB/s';
+/* ─── Big charts state ─── */
+let rb=110000, tb=45000;
+
+/* ─── Sparkline state per peer ─── */
+const peers = {
+  h: { base: 85000, vol: 50000, color: 'var(--green)' },
+  f: { base: 42000, vol: 25000, color: 'var(--primary)' },
+  i: { base: 800,   vol: 600,   color: 'var(--muted)' },
+};
+
+function tick(){
+  const n = Date.now();
+
+  /* Big RX/TX charts */
+  rb = Math.max(2000, rb + (Math.random()-.5)*30000);
+  tb = Math.max(1000, tb + (Math.random()-.5)*15000);
+  const rd = gen(rb, rb*.6, n, N), td = gen(tb, tb*.5, n, N);
+  const rm = Math.max(...rd)*1.2||1e4, tm = Math.max(...td)*1.2||1e4;
+  document.getElementById('rx-a').setAttribute('d', mkPath(rd,W,B,rm,true));
+  document.getElementById('rx-l').setAttribute('d', mkPath(rd,W,B,rm,false));
+  document.getElementById('tx-a').setAttribute('d', mkPath(td,W,B,tm,true));
+  document.getElementById('tx-l').setAttribute('d', mkPath(td,W,B,tm,false));
+  document.getElementById('rx-rate').textContent = fmt(rd[rd.length-1]);
+  document.getElementById('tx-rate').textContent = fmt(td[td.length-1]);
+
+  /* Sparklines per peer */
+  for(const [k,p] of Object.entries(peers)){
+    p.base = Math.max(100, p.base + (Math.random()-.5)*p.vol*.3);
+    const d = gen(p.base, p.vol*.6, n, SN);
+    const mx = Math.max(...d)*1.3 || 1000;
+    const aEl = document.getElementById('spark-'+k+'-a');
+    const lEl = document.getElementById('spark-'+k+'-l');
+    if(aEl) aEl.setAttribute('d', mkPath(d, SW, SH, mx, true));
+    if(lEl) lEl.setAttribute('d', mkPath(d, SW, SH, mx, false));
+  }
 }
-
-function update() {
-  const now = Date.now();
-  rxBase = Math.max(2000, rxBase + (Math.random() - .5) * 30000);
-  txBase = Math.max(1000, txBase + (Math.random() - .5) * 15000);
-
-  const rxData = genSeries(rxBase, rxBase * .6, now);
-  const txData = genSeries(txBase, txBase * .5, now);
-
-  const rxMax = Math.max(...rxData) * 1.2 || 10000;
-  const txMax = Math.max(...txData) * 1.2 || 10000;
-
-  document.getElementById('rx-area').setAttribute('d', buildPath(rxData, rxMax, true));
-  document.getElementById('rx-line').setAttribute('d', buildPath(rxData, rxMax, false));
-  document.getElementById('tx-area').setAttribute('d', buildPath(txData, txMax, true));
-  document.getElementById('tx-line').setAttribute('d', buildPath(txData, txMax, false));
-
-  const lastRx = rxData[rxData.length - 1];
-  const lastTx = txData[txData.length - 1];
-  document.getElementById('rx-rate-label').textContent = fmt(lastRx);
-  document.getElementById('tx-rate-label').textContent = fmt(lastTx);
-}
-
-update();
-setInterval(update, 2000);
+tick(); setInterval(tick, 2000);
 </script>
 </body>
 </html>

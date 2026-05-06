@@ -9,35 +9,48 @@ import {
 	IconTopologyStar3,
 } from "@tabler/icons-react";
 import { useNavigate } from "react-router-dom";
-import { useHostReport, useWireGuardStatus, useFail2BanStatus, useUnbanIp } from "src/hooks";
 import type { WireGuardLink } from "src/api/backend";
+import { useFail2BanStatus, useHostReport, useUnbanIp, useWireGuardStatus } from "src/hooks";
 import { intl } from "src/locale/IntlProvider";
 
 const KNOWN_NEXT_ACTIONS = new Set([
-	"verify-return-path", "model-exported-networks", "define-remote-management-mode",
-	"fix-return-path", "decide-nat-or-static-route", "define-return-path-mode",
-	"verify-live-tunnel-state", "mount-wireguard-config-directory",
+	"verify-return-path",
+	"model-exported-networks",
+	"define-remote-management-mode",
+	"fix-return-path",
+	"decide-nat-or-static-route",
+	"define-return-path-mode",
+	"verify-live-tunnel-state",
+	"mount-wireguard-config-directory",
 ]);
 const fmtNextAction = (a: string) =>
 	KNOWN_NEXT_ACTIONS.has(a) ? intl.formatMessage({ id: `wireguard.next.${a}` }) : a;
 
 const getPlanBadge = (link: WireGuardLink) => {
 	switch (link.planState) {
-		case "ready": return { labelId: "platform.plan.ready", className: "bg-green-lt text-green" };
-		case "validate": return { labelId: "platform.plan.validate", className: "bg-yellow-lt text-yellow" };
-		case "shape": return { labelId: "platform.plan.shaping", className: "bg-blue-lt text-blue" };
-		case "discover": return { labelId: "platform.plan.discover", className: "bg-secondary-lt text-secondary" };
-		default: return { labelId: "platform.plan.unplanned", className: "bg-secondary-lt text-secondary" };
+		case "ready":
+			return { labelId: "platform.plan.ready", className: "bg-green-lt text-green" };
+		case "validate":
+			return { labelId: "platform.plan.validate", className: "bg-yellow-lt text-yellow" };
+		case "shape":
+			return { labelId: "platform.plan.shaping", className: "bg-blue-lt text-blue" };
+		case "discover":
+			return { labelId: "platform.plan.discover", className: "bg-secondary-lt text-secondary" };
+		default:
+			return { labelId: "platform.plan.unplanned", className: "bg-secondary-lt text-secondary" };
 	}
 };
 
-
 const getLinkTypeBadge = (link: WireGuardLink) => {
 	switch (link.type) {
-		case "client": return { labelId: "platform.link-type.client", className: "bg-green-lt text-green" };
-		case "site-to-site": return { labelId: "platform.link-type.site", className: "bg-blue-lt text-blue" };
-		case "hub-link": return { labelId: "platform.link-type.hub", className: "bg-cyan-lt text-cyan" };
-		default: return { labelId: "platform.link-type.other", className: "bg-secondary-lt text-secondary" };
+		case "client":
+			return { labelId: "platform.link-type.client", className: "bg-green-lt text-green" };
+		case "site-to-site":
+			return { labelId: "platform.link-type.site", className: "bg-blue-lt text-blue" };
+		case "hub-link":
+			return { labelId: "platform.link-type.hub", className: "bg-cyan-lt text-cyan" };
+		default:
+			return { labelId: "platform.link-type.other", className: "bg-secondary-lt text-secondary" };
 	}
 };
 
@@ -74,13 +87,25 @@ const Platform = () => {
 								{intl.formatMessage({ id: "platform.hero.subtitle" })}
 							</p>
 							<div className="platform-actions">
-								<button className="btn btn-primary" type="button" onClick={() => navigate("/wireguard")}>
+								<button
+									className="btn btn-primary"
+									type="button"
+									onClick={() => navigate("/wireguard")}
+								>
 									{intl.formatMessage({ id: "platform.btn.open-wireguard" })}
 								</button>
-								<button className="btn btn-outline-primary" type="button" onClick={() => navigate("/gateway")}>
+								<button
+									className="btn btn-outline-primary"
+									type="button"
+									onClick={() => navigate("/gateway")}
+								>
 									{intl.formatMessage({ id: "platform.btn.open-gateway" })}
 								</button>
-								<button className="btn btn-outline-secondary" type="button" onClick={() => navigate("/nginx/proxy")}>
+								<button
+									className="btn btn-outline-secondary"
+									type="button"
+									onClick={() => navigate("/nginx/proxy")}
+								>
 									{intl.formatMessage({ id: "platform.btn.open-proxy" })}
 								</button>
 							</div>
@@ -96,7 +121,9 @@ const Platform = () => {
 									<div>Current live proxy stack stays untouched</div>
 								</div>
 								<div className="platform-status-chip">
-									<span className={`badge ${capabilities?.supports.metadataCrud ? "bg-blue-lt text-blue" : "bg-secondary-lt text-secondary"}`}>
+									<span
+										className={`badge ${capabilities?.supports.metadataCrud ? "bg-blue-lt text-blue" : "bg-secondary-lt text-secondary"}`}
+									>
 										{capabilities?.supports.metadataCrud ? "metadata-write" : "read-only"}
 									</span>
 									<div>Fork persists planning metadata but does not write live configs.</div>
@@ -111,7 +138,9 @@ const Platform = () => {
 				<div className="col-sm-6 col-xl-3">
 					<div className="card card-sm h-100 platform-stat-card">
 						<div className="card-body d-flex align-items-center gap-3">
-							<span className="bg-green text-white avatar"><IconBolt /></span>
+							<span className="bg-green text-white avatar">
+								<IconBolt />
+							</span>
 							<div>
 								<div className="text-secondary">Proxy Hosts</div>
 								<div className="platform-stat-value">{hostReport?.proxy || 0}</div>
@@ -122,10 +151,14 @@ const Platform = () => {
 				<div className="col-sm-6 col-xl-3">
 					<div className="card card-sm h-100 platform-stat-card">
 						<div className="card-body d-flex align-items-center gap-3">
-							<span className="bg-blue text-white avatar"><IconShieldHalfFilled /></span>
+							<span className="bg-blue text-white avatar">
+								<IconShieldHalfFilled />
+							</span>
 							<div>
 								<div className="text-secondary">Interfaces</div>
-								<div className="platform-stat-value">{summary?.activeInterfaceCount || 0} / {summary?.interfaceCount || 0}</div>
+								<div className="platform-stat-value">
+									{summary?.activeInterfaceCount || 0} / {summary?.interfaceCount || 0}
+								</div>
 							</div>
 						</div>
 					</div>
@@ -133,10 +166,14 @@ const Platform = () => {
 				<div className="col-sm-6 col-xl-3">
 					<div className="card card-sm h-100 platform-stat-card">
 						<div className="card-body d-flex align-items-center gap-3">
-							<span className="bg-yellow text-white avatar"><IconPlugConnected /></span>
+							<span className="bg-yellow text-white avatar">
+								<IconPlugConnected />
+							</span>
 							<div>
 								<div className="text-secondary">Active Peers</div>
-								<div className="platform-stat-value">{summary?.activePeers || 0} / {summary?.totalPeers || 0}</div>
+								<div className="platform-stat-value">
+									{summary?.activePeers || 0} / {summary?.totalPeers || 0}
+								</div>
 							</div>
 						</div>
 					</div>
@@ -144,9 +181,13 @@ const Platform = () => {
 				<div className="col-sm-6 col-xl-3">
 					<div className="card card-sm h-100 platform-stat-card">
 						<div className="card-body d-flex align-items-center gap-3">
-							<span className="bg-cyan text-white avatar"><IconTopologyStar3 /></span>
+							<span className="bg-cyan text-white avatar">
+								<IconTopologyStar3 />
+							</span>
 							<div>
-								<div className="text-secondary">{intl.formatMessage({ id: "platform.stat.logical-links" })}</div>
+								<div className="text-secondary">
+									{intl.formatMessage({ id: "platform.stat.logical-links" })}
+								</div>
 								<div className="platform-stat-value">{summary?.linkCount || 0}</div>
 							</div>
 						</div>
@@ -158,33 +199,45 @@ const Platform = () => {
 				<div className="col-lg-5">
 					<div className="card h-100 platform-elevated-card">
 						<div className="card-header">
-							<h3 className="card-title d-flex align-items-center gap-2"><IconStack2 size={18} /> {intl.formatMessage({ id: "platform.cap.title" })}</h3>
+							<h3 className="card-title d-flex align-items-center gap-2">
+								<IconStack2 size={18} /> {intl.formatMessage({ id: "platform.cap.title" })}
+							</h3>
 						</div>
 						<div className="card-body d-flex flex-column gap-3">
 							<div className="platform-module">
 								<div className="fw-bold">Proxy Core</div>
-								<div className="text-secondary small">Hosts, redirects, streams, certificates and users remain the operational base.</div>
+								<div className="text-secondary small">
+									Hosts, redirects, streams, certificates and users remain the operational base.
+								</div>
 							</div>
 							<div className="platform-module">
 								<div className="fw-bold">WireGuard Runtime</div>
-								<div className="text-secondary small">Interfaces, peers, routes, links and topology are already modeled inside the fork.</div>
+								<div className="text-secondary small">
+									Interfaces, peers, routes, links and topology are already modeled inside the fork.
+								</div>
 							</div>
 							<div className="platform-module">
 								<div className="fw-bold">Planning Layer</div>
 								<div className="text-secondary small">
-									{capabilities?.supports.wizardPlanning ? "Planner and metadata persistence are available." : "Planner support is not active yet."}
+									{capabilities?.supports.wizardPlanning
+										? "Planner and metadata persistence are available."
+										: "Planner support is not active yet."}
 								</div>
 							</div>
 							<div className="platform-module">
 								<div className="fw-bold">Write Layer</div>
 								<div className="text-secondary small">
-									{capabilities?.supports.peerCrud ? "Peer CRUD is available." : "Peer CRUD and host writes are still intentionally blocked."}
+									{capabilities?.supports.peerCrud
+										? "Peer CRUD is available."
+										: "Peer CRUD and host writes are still intentionally blocked."}
 								</div>
 							</div>
 							<div className="platform-module">
 								<div className="fw-bold">Remote Apply</div>
 								<div className="text-secondary small">
-									{capabilities?.supports.remoteSsh || capabilities?.supports.remoteAgent ? "Remote apply is partially available." : "SSH and agent-based apply are not enabled yet."}
+									{capabilities?.supports.remoteSsh || capabilities?.supports.remoteAgent
+										? "Remote apply is partially available."
+										: "SSH and agent-based apply are not enabled yet."}
 								</div>
 							</div>
 						</div>
@@ -193,35 +246,59 @@ const Platform = () => {
 				<div className="col-lg-7">
 					<div className="card h-100 platform-elevated-card">
 						<div className="card-header">
-							<h3 className="card-title d-flex align-items-center gap-2"><IconChecklist size={18} /> {intl.formatMessage({ id: "platform.link-readiness.title" })}</h3>
+							<h3 className="card-title d-flex align-items-center gap-2">
+								<IconChecklist size={18} />{" "}
+								{intl.formatMessage({ id: "platform.link-readiness.title" })}
+							</h3>
 						</div>
 						<div className="card-body">
 							<div className="d-flex gap-2 flex-wrap mb-3">
 								<span className="badge bg-green-lt text-green">ready {readinessCounts.ready}</span>
-								<span className="badge bg-yellow-lt text-yellow">validate {readinessCounts.validate}</span>
+								<span className="badge bg-yellow-lt text-yellow">
+									validate {readinessCounts.validate}
+								</span>
 								<span className="badge bg-blue-lt text-blue">shape {readinessCounts.shape}</span>
-								<span className="badge bg-secondary-lt text-secondary">discover {readinessCounts.discover}</span>
-								<span className="badge bg-emerald-lt text-emerald">client {summary?.clientLinkCount || 0}</span>
-								<span className="badge bg-indigo-lt text-indigo">site {summary?.siteLinkCount || 0}</span>
+								<span className="badge bg-secondary-lt text-secondary">
+									discover {readinessCounts.discover}
+								</span>
+								<span className="badge bg-emerald-lt text-emerald">
+									client {summary?.clientLinkCount || 0}
+								</span>
+								<span className="badge bg-indigo-lt text-indigo">
+									site {summary?.siteLinkCount || 0}
+								</span>
 								<span className="badge bg-cyan-lt text-cyan">hub {summary?.hubLinkCount || 0}</span>
 							</div>
 							<div className="d-flex flex-column gap-2">
-								{links.length ? links.map((link) => {
-									const planBadge = getPlanBadge(link);
-									const typeBadge = getLinkTypeBadge(link);
-									return (
-										<div key={link.id} className="platform-list-item">
-											<div className="d-flex justify-content-between align-items-start gap-2 flex-wrap">
-												<div className="fw-medium">{link.name}</div>
-												<div className="d-flex gap-1 flex-wrap">
-													<span className={`badge ${typeBadge.className}`}>{intl.formatMessage({ id: typeBadge.labelId })}</span>
-													<span className={`badge ${planBadge.className}`}>{intl.formatMessage({ id: planBadge.labelId })}</span>
+								{links.length ? (
+									links.map((link) => {
+										const planBadge = getPlanBadge(link);
+										const typeBadge = getLinkTypeBadge(link);
+										return (
+											<div key={link.id} className="platform-list-item">
+												<div className="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+													<div className="fw-medium">{link.name}</div>
+													<div className="d-flex gap-1 flex-wrap">
+														<span className={`badge ${typeBadge.className}`}>
+															{intl.formatMessage({ id: typeBadge.labelId })}
+														</span>
+														<span className={`badge ${planBadge.className}`}>
+															{intl.formatMessage({ id: planBadge.labelId })}
+														</span>
+													</div>
+												</div>
+												<div className="text-secondary small">
+													{link.interfaceName}
+													{link.remoteEndpoint ? ` · ${link.remoteEndpoint}` : ""}
 												</div>
 											</div>
-											<div className="text-secondary small">{link.interfaceName}{link.remoteEndpoint ? ` · ${link.remoteEndpoint}` : ""}</div>
-										</div>
-									);
-								}) : <div className="text-secondary small">{intl.formatMessage({ id: "platform.no-links" })}</div>}
+										);
+									})
+								) : (
+									<div className="text-secondary small">
+										{intl.formatMessage({ id: "platform.no-links" })}
+									</div>
+								)}
 							</div>
 						</div>
 					</div>
@@ -232,22 +309,36 @@ const Platform = () => {
 				<div className="col-lg-6">
 					<div className="card h-100 platform-elevated-card">
 						<div className="card-header">
-							<h3 className="card-title d-flex align-items-center gap-2"><IconRoute size={18} /> {intl.formatMessage({ id: "platform.gateway-snapshot.title" })}</h3>
+							<h3 className="card-title d-flex align-items-center gap-2">
+								<IconRoute size={18} /> {intl.formatMessage({ id: "platform.gateway-snapshot.title" })}
+							</h3>
 						</div>
 						<div className="card-body d-flex flex-column gap-3">
 							<div>
-								<div className="text-secondary small mb-1">{intl.formatMessage({ id: "platform.hub-interface" })}</div>
+								<div className="text-secondary small mb-1">
+									{intl.formatMessage({ id: "platform.hub-interface" })}
+								</div>
 								<div className="fw-bold">{hub?.name || "—"}</div>
-								<div className="text-secondary small">{hub?.addresses?.join(", ") || intl.formatMessage({ id: "platform.no-addresses" })}</div>
+								<div className="text-secondary small">
+									{hub?.addresses?.join(", ") || intl.formatMessage({ id: "platform.no-addresses" })}
+								</div>
 							</div>
 							<div className="d-flex flex-wrap gap-2">
-								<span className="badge bg-blue-lt text-blue">WG routes: {summary?.wireguardRouteCount || 0}</span>
-								<span className="badge bg-azure-lt text-azure">Private routes: {summary?.privateRouteCount || 0}</span>
-								<span className="badge bg-yellow-lt text-yellow">Peer networks: {summary?.peerNetworkCount || 0}</span>
+								<span className="badge bg-blue-lt text-blue">
+									WG routes: {summary?.wireguardRouteCount || 0}
+								</span>
+								<span className="badge bg-azure-lt text-azure">
+									Private routes: {summary?.privateRouteCount || 0}
+								</span>
+								<span className="badge bg-yellow-lt text-yellow">
+									Peer networks: {summary?.peerNetworkCount || 0}
+								</span>
 							</div>
 							{nextActions.length > 0 && (
 								<div className="small text-secondary d-flex flex-column gap-1">
-									{nextActions.map((a) => <span key={a}>• {fmtNextAction(a)}</span>)}
+									{nextActions.map((a) => (
+										<span key={a}>• {fmtNextAction(a)}</span>
+									))}
 								</div>
 							)}
 						</div>
@@ -260,21 +351,47 @@ const Platform = () => {
 						</div>
 						<div className="card-body d-flex flex-column gap-3">
 							<div className="platform-source">
-								<div className="fw-bold">{intl.formatMessage({ id: "platform.missing-return.title" })}</div>
-								<div className="text-secondary small">{missingReturnRoutes.length ? intl.formatMessage({ id: "platform.missing-return.some" }, { count: missingReturnRoutes.length }) : intl.formatMessage({ id: "platform.missing-return.none" })}</div>
+								<div className="fw-bold">
+									{intl.formatMessage({ id: "platform.missing-return.title" })}
+								</div>
+								<div className="text-secondary small">
+									{missingReturnRoutes.length
+										? intl.formatMessage(
+												{ id: "platform.missing-return.some" },
+												{ count: missingReturnRoutes.length },
+											)
+										: intl.formatMessage({ id: "platform.missing-return.none" })}
+								</div>
 							</div>
 							<div className="platform-source">
-								<div className="fw-bold">{intl.formatMessage({ id: "platform.nat-candidates.title" })}</div>
-								<div className="text-secondary small">{natCandidates.length ? intl.formatMessage({ id: "platform.nat-candidates.some" }, { count: natCandidates.length }) : intl.formatMessage({ id: "platform.nat-candidates.none" })}</div>
+								<div className="fw-bold">
+									{intl.formatMessage({ id: "platform.nat-candidates.title" })}
+								</div>
+								<div className="text-secondary small">
+									{natCandidates.length
+										? intl.formatMessage(
+												{ id: "platform.nat-candidates.some" },
+												{ count: natCandidates.length },
+											)
+										: intl.formatMessage({ id: "platform.nat-candidates.none" })}
+								</div>
 							</div>
 							<div className="platform-source">
 								<div className="fw-bold">{intl.formatMessage({ id: "platform.write-cap.title" })}</div>
-								<div className="text-secondary small">{capabilities?.supports.peerCrud ? "Live write actions are enabled." : "Live peer and interface writes are still disabled."}</div>
+								<div className="text-secondary small">
+									{capabilities?.supports.peerCrud
+										? "Live write actions are enabled."
+										: "Live peer and interface writes are still disabled."}
+								</div>
 							</div>
 							<div className="platform-source">
-								<div className="fw-bold">{intl.formatMessage({ id: "platform.observations.title" })}</div>
+								<div className="fw-bold">
+									{intl.formatMessage({ id: "platform.observations.title" })}
+								</div>
 								<div className="text-secondary small">
-									{observations.length ? observations.slice(0, 3).join(" ") : intl.formatMessage({ id: "platform.observations.none" })}
+									{observations.length
+										? observations.slice(0, 3).join(" ")
+										: intl.formatMessage({ id: "platform.observations.none" })}
 								</div>
 							</div>
 						</div>
@@ -291,17 +408,27 @@ const Platform = () => {
 							</h3>
 							<div className="card-options">
 								{fail2ban?.available && (
-									<span className="badge bg-green-lt text-green">{intl.formatMessage({ id: "f2b.active" })}</span>
+									<span className="badge bg-green-lt text-green">
+										{intl.formatMessage({ id: "f2b.active" })}
+									</span>
 								)}
 							</div>
 						</div>
 						<div className="card-body p-0">
-							{f2bLoading && <div className="p-3 text-secondary small">{intl.formatMessage({ id: "f2b.loading" })}</div>}
+							{f2bLoading && (
+								<div className="p-3 text-secondary small">
+									{intl.formatMessage({ id: "f2b.loading" })}
+								</div>
+							)}
 							{!f2bLoading && !fail2ban?.available && (
-								<div className="p-3 text-secondary small">{intl.formatMessage({ id: "f2b.unavailable" })}</div>
+								<div className="p-3 text-secondary small">
+									{intl.formatMessage({ id: "f2b.unavailable" })}
+								</div>
 							)}
 							{fail2ban?.available && fail2ban.jails.length === 0 && (
-								<div className="p-3 text-secondary small">{intl.formatMessage({ id: "f2b.no-jails" })}</div>
+								<div className="p-3 text-secondary small">
+									{intl.formatMessage({ id: "f2b.no-jails" })}
+								</div>
 							)}
 							{fail2ban?.available && fail2ban.jails.length > 0 && (
 								<table className="table table-vcenter card-table">
@@ -318,13 +445,23 @@ const Platform = () => {
 											<tr key={jail.name}>
 												<td className="fw-medium">{jail.name}</td>
 												<td className="text-end">
-													<span className={jail.currentlyFailed > 0 ? "text-warning" : "text-secondary"}>
+													<span
+														className={
+															jail.currentlyFailed > 0 ? "text-warning" : "text-secondary"
+														}
+													>
 														{jail.currentlyFailed}
 													</span>
 													<span className="text-secondary"> / {jail.totalFailed}</span>
 												</td>
 												<td className="text-end">
-													<span className={jail.currentlyBanned > 0 ? "text-danger fw-bold" : "text-secondary"}>
+													<span
+														className={
+															jail.currentlyBanned > 0
+																? "text-danger fw-bold"
+																: "text-secondary"
+														}
+													>
 														{jail.currentlyBanned}
 													</span>
 													<span className="text-secondary"> / {jail.totalBanned}</span>
@@ -335,7 +472,10 @@ const Platform = () => {
 															<span className="text-secondary small">—</span>
 														)}
 														{jail.bannedIps.map((ip) => (
-															<span key={ip} className="badge bg-red-lt text-red d-flex align-items-center gap-1">
+															<span
+																key={ip}
+																className="badge bg-red-lt text-red d-flex align-items-center gap-1"
+															>
 																{ip}
 																<button
 																	type="button"
@@ -343,7 +483,9 @@ const Platform = () => {
 																	style={{ fontSize: "0.6rem" }}
 																	title={intl.formatMessage({ id: "f2b.unban" })}
 																	disabled={unban.isPending}
-																	onClick={() => unban.mutate({ jail: jail.name, ip })}
+																	onClick={() =>
+																		unban.mutate({ jail: jail.name, ip })
+																	}
 																/>
 															</span>
 														))}

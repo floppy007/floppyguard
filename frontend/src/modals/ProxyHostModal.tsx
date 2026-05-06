@@ -105,10 +105,10 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 							</Modal.Header>
 							<Modal.Body className="p-0">
 								{errorMsg && (
-								<Alert variant="danger" onClose={() => setErrorMsg(null)} dismissible>
-									{errorMsg}
-								</Alert>
-							)}
+									<Alert variant="danger" onClose={() => setErrorMsg(null)} dismissible>
+										{errorMsg}
+									</Alert>
+								)}
 								<div className="card m-0 border-0">
 									<div className="card-header">
 										<ul className="nav nav-tabs card-header-tabs" data-bs-toggle="tabs">

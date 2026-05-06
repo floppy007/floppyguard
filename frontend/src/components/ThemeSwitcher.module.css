@@ -1,15 +1,27 @@
-.darkBtn {
-	color: var(--tblr-light) !important;
-	&:hover {
-		border: var(--tblr-btn-border-width) solid transparent !important;
-		background: color-mix(in srgb, var(--tblr-btn-hover-bg) 10%, transparent) !important;
-	}
+.toggle {
+	display: flex;
+	gap: 1px;
+	background: var(--tblr-border-color);
+	border-radius: 6px;
+	padding: 2px;
 }
 
-.lightBtn {
-	color: var(--tblr-dark) !important;
-	&:hover {
-		border: var(--tblr-btn-border-width) solid transparent !important;
-		background: color-mix(in srgb, var(--tblr-btn-hover-bg) 10%, transparent) !important;
-	}
+.opt {
+	padding: 3px 8px;
+	border-radius: 4px;
+	font-size: 0.7rem;
+	font-weight: 600;
+	color: var(--tblr-secondary);
+	cursor: pointer;
+	user-select: none;
+	transition: background 120ms ease, color 120ms ease, box-shadow 120ms ease;
+	border: 0;
+	background: transparent;
+	line-height: 1.4;
+}
+
+.optActive {
+	background: var(--tblr-bg-surface);
+	color: var(--tblr-primary);
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
 }

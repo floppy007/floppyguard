@@ -231,17 +231,27 @@ const buildLinkPreviewResponse = () => ({
 	},
 	diff: {
 		interfaces: [],
-		links: [{
-			id: "wg1:site-peer-key",
-			kind: "link" as const,
-			changedFields: ["exportedNetworks", "returnPathMode"],
-			before: { exportedNetworks: [], returnPathMode: "unknown" },
-			after: { exportedNetworks: ["10.10.0.0/24"], returnPathMode: "static-route" },
-		}],
+		links: [
+			{
+				id: "wg1:site-peer-key",
+				kind: "link" as const,
+				changedFields: ["exportedNetworks", "returnPathMode"],
+				before: { exportedNetworks: [], returnPathMode: "unknown" },
+				after: { exportedNetworks: ["10.10.0.0/24"], returnPathMode: "static-route" },
+			},
+		],
 	},
 	projected: {
 		interfaces: buildStatus().interfaces,
-		links: [{ ...buildStatus().links[0], exportedNetworks: ["10.10.0.0/24"], returnPathMode: "static-route", remoteManagementMode: "ssh", planState: "validate" }],
+		links: [
+			{
+				...buildStatus().links[0],
+				exportedNetworks: ["10.10.0.0/24"],
+				returnPathMode: "static-route",
+				remoteManagementMode: "ssh",
+				planState: "validate",
+			},
+		],
 		topology: buildStatus().topology,
 		routes: buildStatus().routes,
 		summary: buildStatus().summary,
@@ -280,17 +290,29 @@ const buildInterfacePreviewResponse = () => ({
 		},
 	},
 	diff: {
-		interfaces: [{
-			id: "wg1",
-			kind: "interface" as const,
-			changedFields: ["exportedNetworks", "notes"],
-			before: { exportedNetworks: [], notes: ["1 link(s) on this interface need review", "inactive interface with imported networks"] },
-			after: { exportedNetworks: ["10.20.0.0/24"], notes: ["reviewed interface"] },
-		}],
+		interfaces: [
+			{
+				id: "wg1",
+				kind: "interface" as const,
+				changedFields: ["exportedNetworks", "notes"],
+				before: {
+					exportedNetworks: [],
+					notes: ["1 link(s) on this interface need review", "inactive interface with imported networks"],
+				},
+				after: { exportedNetworks: ["10.20.0.0/24"], notes: ["reviewed interface"] },
+			},
+		],
 		links: [],
 	},
 	projected: {
-		interfaces: [{ ...buildStatus().interfaces[1], exportedNetworks: ["10.20.0.0/24"], notes: ["reviewed interface"], managementMode: "imported" as const }],
+		interfaces: [
+			{
+				...buildStatus().interfaces[1],
+				exportedNetworks: ["10.20.0.0/24"],
+				notes: ["reviewed interface"],
+				managementMode: "imported" as const,
+			},
+		],
 		links: buildStatus().links,
 		topology: buildStatus().topology,
 		routes: buildStatus().routes,
@@ -325,13 +347,17 @@ const buildMetadataOnlyInterfacePreviewResponse = () => ({
 		},
 	},
 	diff: {
-		interfaces: [{
-			id: "wg1",
-			kind: "interface" as const,
-			changedFields: ["notes"],
-			before: { notes: ["1 link(s) on this interface need review", "inactive interface with imported networks"] },
-			after: { notes: ["reviewed interface"] },
-		}],
+		interfaces: [
+			{
+				id: "wg1",
+				kind: "interface" as const,
+				changedFields: ["notes"],
+				before: {
+					notes: ["1 link(s) on this interface need review", "inactive interface with imported networks"],
+				},
+				after: { notes: ["reviewed interface"] },
+			},
+		],
 		links: [],
 	},
 	projected: {
@@ -363,7 +389,10 @@ describe("WireGuard page", () => {
 		applyStateMock.mockReturnValue({
 			data: {
 				backups: [
-					{ path: "/tmp/wireguard-metadata.json.2026-04-19-a.bak", fileName: "wireguard-metadata.json.2026-04-19-a.bak" },
+					{
+						path: "/tmp/wireguard-metadata.json.2026-04-19-a.bak",
+						fileName: "wireguard-metadata.json.2026-04-19-a.bak",
+					},
 				],
 				recentApplies: [],
 				lastApply: null,
@@ -429,7 +458,9 @@ describe("WireGuard page", () => {
 		expect((await screen.findAllByText("Apply status: Config-intent blocked")).length).toBeGreaterThan(0);
 		expect(await screen.findByText("Can apply: no")).toBeTruthy();
 		expect(await screen.findByText("Change scope: metadata-with-config-intent")).toBeTruthy();
-		expect(await screen.findByText(/Blocked: this draft crosses into config intent and needs the later write-layer/)).toBeTruthy();
+		expect(
+			await screen.findByText(/Blocked: this draft crosses into config intent and needs the later write-layer/),
+		).toBeTruthy();
 	});
 
 	it("previews metadata edits before saving a link", async () => {
@@ -446,13 +477,21 @@ describe("WireGuard page", () => {
 		expect(await screen.findByText("Projected metadata preview")).toBeTruthy();
 		expect((await screen.findAllByText("Warnings")).length).toBeGreaterThan(0);
 		expect((await screen.findAllByText("Next actions")).length).toBeGreaterThan(0);
-		expect(await screen.findByText(/Projected link: import 192.168.200.0\/24 · return static-route · mgmt ssh/)).toBeTruthy();
-		expect((await screen.findAllByText(/Changed fields: exportedNetworks, returnPathMode/)).length).toBeGreaterThan(0);
+		expect(
+			await screen.findByText(/Projected link: import 192.168.200.0\/24 · return static-route · mgmt ssh/),
+		).toBeTruthy();
+		expect((await screen.findAllByText(/Changed fields: exportedNetworks, returnPathMode/)).length).toBeGreaterThan(
+			0,
+		);
 		expect((await screen.findAllByText("Requires backup: yes")).length).toBeGreaterThan(0);
 		expect((await screen.findAllByText(/block: write-layer-not-implemented/)).length).toBeGreaterThan(0);
 		expect((await screen.findAllByText("Apply status: Config-intent blocked")).length).toBeGreaterThan(0);
-		expect((screen.getAllByLabelText("Return path mode")[0] as HTMLSelectElement).className).toContain("border-red");
-		expect((screen.getAllByLabelText("Imported networks")[0] as HTMLTextAreaElement).className).toContain("border-red");
+		expect((screen.getAllByLabelText("Return path mode")[0] as HTMLSelectElement).className).toContain(
+			"border-red",
+		);
+		expect((screen.getAllByLabelText("Imported networks")[0] as HTMLTextAreaElement).className).toContain(
+			"border-red",
+		);
 		expect(await screen.findByText("Preview changed the return-path mode stored on this link.")).toBeTruthy();
 	});
 
@@ -471,7 +510,9 @@ describe("WireGuard page", () => {
 		expect((await screen.findAllByText("Next actions")).length).toBeGreaterThan(0);
 		expect(await screen.findByText(/Changed fields: exportedNetworks, notes/)).toBeTruthy();
 		expect((await screen.findAllByText(/step: create-backup-before-apply/)).length).toBeGreaterThan(0);
-		expect((screen.getAllByLabelText("Exported networks")[0] as HTMLTextAreaElement).className).toContain("border-red");
+		expect((screen.getAllByLabelText("Exported networks")[0] as HTMLTextAreaElement).className).toContain(
+			"border-red",
+		);
 		expect(await screen.findByText("Preview changed the interface exported network scope.")).toBeTruthy();
 	});
 
@@ -513,8 +554,13 @@ describe("WireGuard page", () => {
 		expect(await screen.findByText("Apply status: Metadata-only apply ready")).toBeTruthy();
 		expect(await screen.findByText("Can apply: yes")).toBeTruthy();
 		expect(await screen.findByText("Change scope: metadata-only")).toBeTruthy();
-		expect(await screen.findByText(/Ready to apply as metadata-only. A backup will be created automatically./)).toBeTruthy();
-		expect(screen.getAllByText(/Reviewed metadata applied with backup \/tmp\/wireguard-metadata.json.2026-04-19.bak/).length).toBeGreaterThan(0);
+		expect(
+			await screen.findByText(/Ready to apply as metadata-only. A backup will be created automatically./),
+		).toBeTruthy();
+		expect(
+			screen.getAllByText(/Reviewed metadata applied with backup \/tmp\/wireguard-metadata.json.2026-04-19.bak/)
+				.length,
+		).toBeGreaterThan(0);
 		fireEvent.click(screen.getByRole("button", { name: "Save reviewed interface" }));
 		expect(applyMutation).toHaveBeenCalledTimes(1);
 	});
@@ -564,6 +610,8 @@ describe("WireGuard page", () => {
 		render(<WireGuard />);
 		fireEvent.click(screen.getAllByRole("button", { name: "Restore" })[0]);
 		expect(restoreMutation).toHaveBeenCalledWith("/tmp/wireguard-metadata.json.2026-04-19-a.bak");
-		expect(screen.getAllByText(/Metadata restored from backup \/tmp\/wireguard-metadata.json.2026-04-19-a.bak/).length).toBeGreaterThan(0);
+		expect(
+			screen.getAllByText(/Metadata restored from backup \/tmp\/wireguard-metadata.json.2026-04-19-a.bak/).length,
+		).toBeGreaterThan(0);
 	});
 });

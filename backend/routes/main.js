@@ -2,7 +2,10 @@ import express from "express";
 import errs from "../lib/error.js";
 import pjson from "../package.json" with { type: "json" };
 import { isSetup } from "../setup.js";
+// FloppyGuard extension routes.
+import agentRoutes from "./agent.js";
 import auditLogRoutes from "./audit-log.js";
+import designRoutes from "./design.js";
 import accessListsRoutes from "./nginx/access_lists.js";
 import certificatesHostsRoutes from "./nginx/certificates.js";
 import deadHostsRoutes from "./nginx/dead_hosts.js";
@@ -11,14 +14,12 @@ import redirectionHostsRoutes from "./nginx/redirection_hosts.js";
 import streamsRoutes from "./nginx/streams.js";
 import reportsRoutes from "./reports.js";
 import schemaRoutes from "./schema.js";
+import securityRoutes from "./security.js";
 import settingsRoutes from "./settings.js";
 import tokensRoutes from "./tokens.js";
 import usersRoutes from "./users.js";
 import versionRoutes from "./version.js";
-// FloppyGuard extension routes.
-import agentRoutes from "./agent.js";
 import wireGuardRoutes from "./wireguard.js";
-import securityRoutes from "./security.js";
 
 const router = express.Router({
 	caseSensitive: true,
@@ -58,6 +59,7 @@ router.use("/version", versionRoutes);
 router.use("/", agentRoutes);
 router.use("/wireguard", wireGuardRoutes);
 router.use("/security", securityRoutes);
+router.use("/design", designRoutes);
 router.use("/nginx/proxy-hosts", proxyHostsRoutes);
 router.use("/nginx/redirection-hosts", redirectionHostsRoutes);
 router.use("/nginx/dead-hosts", deadHostsRoutes);

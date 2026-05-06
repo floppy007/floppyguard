@@ -34,17 +34,17 @@ const HelpModal = EasyModal.create(({ section, color, visible, remove }: Props) 
 		<Modal show={visible} onHide={remove}>
 			<Modal.Body>
 				<div className="platform-modal-copy">
-				<pre
-					style={{
-						whiteSpace: "pre-wrap",
-						wordBreak: "break-word",
-						margin: 0,
-						fontFamily: "inherit",
-						lineHeight: 1.65,
-					}}
-				>
-					{markdownText}
-				</pre>
+					<pre
+						style={{
+							whiteSpace: "pre-wrap",
+							wordBreak: "break-word",
+							margin: 0,
+							fontFamily: "inherit",
+							lineHeight: 1.65,
+						}}
+					>
+						{markdownText}
+					</pre>
 				</div>
 			</Modal.Body>
 			<Modal.Footer>
