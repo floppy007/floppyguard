@@ -7,6 +7,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.3.1] – 2026-05-09
+
+### Added
+
+- **WireGuard Peer CRUD** — delete button on every link card with confirmation modal; removes peer from live interface, config file and metadata; creates safety backup before deletion; `POST /api/wireguard/update-peer` for live AllowedIPs changes with automatic hub sync
+- **WireGuard Interface CRUD** — create new interfaces (wg2, wg3, …) with auto-generated keypair, address and listen port; delete non-hub interfaces with confirmation modal; `wg-quick up/down` and `systemctl enable/disable` handled automatically
+- **Interface selector** — tunnel creation form and header now show an interface dropdown when multiple interfaces exist (was hardcoded to wg0)
+- **Live-vs-conf drift detection** — `syncHubConf` now compares the running WireGuard interface against the config file and corrects any discrepancies automatically
+
+### Fixed
+
+- **AllowedIPs stripped on sync** — `_buildPeerUpdates` removed non-host networks from peers when `importedNetworks` was empty in metadata; now preserves existing AllowedIPs from the config file when metadata has no override
+- **WireGuard nav icon** — replaced wide text logo SVG (1874×333) with shield-only icon; nav item now renders at correct 16×16 size
+- **Interface card layout** — consistent vertical layout with fixed button position at bottom, all info rows always visible
+- **CI lint errors** — fixed all `useOptionalChain` and `noParameterAssign` errors across backend
+
+---
+
 ## [1.3.0] – 2026-05-06
 
 ### Added

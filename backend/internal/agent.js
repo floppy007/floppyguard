@@ -1,7 +1,5 @@
 import { exec } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import * as http from "node:http";
-import * as https from "node:https";
 import { createConnection } from "node:net";
 import error from "../lib/error.js";
 import Agent from "../models/agent.js";
@@ -930,7 +928,7 @@ echo "[floppyguard-agent]   journalctl -u floppyguard-agent -f"
 			status: "active",
 		};
 
-		if (data && data.hostname) {
+		if (data?.hostname) {
 			// Include LAN IP in hostname field if available (used for service discovery)
 			const lanIp = data.lan_ip ? ` (${data.lan_ip})` : "";
 			patch.hostname = `${data.hostname}${lanIp}`;

@@ -175,7 +175,7 @@ router
 	.post(async (req, res, next) => {
 		try {
 			const { name, type, dns, fullTunnel, platform, importedNetworks, ifaceName } = req.body || {};
-			if (!name || !name.trim()) {
+			if (!name?.trim()) {
 				next(new error.ValidationError("Name is required"));
 				return;
 			}
@@ -190,6 +190,111 @@ router
 			});
 			res.status(201).send(result);
 		} catch (err) {
+			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
+			next(err);
+		}
+	});
+
+router
+	.route("/create-interface")
+	.options((_, res) => {
+		res.sendStatus(204);
+	})
+	.all(jwtdecode())
+	.post(async (req, res, next) => {
+		try {
+			const { name, address, listenPort, role } = req.body || {};
+			if (!address?.trim()) {
+				next(new error.ValidationError("address is required (e.g. 10.20.0.1/24)"));
+				return;
+			}
+			const result = await internalWireGuard.createInterface({
+				name: name?.trim() || undefined,
+				address: address.trim(),
+				listenPort: listenPort ? Number(listenPort) : undefined,
+				role: role || undefined,
+			});
+			res.status(201).send(result);
+		} catch (err) {
+			if (err?.message?.includes("already exists")) {
+				next(new error.ValidationError(err.message));
+				return;
+			}
+			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
+			next(err);
+		}
+	});
+
+router
+	.route("/delete-interface")
+	.options((_, res) => {
+		res.sendStatus(204);
+	})
+	.all(jwtdecode())
+	.post(async (req, res, next) => {
+		try {
+			const { name } = req.body || {};
+			if (!name?.trim()) {
+				next(new error.ValidationError("name is required"));
+				return;
+			}
+			const result = await internalWireGuard.deleteInterface(name.trim());
+			res.status(200).send(result);
+		} catch (err) {
+			if (err?.message?.includes("not found") || err?.message?.includes("Cannot delete")) {
+				next(new error.ValidationError(err.message));
+				return;
+			}
+			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
+			next(err);
+		}
+	});
+
+router
+	.route("/delete-peer")
+	.options((_, res) => {
+		res.sendStatus(204);
+	})
+	.all(jwtdecode())
+	.post(async (req, res, next) => {
+		try {
+			const { linkId } = req.body || {};
+			if (!linkId?.trim()) {
+				next(new error.ValidationError("linkId is required"));
+				return;
+			}
+			const result = await internalWireGuard.deletePeer(linkId.trim());
+			res.status(200).send(result);
+		} catch (err) {
+			if (err?.message?.startsWith("Link not found") || err?.message?.startsWith("Interface")) {
+				next(new error.ItemNotFoundError(err.message));
+				return;
+			}
+			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
+			next(err);
+		}
+	});
+
+router
+	.route("/update-peer")
+	.options((_, res) => {
+		res.sendStatus(204);
+	})
+	.all(jwtdecode())
+	.post(async (req, res, next) => {
+		try {
+			const { linkId, ...changes } = req.body || {};
+			if (!linkId?.trim()) {
+				next(new error.ValidationError("linkId is required"));
+				return;
+			}
+			const result = await internalWireGuard.updatePeer(linkId.trim(), changes);
+			res.status(200).send(result);
+		} catch (err) {
+			if (err?.message?.startsWith("Link not found") || err?.message?.startsWith("Interface")) {
+				next(new error.ItemNotFoundError(err.message));
+				return;
+			}
 			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
 			next(err);
 		}

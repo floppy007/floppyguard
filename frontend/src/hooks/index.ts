@@ -8,6 +8,7 @@ export * from "./useCertificates";
 export * from "./useCheckVersion";
 export * from "./useCreateWireGuardPeer";
 export * from "./useDeadHost";
+export * from "./useDeleteWireGuardPeer";
 export * from "./useDeadHosts";
 export * from "./useDnsProviders";
 export * from "./useFail2Ban";

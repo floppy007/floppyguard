@@ -4,7 +4,6 @@
 import { Model } from "objection";
 import db from "../db.js";
 import { convertBoolFieldsToInt, convertIntFieldsToBool } from "../lib/helpers.js";
-import now from "./now_helper.js";
 
 Model.knex(db());
 

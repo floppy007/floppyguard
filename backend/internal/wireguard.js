@@ -1010,7 +1010,11 @@ function _buildPeerUpdates(peerMap, linksMeta, ifaceName) {
 		if (!meta) continue; // unmanaged peer — leave unchanged
 		const hostRoutes = currentCIDRs.filter((c) => c.endsWith("/32") || c.endsWith("/128"));
 		const imported = (meta.importedNetworks || []).filter((c) => !c.endsWith("/32") && !c.endsWith("/128"));
-		const newIPs = [...new Set([...hostRoutes, ...imported])];
+		// If metadata has no importedNetworks, preserve existing non-host CIDRs from conf
+		// to avoid stripping AllowedIPs that were set manually or by a previous sync.
+		const currentNonHost = currentCIDRs.filter((c) => !c.endsWith("/32") && !c.endsWith("/128"));
+		const effectiveNets = imported.length > 0 ? imported : currentNonHost;
+		const newIPs = [...new Set([...hostRoutes, ...effectiveNets])];
 		if ([...newIPs].sort().join(",") !== [...currentCIDRs].sort().join(",")) {
 			updates.set(pubkey, newIPs);
 		}
@@ -1066,6 +1070,214 @@ function _rewriteHubConf(lines, ifaceName, peerUpdates, allRouteNets) {
 	return out.join("\n");
 }
 
+/**
+ * Remove a [Peer] block (and its preceding comment line) from a wg-quick conf.
+ * Returns the rewritten config text.
+ */
+function _removePeerFromConf(confText, targetPubKey) {
+	const lines = confText.split(/\r?\n/);
+	const out = [];
+	let inPeer = false;
+	let skipBlock = false;
+	let currentPubKey = null;
+	// Buffer lines within a [Peer] block until we know the PublicKey
+	let peerBuffer = [];
+
+	const flushBuffer = (skip) => {
+		if (!skip) {
+			// If the line before [Peer] is a comment, it was already pushed to out.
+			// We need to remove it if we're skipping this block.
+			out.push(...peerBuffer);
+		} else {
+			// Remove preceding comment line(s) that belong to this peer
+			while (out.length > 0 && out[out.length - 1].trim().startsWith("#")) {
+				out.pop();
+			}
+			// Also remove trailing blank lines before the comment
+			while (out.length > 0 && out[out.length - 1].trim() === "") {
+				out.pop();
+			}
+		}
+		peerBuffer = [];
+	};
+
+	for (const rawLine of lines) {
+		const t = rawLine.trim();
+		if (t === "[Peer]") {
+			if (inPeer) flushBuffer(skipBlock);
+			inPeer = true;
+			skipBlock = false;
+			currentPubKey = null;
+			peerBuffer = [rawLine];
+			continue;
+		}
+		if (t.startsWith("[") && t !== "[Peer]") {
+			if (inPeer) flushBuffer(skipBlock);
+			inPeer = false;
+			skipBlock = false;
+			out.push(rawLine);
+			continue;
+		}
+		if (inPeer) {
+			peerBuffer.push(rawLine);
+			if (t.startsWith("PublicKey")) {
+				currentPubKey = t.slice(t.indexOf("=") + 1).trim();
+				if (currentPubKey === targetPubKey) skipBlock = true;
+			}
+			continue;
+		}
+		out.push(rawLine);
+	}
+	// Flush last peer block
+	if (inPeer) flushBuffer(skipBlock);
+
+	// Clean up trailing blank lines
+	while (out.length > 0 && out[out.length - 1].trim() === "") {
+		out.pop();
+	}
+	return `${out.join("\n")}\n`;
+}
+
+/**
+ * Delete a WireGuard peer from the live interface, config file, and metadata.
+ * @param {string} linkId - Format: "ifaceName:publicKey"
+ */
+async function deletePeer(linkId) {
+	if (!linkId?.includes(":")) {
+		throw new Error("Invalid linkId format — expected ifaceName:publicKey");
+	}
+
+	const colonIdx = linkId.indexOf(":");
+	const ifaceName = linkId.slice(0, colonIdx);
+	const publicKey = linkId.slice(colonIdx + 1);
+
+	if (!ifaceName || !publicKey) {
+		throw new Error("Invalid linkId — interface name and public key are required");
+	}
+
+	const status = await getStatus();
+	if (!status.available) throw new Error("WireGuard is not available");
+
+	const iface = status.interfaces.find((i) => i.name === ifaceName);
+	if (!iface) throw new Error(`Interface ${ifaceName} not found`);
+
+	const link = status.links.find((l) => l.id === linkId);
+	if (!link) throw new Error(`Link not found: ${linkId}`);
+
+	// ── Backup metadata before any changes ──
+	await backupMetadataStore();
+
+	// ── Remove from live interface ──
+	const wgBin = getWireGuardBin();
+	try {
+		await execFileAsync(wgBin, ["set", ifaceName, "peer", publicKey, "remove"]);
+	} catch {
+		// Peer may not be active — continue with conf/metadata cleanup
+	}
+
+	// ── Remove from config file ──
+	const confPath = path.join(getWireGuardConfDir(), `${ifaceName}.conf`);
+	try {
+		const confText = await fs.readFile(confPath, "utf8");
+		const newConf = _removePeerFromConf(confText, publicKey);
+		await fs.writeFile(confPath, newConf, "utf8");
+	} catch {
+		// Config file may not exist — metadata cleanup still proceeds
+	}
+
+	// ── Remove exclusive routes ──
+	const peerNonHostNets = (link.allowedIps || []).filter((cidr) => !cidr.endsWith("/32") && !cidr.endsWith("/128"));
+	if (peerNonHostNets.length > 0) {
+		// Collect all other peers' non-host networks
+		const otherNets = new Set();
+		for (const otherLink of status.links) {
+			if (otherLink.id === linkId) continue;
+			for (const cidr of otherLink.allowedIps || []) {
+				if (!cidr.endsWith("/32") && !cidr.endsWith("/128")) otherNets.add(cidr);
+			}
+		}
+		const ipBin = getIpBin();
+		for (const net of peerNonHostNets) {
+			if (!otherNets.has(net)) {
+				try {
+					await execFileAsync(ipBin, ["route", "del", net, "dev", ifaceName]);
+				} catch {
+					/* route may already be gone */
+				}
+			}
+		}
+	}
+
+	// ── Remove metadata ──
+	const store = await readMetadataStore();
+	delete store.links[linkId];
+	await writeMetadataStore(store);
+
+	return { deleted: true, linkId };
+}
+
+/**
+ * Update a WireGuard peer's config-level properties (AllowedIPs).
+ * Updates metadata, rewrites conf, and applies live via wg set + route sync.
+ * @param {string} linkId - Format: "ifaceName:publicKey"
+ * @param {object} changes - { importedNetworks?: string[] }
+ */
+async function updatePeer(linkId, changes = {}) {
+	if (!linkId?.includes(":")) {
+		throw new Error("Invalid linkId format — expected ifaceName:publicKey");
+	}
+
+	const colonIdx = linkId.indexOf(":");
+	const ifaceName = linkId.slice(0, colonIdx);
+	const publicKey = linkId.slice(colonIdx + 1);
+
+	if (!ifaceName || !publicKey) {
+		throw new Error("Invalid linkId — interface name and public key are required");
+	}
+
+	const status = await getStatus();
+	if (!status.available) throw new Error("WireGuard is not available");
+
+	const iface = status.interfaces.find((i) => i.name === ifaceName);
+	if (!iface) throw new Error(`Interface ${ifaceName} not found`);
+
+	const link = status.links.find((l) => l.id === linkId);
+	if (!link) throw new Error(`Link not found: ${linkId}`);
+
+	// ── Backup metadata ──
+	await backupMetadataStore();
+
+	// ── Update metadata with new values ──
+	const metadataPatch = {};
+	if (changes.importedNetworks !== undefined) {
+		metadataPatch.importedNetworks = sanitizeStringArray(changes.importedNetworks);
+	}
+	if (changes.name !== undefined) {
+		metadataPatch.name = changes.name ? String(changes.name) : undefined;
+	}
+	if (changes.type !== undefined) {
+		metadataPatch.type = normalizeLinkType(changes.type);
+	}
+	if (changes.dns !== undefined) {
+		metadataPatch.dns = sanitizeStringArray(changes.dns);
+	}
+	if (changes.fullTunnel !== undefined) {
+		metadataPatch.fullTunnel = Boolean(changes.fullTunnel);
+	}
+	if (changes.platform !== undefined) {
+		metadataPatch.platform = ["desktop", "mobile"].includes(changes.platform) ? changes.platform : undefined;
+	}
+
+	const store = await readMetadataStore();
+	store.links[linkId] = mergeMetadataEntry(store.links[linkId] || {}, metadataPatch);
+	await writeMetadataStore(store);
+
+	// ── Sync hub conf (rewrites AllowedIPs in conf + live wg set + routes) ──
+	const hubSync = await syncHubConf(store, ifaceName);
+
+	return { updated: true, linkId, hubSync };
+}
+
 async function syncHubConf(metadata, ifaceName = "wg0") {
 	const confPath = path.join(getWireGuardConfDir(), `${ifaceName}.conf`);
 	let confText;
@@ -1078,6 +1290,28 @@ async function syncHubConf(metadata, ifaceName = "wg0") {
 	const lines = confText.split(/\r?\n/);
 	const peerMap = _parsePeersFromConf(lines);
 	const peerUpdates = _buildPeerUpdates(peerMap, metadata.links || {}, ifaceName);
+
+	// Also detect live-vs-conf drift: if conf has AllowedIPs that differ from
+	// the running interface, force a wg set even if metadata didn't change.
+	let liveDump;
+	try {
+		liveDump = parseDump(await getDump());
+	} catch {
+		liveDump = new Map();
+	}
+	const liveIface = liveDump.get(ifaceName);
+	if (liveIface) {
+		for (const [pubkey, confCIDRs] of peerMap) {
+			if (peerUpdates.has(pubkey)) continue; // already scheduled for update
+			const livePeer = liveIface.peers.find((p) => p.publicKey === pubkey);
+			if (!livePeer) continue;
+			const liveIPs = [...(livePeer.allowedIps || [])].sort().join(",");
+			const confIPs = [...confCIDRs].sort().join(",");
+			if (liveIPs !== confIPs) {
+				peerUpdates.set(pubkey, confCIDRs);
+			}
+		}
+	}
 
 	if (!peerUpdates.size) return { synced: true, changes: [] };
 
@@ -1225,6 +1459,158 @@ export {
 };
 
 /**
+ * Create a new WireGuard interface with generated keypair and config file.
+ * @param {object} opts
+ * @param {string} [opts.name] - Interface name (auto-assigned if omitted: wg2, wg3, …)
+ * @param {string} opts.address - Tunnel address with mask, e.g. "10.20.0.1/24"
+ * @param {number} [opts.listenPort] - UDP listen port (auto-assigned if omitted)
+ * @param {string} [opts.role] - Interface role hint for metadata
+ */
+async function createInterface({ name, address, listenPort, role } = {}) {
+	if (!address?.trim()) throw new Error("Address is required (e.g. 10.20.0.1/24)");
+
+	const confDir = getWireGuardConfDir();
+	const wgBin = getWireGuardBin();
+
+	// ── Auto-assign interface name if not provided ──
+	if (!name) {
+		const existing = await listConfigNames();
+		for (let i = 0; i < 100; i++) {
+			const candidate = `wg${i}`;
+			if (!existing.includes(candidate)) {
+				name = candidate;
+				break;
+			}
+		}
+		if (!name) throw new Error("No free interface name available");
+	}
+
+	const confPath = path.join(confDir, `${name}.conf`);
+	if (await pathExists(confPath)) {
+		throw new Error(`Interface ${name} already exists`);
+	}
+
+	// ── Auto-assign listen port if not provided ──
+	if (!listenPort) {
+		const existing = await listConfigNames();
+		const usedPorts = new Set();
+		for (const n of existing) {
+			const conf = parseConfig(await readText(path.join(confDir, `${n}.conf`)));
+			if (conf.listenPort) usedPorts.add(conf.listenPort);
+		}
+		for (let port = 51820; port < 51920; port++) {
+			if (!usedPorts.has(port)) {
+				listenPort = port;
+				break;
+			}
+		}
+		if (!listenPort) throw new Error("No free listen port available");
+	}
+
+	// ── Generate keypair ──
+	const { stdout: privKeyRaw } = await execFileAsync(wgBin, ["genkey"]);
+	const privateKey = privKeyRaw.trim();
+	const { execSync } = await import("node:child_process");
+	const publicKey = execSync(`printf '%s\\n' ${JSON.stringify(privateKey)} | ${wgBin} pubkey`)
+		.toString()
+		.trim();
+
+	// ── Write config file ──
+	const confLines = [
+		"[Interface]",
+		`Address = ${address.trim()}`,
+		`ListenPort = ${listenPort}`,
+		`PrivateKey = ${privateKey}`,
+		`PostUp = iptables -A FORWARD -i ${name} -j ACCEPT; iptables -A FORWARD -o ${name} -j ACCEPT`,
+		`PostDown = iptables -D FORWARD -i ${name} -j ACCEPT; iptables -D FORWARD -o ${name} -j ACCEPT`,
+		"",
+	];
+	await fs.writeFile(confPath, confLines.join("\n"), "utf8");
+
+	// ── Bring interface up ──
+	try {
+		await execFileAsync("wg-quick", ["up", name]);
+	} catch (err) {
+		// Clean up conf if wg-quick fails
+		await fs.unlink(confPath).catch(() => {});
+		throw new Error(`Failed to bring up ${name}: ${err.message}`);
+	}
+
+	// ── Enable on boot ──
+	try {
+		await execFileAsync("systemctl", ["enable", `wg-quick@${name}`]);
+	} catch {
+		// non-fatal
+	}
+
+	// ── Write metadata ──
+	const store = await readMetadataStore();
+	store.interfaces[name] = sanitizeInterfaceMetadataPatch({
+		role: role || "auxiliary",
+		managementMode: "local",
+	});
+	await writeMetadataStore(store);
+
+	return {
+		created: true,
+		name,
+		address: address.trim(),
+		listenPort,
+		publicKey,
+	};
+}
+
+/**
+ * Delete a WireGuard interface: bring it down, remove config, clean metadata.
+ * @param {string} name - Interface name (e.g. "wg1")
+ */
+async function deleteInterface(rawName) {
+	if (!rawName?.trim()) throw new Error("Interface name is required");
+	const name = rawName.trim();
+
+	if (name === "wg0") throw new Error("Cannot delete the primary hub interface wg0");
+
+	const confDir = getWireGuardConfDir();
+	const confPath = path.join(confDir, `${name}.conf`);
+
+	if (!(await pathExists(confPath))) {
+		throw new Error(`Interface ${name} not found — no config file at ${confPath}`);
+	}
+
+	// ── Backup metadata ──
+	await backupMetadataStore();
+
+	// ── Bring interface down ──
+	try {
+		await execFileAsync("wg-quick", ["down", name]);
+	} catch {
+		// may already be down
+	}
+
+	// ── Disable on boot ──
+	try {
+		await execFileAsync("systemctl", ["disable", `wg-quick@${name}`]);
+	} catch {
+		// non-fatal
+	}
+
+	// ── Remove config file ──
+	await fs.unlink(confPath);
+
+	// ── Clean metadata — remove interface + all its links ──
+	const store = await readMetadataStore();
+	delete store.interfaces[name];
+	for (const linkId of Object.keys(store.links)) {
+		if (linkId.startsWith(`${name}:`)) {
+			delete store.links[linkId];
+		}
+	}
+	await writeMetadataStore(store);
+
+	return { deleted: true, name };
+}
+
+/**
  * Create a new WireGuard peer on the hub interface.
  * Generates a keypair, assigns the next free tunnel IP, adds the peer to the
  * live interface and config file, writes metadata, and returns the client config.
@@ -1351,8 +1737,12 @@ async function createPeer({ name, type, dns, fullTunnel, platform, importedNetwo
 export default {
 	applyMetadataPatch,
 	backupMetadataStore,
+	createInterface,
 	createPeer,
+	deleteInterface,
+	deletePeer,
 	generatePeerConfig,
+	updatePeer,
 	generatePeerConfigQr,
 	getBandwidth,
 	getStatus,

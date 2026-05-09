@@ -1,4 +1,5 @@
 import { IconPlugConnected, IconPlus, IconRoute, IconShieldHalfFilled, IconTopologyStar3 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import type {
 	Agent,
@@ -13,7 +14,14 @@ import type {
 	WireGuardReturnPathMode,
 	WireGuardRouteHint,
 } from "src/api/backend";
-import { buildInstallOneliner, downloadWireGuardLinkConfig, resetAgentToken } from "src/api/backend";
+import {
+	buildInstallOneliner,
+	createWireGuardInterface,
+	deleteWireGuardInterface,
+	deleteWireGuardPeer,
+	downloadWireGuardLinkConfig,
+	resetAgentToken,
+} from "src/api/backend";
 import { Loading } from "src/components";
 import {
 	useAgents,
@@ -27,7 +35,7 @@ import {
 	useWireGuardStatus,
 } from "src/hooks";
 import { intl } from "src/locale/IntlProvider";
-import { showWireGuardQrModal } from "src/modals";
+import { showDeleteConfirmModal, showWireGuardQrModal } from "src/modals";
 import styles from "./index.module.css";
 
 // ── Utilities ──────────────────────────────────────────────────────────────────
@@ -1087,6 +1095,30 @@ function LinkCard({ link, missingReturnRoutes, natCandidates, planningInterfaces
 					>
 						{intl.formatMessage({ id: "wireguard.link.show-qr" })}
 					</button>
+					<button
+						className="btn btn-sm btn-outline-danger"
+						type="button"
+						onClick={() =>
+							showDeleteConfirmModal({
+								title: intl.formatMessage({ id: "wireguard.link.delete-title" }),
+								onConfirm: async () => {
+									await deleteWireGuardPeer({ linkId: link.id });
+								},
+								invalidations: [
+									["wireguard-status"],
+									["wireguard-metadata"],
+									["wireguard-bandwidth"],
+									["wireguard-apply-state"],
+								],
+								children: intl.formatMessage(
+									{ id: "wireguard.link.delete-confirm" },
+									{ name: link.name || link.id },
+								),
+							})
+						}
+					>
+						{intl.formatMessage({ id: "wireguard.link.delete" })}
+					</button>
 				</div>
 			</div>
 
@@ -1385,7 +1417,7 @@ function InterfaceCard({ iface, allLinks }: { iface: EnhancedInterface; allLinks
 	const previewCurrent = Boolean(preview && previewKey === patchKey);
 
 	return (
-		<div className={styles.ifaceCard}>
+		<div className={styles.ifaceCard} style={{ display: "flex", flexDirection: "column" }}>
 			<div className={styles.ifaceCardHeader}>
 				<div>
 					<div className="fw-bold">{iface.name}</div>
@@ -1393,7 +1425,7 @@ function InterfaceCard({ iface, allLinks }: { iface: EnhancedInterface; allLinks
 						{iface.addresses.join(", ") || intl.formatMessage({ id: "wireguard.iface.no-addresses" })}
 					</div>
 				</div>
-				<div className="d-flex gap-2 flex-wrap align-items-center">
+				<div className="d-flex gap-1 align-items-center">
 					<span
 						className={`badge ${iface.active ? "bg-green-lt text-green" : "bg-secondary-lt text-secondary"}`}
 					>
@@ -1407,74 +1439,96 @@ function InterfaceCard({ iface, allLinks }: { iface: EnhancedInterface; allLinks
 					<span className="badge bg-secondary-lt text-secondary">
 						{iface.role || intl.formatMessage({ id: "wireguard.iface.unknown" })}
 					</span>
-					<button
-						className="btn btn-sm btn-outline-primary"
-						type="button"
-						onClick={() => {
-							if (editorOpen) {
-								setEditorOpen(false);
-							} else {
-								openEditor();
-							}
-						}}
-					>
-						{editorOpen
-							? intl.formatMessage({ id: "action.close" })
-							: intl.formatMessage({ id: "action.edit" })}
-					</button>
 				</div>
 			</div>
 
-			<div className={styles.ifaceCardBody}>
-				<div className="d-flex flex-wrap gap-4 mb-2">
-					<div className="small">
-						<span className="text-secondary me-1">
-							{intl.formatMessage({ id: "wireguard.iface.peers" })}
-						</span>
-						{iface.activePeerCount} {intl.formatMessage({ id: "wireguard.link.active" })} /{" "}
-						{iface.peerCount}
-					</div>
-					<div className="small">
-						<span className="text-secondary me-1">
-							{intl.formatMessage({ id: "wireguard.link.traffic" })}
-						</span>
-						{byteFmt(iface.rxBytes)} rx / {byteFmt(iface.txBytes)} tx
-					</div>
-					{iface.listenPort && (
-						<div className="small">
-							<span className="text-secondary me-1">Port</span>
-							{iface.listenPort}
-						</div>
-					)}
-					<div className="small">
-						<span className="text-secondary me-1">{intl.formatMessage({ id: "wireguard.iface.key" })}</span>
-						{shortKey(iface.publicKey)}
-					</div>
+			<div className={styles.ifaceCardBody} style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+				<div className="small">
+					<span className="text-secondary me-1">
+						{intl.formatMessage({ id: "wireguard.iface.peers" })}
+					</span>
+					{iface.activePeerCount} {intl.formatMessage({ id: "wireguard.link.active" })} / {iface.peerCount}
 				</div>
+				<div className="small">
+					<span className="text-secondary me-1">
+						{intl.formatMessage({ id: "wireguard.link.traffic" })}
+					</span>
+					{byteFmt(iface.rxBytes)} rx / {byteFmt(iface.txBytes)} tx
+				</div>
+				<div className="small">
+					<span className="text-secondary me-1">Port</span>
+					{iface.listenPort || "—"}
+				</div>
+				<div className="small text-truncate">
+					<span className="text-secondary me-1">{intl.formatMessage({ id: "wireguard.iface.key" })}</span>
+					{shortKey(iface.publicKey)}
+				</div>
+				<div className="small">
+					<span className="text-secondary me-1">
+						{intl.formatMessage({ id: "wireguard.link.export" })}
+					</span>
+					{iface.exportedNetworks.length > 0
+						? iface.exportedNetworks.slice(0, 4).map((n) => (
+								<span key={n} className="badge bg-azure-lt text-azure me-1">
+									{n}
+								</span>
+							))
+						: "—"}
+				</div>
+				<div className="small">
+					<span className="text-secondary me-1">
+						{intl.formatMessage({ id: "wireguard.tab.links" })}
+					</span>
+					{ifaceLinks.length > 0
+						? ifaceLinks.map((l) => (
+								<span key={l.id} className={`badge ${typeBadge(l.type).cls} me-1`}>
+									{l.name}
+								</span>
+							))
+						: "—"}
+				</div>
+			</div>
 
-				{iface.exportedNetworks.length > 0 && (
-					<div className="d-flex flex-wrap gap-1 align-items-center mb-1">
-						<span className="text-secondary small me-1">
-							{intl.formatMessage({ id: "wireguard.link.export" })}
-						</span>
-						{iface.exportedNetworks.slice(0, 6).map((n) => (
-							<span key={n} className="badge bg-azure-lt text-azure">
-								{n}
-							</span>
-						))}
-					</div>
-				)}
-				{ifaceLinks.length > 0 && (
-					<div className="d-flex flex-wrap gap-1 align-items-center mt-1">
-						<span className="text-secondary small me-1">
-							{intl.formatMessage({ id: "wireguard.tab.links" })}
-						</span>
-						{ifaceLinks.map((l) => (
-							<span key={l.id} className={`badge ${typeBadge(l.type).cls}`}>
-								{l.name}
-							</span>
-						))}
-					</div>
+			<div className="d-flex gap-2 px-3 pb-3">
+				<button
+					className="btn btn-sm btn-outline-primary"
+					type="button"
+					onClick={() => {
+						if (editorOpen) {
+							setEditorOpen(false);
+						} else {
+							openEditor();
+						}
+					}}
+				>
+					{editorOpen
+						? intl.formatMessage({ id: "action.close" })
+						: intl.formatMessage({ id: "action.edit" })}
+				</button>
+				{!iface.isHub && (
+					<button
+						className="btn btn-sm btn-outline-danger"
+						type="button"
+						onClick={() =>
+							showDeleteConfirmModal({
+								title: intl.formatMessage({ id: "wireguard.iface.delete-title" }),
+								onConfirm: async () => {
+									await deleteWireGuardInterface({ name: iface.name });
+								},
+								invalidations: [
+									["wireguard-status"],
+									["wireguard-metadata"],
+									["wireguard-bandwidth"],
+								],
+								children: intl.formatMessage(
+									{ id: "wireguard.iface.delete-confirm" },
+									{ name: iface.name },
+								),
+							})
+						}
+					>
+						{intl.formatMessage({ id: "wireguard.link.delete" })}
+					</button>
 				)}
 			</div>
 
@@ -1631,6 +1685,137 @@ function InterfaceCard({ iface, allLinks }: { iface: EnhancedInterface; allLinks
 
 // ── Routing Matrix ─────────────────────────────────────────────────────────────
 
+// ── Create Interface Form ──────────────────────────────────────────────────────
+
+function CreateInterfaceForm() {
+	const [open, setOpen] = useState(false);
+	const [name, setName] = useState("");
+	const [address, setAddress] = useState("");
+	const [listenPort, setListenPort] = useState("");
+	const [pending, setPending] = useState(false);
+	const [result, setResult] = useState<{ name: string; publicKey: string } | null>(null);
+	const [error, setError] = useState("");
+	const queryClient = useQueryClient();
+
+	const onSubmit = async () => {
+		setPending(true);
+		setError("");
+		try {
+			const res = await createWireGuardInterface({
+				name: name.trim() || undefined,
+				address: address.trim(),
+				listenPort: listenPort ? Number(listenPort) : undefined,
+			});
+			setResult(res);
+			queryClient.invalidateQueries({ queryKey: ["wireguard-status"] });
+			queryClient.invalidateQueries({ queryKey: ["wireguard-metadata"] });
+		} catch (err: any) {
+			setError(err?.message || "Failed to create interface");
+		}
+		setPending(false);
+	};
+
+	if (!open) {
+		return (
+			<button className="btn btn-sm btn-outline-primary mt-3" type="button" onClick={() => setOpen(true)}>
+				<IconPlus size={14} className="me-1" />
+				{intl.formatMessage({ id: "wireguard.iface.create" })}
+			</button>
+		);
+	}
+
+	if (result) {
+		return (
+			<div className="card mt-3">
+				<div className="card-body">
+					<div className="alert alert-success mb-2 py-2 small">
+						{intl.formatMessage({ id: "wireguard.iface.created" }, { name: result.name })}
+					</div>
+					<div className="small text-secondary mb-2">
+						Public Key: <code>{result.publicKey}</code>
+					</div>
+					<button
+						className="btn btn-sm btn-outline-secondary"
+						type="button"
+						onClick={() => {
+							setOpen(false);
+							setResult(null);
+							setName("");
+							setAddress("");
+							setListenPort("");
+						}}
+					>
+						{intl.formatMessage({ id: "action.close" })}
+					</button>
+				</div>
+			</div>
+		);
+	}
+
+	return (
+		<div className="card mt-3">
+			<div className="card-body">
+				<div className="fw-medium mb-3 small text-uppercase text-secondary">
+					{intl.formatMessage({ id: "wireguard.iface.create" })}
+				</div>
+				{error && <div className="alert alert-danger mb-2 py-2 small">{error}</div>}
+				<div className="row g-3">
+					<div className="col-md-3">
+						<label className="form-label">
+							{intl.formatMessage({ id: "wireguard.iface.name" })}
+							<input
+								type="text"
+								className="form-control"
+								value={name}
+								onChange={(e) => setName(e.target.value)}
+								placeholder="wg2"
+							/>
+						</label>
+						<div className="form-text">{intl.formatMessage({ id: "wireguard.iface.name-hint" })}</div>
+					</div>
+					<div className="col-md-3">
+						<label className="form-label">
+							{intl.formatMessage({ id: "wireguard.iface.address" })}
+							<input
+								type="text"
+								className="form-control"
+								value={address}
+								onChange={(e) => setAddress(e.target.value)}
+								placeholder="10.20.0.1/24"
+							/>
+						</label>
+					</div>
+					<div className="col-md-3">
+						<label className="form-label">
+							{intl.formatMessage({ id: "wireguard.iface.port" })}
+							<input
+								type="number"
+								className="form-control"
+								value={listenPort}
+								onChange={(e) => setListenPort(e.target.value)}
+								placeholder={intl.formatMessage({ id: "wireguard.iface.port-hint" })}
+							/>
+						</label>
+					</div>
+				</div>
+				<div className="d-flex gap-2 mt-3">
+					<button
+						className="btn btn-sm btn-primary"
+						type="button"
+						disabled={pending || !address.trim()}
+						onClick={onSubmit}
+					>
+						{pending ? "…" : intl.formatMessage({ id: "wireguard.iface.create" })}
+					</button>
+					<button className="btn btn-sm btn-ghost-secondary" type="button" onClick={() => setOpen(false)}>
+						{intl.formatMessage({ id: "cancel" })}
+					</button>
+				</div>
+			</div>
+		</div>
+	);
+}
+
 function RoutingMatrix({ links }: { links: WireGuardLink[] }) {
 	const allNetworks = Array.from(new Set(links.flatMap((l) => l.exportedNetworks))).sort();
 
@@ -1715,6 +1900,7 @@ const WireGuard = () => {
 	const [newFullTunnel, setNewFullTunnel] = useState(false);
 	const [newPlatform, setNewPlatform] = useState<"desktop" | "mobile">("desktop");
 	const [newImported, setNewImported] = useState("");
+	const [newIfaceName, setNewIfaceName] = useState("wg0");
 	const [createResult, setCreateResult] = useState<{
 		filename: string;
 		content: string;
@@ -1799,9 +1985,24 @@ const WireGuard = () => {
 					<h1 className="platform-title">WireGuard</h1>
 				</div>
 				<div className="d-flex align-items-center gap-2">
-					<div className="text-secondary small">
-						{hub?.name || intl.formatMessage({ id: "wireguard.hub.unknown" })}
-					</div>
+					{interfaces.length > 1 ? (
+						<select
+							className="form-select form-select-sm"
+							style={{ width: "auto" }}
+							value={newIfaceName}
+							onChange={(e) => setNewIfaceName(e.target.value)}
+						>
+							{interfaces.map((i) => (
+								<option key={i.name} value={i.name}>
+									{i.name}
+								</option>
+							))}
+						</select>
+					) : (
+						<div className="text-secondary small">
+							{hub?.name || intl.formatMessage({ id: "wireguard.hub.unknown" })}
+						</div>
+					)}
 					<button
 						type="button"
 						className="btn btn-primary btn-sm d-flex align-items-center gap-1"
@@ -1895,6 +2096,20 @@ const WireGuard = () => {
 									</select>
 								</div>
 								<div className="col-md-3">
+									<label className="form-label mb-1">Interface</label>
+									<select
+										className="form-select"
+										value={newIfaceName}
+										onChange={(e) => setNewIfaceName(e.target.value)}
+									>
+										{interfaces.map((i) => (
+											<option key={i.name} value={i.name}>
+												{i.name} ({i.addresses.join(", ")})
+											</option>
+										))}
+									</select>
+								</div>
+								<div className="col-md-3">
 									<label className="form-label mb-1">DNS</label>
 									<input
 										type="text"
@@ -1963,6 +2178,7 @@ const WireGuard = () => {
 																.map((s) => s.trim())
 																.filter(Boolean)
 														: [],
+													ifaceName: newIfaceName,
 												});
 												setCreateResult(result);
 											}}
@@ -2233,6 +2449,7 @@ const WireGuard = () => {
 							{intl.formatMessage({ id: "wireguard.interfaces.none" })}
 						</div>
 					)}
+					<CreateInterfaceForm />
 				</div>
 			)}
 

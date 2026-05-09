@@ -23,4 +23,4 @@ const debug = (logger, ...args) => {
 	}
 };
 
-export { debug, global, migrate, express, access, nginx, ssl, certbot, importer, setup, ipRanges, remoteVersion };
+export { access, certbot, debug, express, global, importer, ipRanges, migrate, nginx, remoteVersion, setup, ssl };

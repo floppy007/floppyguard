@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import bcrypt from "bcrypt";
-import mysql from "mysql2/promise";
 import Database from "better-sqlite3";
+import mysql from "mysql2/promise";
 
 const rootDir = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../..");
 const targetSqliteFile = process.env.TARGET_SQLITE_FILE || path.join(rootDir, ".local-data/backend/database.sqlite");
@@ -96,16 +96,7 @@ const ensurePreviewUser = (sqlite) => {
 				`INSERT INTO user (id, created_on, modified_on, is_deleted, is_disabled, email, name, nickname, avatar, roles)
 				 VALUES (?, ?, ?, 0, 0, ?, ?, ?, ?, ?)`,
 			)
-			.run(
-				userId,
-				timestamp,
-				timestamp,
-				previewEmail,
-				"Preview Admin",
-				"Preview",
-				"",
-				JSON.stringify(["admin"]),
-			);
+			.run(userId, timestamp, timestamp, previewEmail, "Preview Admin", "Preview", "", JSON.stringify(["admin"]));
 	} else {
 		sqlite
 			.prepare(
