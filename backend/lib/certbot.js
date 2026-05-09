@@ -73,9 +73,7 @@ const installPlugins = async (pluginKeys) => {
 			})
 			.end(() => {
 				if (hasErrors) {
-					reject(
-						new errs.CommandError("Some plugins failed to install. Please check the logs above", 1),
-					);
+					reject(new errs.CommandError("Some plugins failed to install. Please check the logs above", 1));
 				} else {
 					resolve();
 				}
@@ -83,4 +81,4 @@ const installPlugins = async (pluginKeys) => {
 	});
 };
 
-export { installPlugins, installPlugin };
+export { installPlugin, installPlugins };

@@ -887,6 +887,33 @@
 	"wireguard.iface.unknown": {
 		"defaultMessage": "unbekannt"
 	},
+	"wireguard.iface.create": {
+		"defaultMessage": "Neues Interface"
+	},
+	"wireguard.iface.created": {
+		"defaultMessage": "Interface {name} erstellt und aktiv."
+	},
+	"wireguard.iface.name": {
+		"defaultMessage": "Name"
+	},
+	"wireguard.iface.name-hint": {
+		"defaultMessage": "Leer lassen für automatische Vergabe"
+	},
+	"wireguard.iface.address": {
+		"defaultMessage": "Adresse"
+	},
+	"wireguard.iface.port": {
+		"defaultMessage": "Listen Port"
+	},
+	"wireguard.iface.port-hint": {
+		"defaultMessage": "automatisch"
+	},
+	"wireguard.iface.delete-title": {
+		"defaultMessage": "Interface löschen"
+	},
+	"wireguard.iface.delete-confirm": {
+		"defaultMessage": "Soll das Interface {name} wirklich gelöscht werden? Das Interface wird heruntergefahren, die Konfigurationsdatei und alle zugehörigen Metadaten werden entfernt. Diese Aktion kann nicht rückgängig gemacht werden."
+	},
 	"wireguard.interfaces.none": {
 		"defaultMessage": "Keine Interfaces erkannt."
 	},
@@ -994,6 +1021,15 @@
 	},
 	"wireguard.link.tunnel": {
 		"defaultMessage": "Tunnel"
+	},
+	"wireguard.link.delete": {
+		"defaultMessage": "Löschen"
+	},
+	"wireguard.link.delete-title": {
+		"defaultMessage": "Peer löschen"
+	},
+	"wireguard.link.delete-confirm": {
+		"defaultMessage": "Soll der Peer {name} wirklich gelöscht werden? Der Peer wird aus dem laufenden WireGuard-Interface und der Konfigurationsdatei entfernt. Diese Aktion kann nicht rückgängig gemacht werden."
 	},
 	"wireguard.links.clients": {
 		"defaultMessage": "Clients"

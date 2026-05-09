@@ -39,13 +39,15 @@ interface MenuItem {
 	items?: MenuItem[];
 	permissionSection?: Section | typeof ADMIN;
 	permission?: typeof VIEW | typeof MANAGE;
+	/** Show only the icon, hide the label text */
+	iconOnly?: boolean;
 }
 
 const NpmLogoIcon = () => (
 	<img src="/images/logo-no-text.svg" width={16} height={16} alt="NPM" style={{ display: "block" }} />
 );
 
-const WireGuardLogo = () => (
+const WireGuardIcon = () => (
 	<img src="/images/wireguard-icon.svg" width={16} height={16} alt="WG" style={{ display: "block" }} />
 );
 
@@ -119,7 +121,7 @@ const menuItems: MenuItem[] = [
 	},
 	{
 		to: "/wireguard",
-		iconElement: <WireGuardLogo />,
+		iconElement: <WireGuardIcon />,
 		label: "wireguard",
 	},
 	{
@@ -207,9 +209,11 @@ const getMenuItem = (
 					})}
 				>
 					<span className={styles.icon}>{renderIcon(item)}</span>
-					<span className="nav-link-title">
-						<T id={item.label} />
-					</span>
+					{!item.iconOnly && (
+						<span className="nav-link-title">
+							<T id={item.label} />
+						</span>
+					)}
 				</NavLink>
 			</li>
 		</HasPermission>

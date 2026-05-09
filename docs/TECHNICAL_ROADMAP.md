@@ -16,6 +16,8 @@ Stand: 2026-05-04
 - **Kernel Route Sync** — `sync_routes()` im Loop-Script addiert fehlende ip-Routes
   nach `wg syncconf` (wg syncconf berührt die Kernel-Routing-Tabelle nicht)
 - CI-Pipeline (Backend Lint + Test, Frontend Lint + Build, OpenAPI Lint)
+- **Peer CRUD** (v1.3.1) — `deletePeer` + `updatePeer` mit Live-`wg set`, Conf-Rewrite, Metadata-Cleanup und Safety-Backup
+- **Live-vs-Conf Drift-Fix** (v1.3.1) — `syncHubConf` vergleicht jetzt Live-State gegen Conf und korrigiert automatisch
 
 ## Empfohlene Reihenfolge
 
@@ -29,14 +31,12 @@ Stand: 2026-05-04
 
 Ziel: echte WireGuard-Konfigurationsänderungen mit Diff, Backup, Rollback.
 
-- Peer CRUD (add/modify/delete peers via `wg set` + conf-write)
-- Interface CRUD
-- Config-Generierung + QR-Code / Client-Export
+- ~~Peer CRUD (add/modify/delete peers via `wg set` + conf-write)~~ ✔ v1.3.1
+- ~~Interface CRUD~~ ✔ v1.3.1
+- ~~Config-Generierung + QR-Code / Client-Export~~ ✔ v1.2.4
 - Restore-Preview vor echtem Restore
 - Audit-Historienansicht ausbauen
 - Klare Trennung: `metadata-write` / `config-write` / `remote-apply`
-
-Aktuell gesperrt: direkte `/etc/wireguard`-Schreibzugriffe ohne dokumentierten Backup-Pfad.
 
 Betroffene Dateien:
 - `backend/internal/wireguard.js`

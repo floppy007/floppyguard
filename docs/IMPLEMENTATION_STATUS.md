@@ -103,13 +103,16 @@ Agents self-update automatically when the server script version changes:
 
 ## WireGuard — Still Missing
 
-- Peer CRUD (add/modify/delete peers)
-- Interface CRUD
-- Config file generation / QR code / client export
-- `wg set` / conf-write / reload (live config writes)
+- ~~Interface CRUD~~ ✔ v1.3.1 — `createInterface` + `deleteInterface` with wg-quick up/down, systemctl enable/disable, metadata cleanup
 - Restore preview before actual restore
 - Guided setup wizard
 - Audit history view (beyond last-apply)
+
+## WireGuard — Recently Completed
+
+- ~~Peer CRUD (add/modify/delete peers)~~ ✔ v1.3.1 — `createPeer`, `deletePeer`, `updatePeer` with live `wg set`, conf rewrite, metadata cleanup
+- ~~Config file generation / QR code / client export~~ ✔ v1.2.4
+- ~~`wg set` / conf-write / reload (live config writes)~~ ✔ v1.3.1 — live AllowedIPs sync + drift detection
 
 ## UI Pages
 

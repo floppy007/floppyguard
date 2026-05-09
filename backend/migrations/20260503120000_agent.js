@@ -20,13 +20,13 @@ const up = (knex) => {
 			table.string("reg_token", 255).nullable();
 			table.string("agent_token", 255).nullable();
 			table.string("hostname", 255).nullable();
-			table.string("mode", 50).notNullable().defaultTo("native");          // native | unifi
+			table.string("mode", 50).notNullable().defaultTo("native"); // native | unifi
 			table.string("wg_interface", 50).notNullable().defaultTo("wg0");
 			// native mode: wg-quick config text
 			table.text("config_text").nullable();
 			table.string("config_hash", 255).nullable();
 			// unifi mode: controller connection
-			table.string("unifi_url", 255).nullable();         // https://192.168.10.7
+			table.string("unifi_url", 255).nullable(); // https://192.168.10.7
 			table.string("unifi_user", 255).nullable();
 			table.string("unifi_pass", 255).nullable();
 			table.string("unifi_site", 100).nullable().defaultTo("default");
@@ -50,11 +50,9 @@ const up = (knex) => {
 const down = (knex) => {
 	logger.info(`[${migrateName}] Migrating Down...`);
 
-	return knex.schema
-		.dropTable("agent")
-		.then(() => {
-			logger.info(`[${migrateName}] agent Table dropped`);
-		});
+	return knex.schema.dropTable("agent").then(() => {
+		logger.info(`[${migrateName}] agent Table dropped`);
+	});
 };
 
-export { up, down };
+export { down, up };

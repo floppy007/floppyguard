@@ -64,6 +64,7 @@ Allow the WireGuard agent script on remote nodes to update itself to the latest 
 
 | Version | Highlights |
 |---------|-----------|
+| v1.3.1  | WireGuard peer + interface CRUD, live-vs-conf drift fix, AllowedIPs sync bugfix, CI fix |
 | v1.2.2  | i18n (DE/FR/EN), WireGuard routing automation, agent self-update, Fail2Ban dashboard, CI workflow |
 | v1.2.1  | Install script, German translations, compiled locales |
 | v1.2.0  | WireGuard hub/spoke topology, link management, route planning |

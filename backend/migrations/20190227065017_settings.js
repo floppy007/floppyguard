@@ -13,13 +13,14 @@ const migrateName = "settings";
 const up = (knex) => {
 	logger.info(`[${migrateName}] Migrating Up...`);
 
-	return knex.schema.createTable('setting', (table) => {
-		table.string('id').notNull().primary();
-		table.string('name', 100).notNull();
-		table.string('description', 255).notNull();
-		table.string('value', 255).notNull();
-		table.json('meta').notNull();
-	})
+	return knex.schema
+		.createTable("setting", (table) => {
+			table.string("id").notNull().primary();
+			table.string("name", 100).notNull();
+			table.string("description", 255).notNull();
+			table.string("value", 255).notNull();
+			table.json("meta").notNull();
+		})
 		.then(() => {
 			logger.info(`[${migrateName}] setting Table created`);
 		});
@@ -36,4 +37,4 @@ const down = (_knex) => {
 	return Promise.resolve(true);
 };
 
-export { up, down };
+export { down, up };

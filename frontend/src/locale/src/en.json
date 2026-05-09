@@ -887,6 +887,33 @@
 	"wireguard.iface.unknown": {
 		"defaultMessage": "unknown"
 	},
+	"wireguard.iface.create": {
+		"defaultMessage": "New Interface"
+	},
+	"wireguard.iface.created": {
+		"defaultMessage": "Interface {name} created and active."
+	},
+	"wireguard.iface.name": {
+		"defaultMessage": "Name"
+	},
+	"wireguard.iface.name-hint": {
+		"defaultMessage": "Leave empty for auto-assign"
+	},
+	"wireguard.iface.address": {
+		"defaultMessage": "Address"
+	},
+	"wireguard.iface.port": {
+		"defaultMessage": "Listen Port"
+	},
+	"wireguard.iface.port-hint": {
+		"defaultMessage": "auto"
+	},
+	"wireguard.iface.delete-title": {
+		"defaultMessage": "Delete Interface"
+	},
+	"wireguard.iface.delete-confirm": {
+		"defaultMessage": "Are you sure you want to delete interface {name}? This will shut down the interface, remove the config file and all associated metadata. This action cannot be undone."
+	},
 	"wireguard.interfaces.none": {
 		"defaultMessage": "No interfaces detected."
 	},
@@ -994,6 +1021,15 @@
 	},
 	"wireguard.link.tunnel": {
 		"defaultMessage": "Tunnel"
+	},
+	"wireguard.link.delete": {
+		"defaultMessage": "Delete"
+	},
+	"wireguard.link.delete-title": {
+		"defaultMessage": "Delete Peer"
+	},
+	"wireguard.link.delete-confirm": {
+		"defaultMessage": "Are you sure you want to delete peer {name}? This will remove the peer from the live WireGuard interface and config file. This action cannot be undone."
 	},
 	"wireguard.links.clients": {
 		"defaultMessage": "Clients"

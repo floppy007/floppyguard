@@ -10,7 +10,7 @@ import userPermissionModel from "./models/user_permission.js";
 export const isSetup = async () => {
 	const row = await userModel.query().select("id").where("is_deleted", 0).first();
 	return row?.id > 0;
-}
+};
 
 /**
  * Creates a default admin users if one doesn't already exist in the database
@@ -44,18 +44,14 @@ const setupDefaultUser = async () => {
 			roles: ["admin"],
 		};
 
-		const user = await userModel
-			.query()
-			.insertAndFetch(data);
+		const user = await userModel.query().insertAndFetch(data);
 
-		await authModel
-			.query()
-			.insert({
-				user_id: user.id,
-				type: "password",
-				secret: initialAdminPassword,
-				meta: {},
-			});
+		await authModel.query().insert({
+			user_id: user.id,
+			type: "password",
+			secret: initialAdminPassword,
+			meta: {},
+		});
 
 		await userPermissionModel.query().insert({
 			user_id: user.id,
@@ -77,22 +73,16 @@ const setupDefaultUser = async () => {
  * @returns {Promise}
  */
 const setupDefaultSettings = async () => {
-	const row = await settingModel
-		.query()
-		.select("id")
-		.where({ id: "default-site" })
-		.first();
+	const row = await settingModel.query().select("id").where({ id: "default-site" }).first();
 
 	if (!row?.id) {
-		await settingModel
-			.query()
-			.insert({
-				id: "default-site",
-				name: "Default Site",
-				description: "What to show when Nginx is hit with an unknown Host",
-				value: "congratulations",
-				meta: {},
-			});
+		await settingModel.query().insert({
+			id: "default-site",
+			name: "Default Site",
+			description: "What to show when Nginx is hit with an unknown Host",
+			value: "congratulations",
+			meta: {},
+		});
 		logger.info("Default settings added");
 	}
 };
@@ -110,10 +100,7 @@ const setupCertbotPlugins = async () => {
 		return;
 	}
 
-	const certificates = await certificateModel
-		.query()
-		.where("is_deleted", 0)
-		.andWhere("provider", "letsencrypt");
+	const certificates = await certificateModel.query().where("is_deleted", 0).andWhere("provider", "letsencrypt");
 
 	if (certificates?.length) {
 		const plugins = [];

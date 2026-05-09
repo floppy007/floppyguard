@@ -887,6 +887,33 @@
 	"wireguard.iface.unknown": {
 		"defaultMessage": "inconnu"
 	},
+	"wireguard.iface.create": {
+		"defaultMessage": "Nouvelle interface"
+	},
+	"wireguard.iface.created": {
+		"defaultMessage": "Interface {name} créée et active."
+	},
+	"wireguard.iface.name": {
+		"defaultMessage": "Nom"
+	},
+	"wireguard.iface.name-hint": {
+		"defaultMessage": "Laisser vide pour attribution automatique"
+	},
+	"wireguard.iface.address": {
+		"defaultMessage": "Adresse"
+	},
+	"wireguard.iface.port": {
+		"defaultMessage": "Port d'écoute"
+	},
+	"wireguard.iface.port-hint": {
+		"defaultMessage": "automatique"
+	},
+	"wireguard.iface.delete-title": {
+		"defaultMessage": "Supprimer l'interface"
+	},
+	"wireguard.iface.delete-confirm": {
+		"defaultMessage": "Voulez-vous vraiment supprimer l'interface {name} ? L'interface sera arrêtée, le fichier de configuration et toutes les métadonnées associées seront supprimés. Cette action est irréversible."
+	},
 	"wireguard.interfaces.none": {
 		"defaultMessage": "Aucune interface détectée."
 	},
@@ -994,6 +1021,15 @@
 	},
 	"wireguard.link.tunnel": {
 		"defaultMessage": "Tunnel"
+	},
+	"wireguard.link.delete": {
+		"defaultMessage": "Supprimer"
+	},
+	"wireguard.link.delete-title": {
+		"defaultMessage": "Supprimer le pair"
+	},
+	"wireguard.link.delete-confirm": {
+		"defaultMessage": "Voulez-vous vraiment supprimer le pair {name} ? Le pair sera retiré de l'interface WireGuard active et du fichier de configuration. Cette action est irréversible."
 	},
 	"wireguard.links.clients": {
 		"defaultMessage": "Clients"
