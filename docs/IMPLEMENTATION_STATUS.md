@@ -103,16 +103,18 @@ Agents self-update automatically when the server script version changes:
 
 ## WireGuard — Still Missing
 
-- ~~Interface CRUD~~ ✔ v1.3.1 — `createInterface` + `deleteInterface` with wg-quick up/down, systemctl enable/disable, metadata cleanup
 - Restore preview before actual restore
 - Guided setup wizard
 - Audit history view (beyond last-apply)
 
-## WireGuard — Recently Completed
+## WireGuard — Completed
 
-- ~~Peer CRUD (add/modify/delete peers)~~ ✔ v1.3.1 — `createPeer`, `deletePeer`, `updatePeer` with live `wg set`, conf rewrite, metadata cleanup
-- ~~Config file generation / QR code / client export~~ ✔ v1.2.4
-- ~~`wg set` / conf-write / reload (live config writes)~~ ✔ v1.3.1 — live AllowedIPs sync + drift detection
+- Peer CRUD ✔ v1.3.1 — `createPeer`, `deletePeer`, `updatePeer` with live `wg set`, conf rewrite, metadata cleanup
+- Interface CRUD ✔ v1.3.1 — `createInterface`, `deleteInterface` with wg-quick up/down, systemctl enable/disable
+- Interface selector ✔ v1.3.1 — tunnel creation supports all interfaces, not just wg0
+- Live-vs-conf drift detection ✔ v1.3.1 — `syncHubConf` auto-corrects discrepancies
+- Config file generation / QR code / client export ✔ v1.2.4
+- Live config writes (`wg set` + conf-write) ✔ v1.3.1
 
 ## UI Pages
 
@@ -129,7 +131,7 @@ Agents self-update automatically when the server script version changes:
 | Users | Live |
 | Settings | Live |
 | Audit Log | Live |
-| `/wireguard` | Live (read + metadata + routing automation + agent management) |
+| `/wireguard` | Live (full CRUD + routing automation + agent management) |
 | `/gateway` | Live (status only) |
 | `/platform` | Live (status only) |
 
