@@ -1,6 +1,6 @@
 # FloppyGuard Technical Roadmap
 
-Stand: 2026-05-04
+Stand: 2026-05-09
 
 ## Was bereits fertig ist
 
@@ -16,33 +16,30 @@ Stand: 2026-05-04
 - **Kernel Route Sync** — `sync_routes()` im Loop-Script addiert fehlende ip-Routes
   nach `wg syncconf` (wg syncconf berührt die Kernel-Routing-Tabelle nicht)
 - CI-Pipeline (Backend Lint + Test, Frontend Lint + Build, OpenAPI Lint)
-- **Peer CRUD** (v1.3.1) — `deletePeer` + `updatePeer` mit Live-`wg set`, Conf-Rewrite, Metadata-Cleanup und Safety-Backup
+- **Peer CRUD** (v1.3.1) — `createPeer`, `deletePeer`, `updatePeer` mit Live-`wg set`, Conf-Rewrite, Metadata-Cleanup und Safety-Backup
+- **Interface CRUD** (v1.3.1) — `createInterface`, `deleteInterface` mit wg-quick up/down, systemctl enable/disable, Keypair-Generierung
 - **Live-vs-Conf Drift-Fix** (v1.3.1) — `syncHubConf` vergleicht jetzt Live-State gegen Conf und korrigiert automatisch
+- **Config-Generierung + QR-Code / Client-Export** (v1.2.4)
+- **Interface Selector** (v1.3.1) — Tunnel-Erstellung unterstützt alle Interfaces, nicht nur wg0
 
 ## Empfohlene Reihenfolge
 
-1. WireGuard Live-Write-Layer (P1)
+1. ~~WireGuard Live-Write-Layer (P1)~~ — großteils erledigt (v1.3.1)
 2. Gateway + Platform an Domain-Modell koppeln (P2)
 3. Tests und Betriebshärtung (P3)
 
 ---
 
-## P1 — WireGuard Live-Write-Layer
+## P1 — WireGuard Live-Write-Layer (großteils erledigt)
 
 Ziel: echte WireGuard-Konfigurationsänderungen mit Diff, Backup, Rollback.
 
 - ~~Peer CRUD (add/modify/delete peers via `wg set` + conf-write)~~ ✔ v1.3.1
-- ~~Interface CRUD~~ ✔ v1.3.1
+- ~~Interface CRUD (create/delete interfaces via wg-quick)~~ ✔ v1.3.1
 - ~~Config-Generierung + QR-Code / Client-Export~~ ✔ v1.2.4
 - Restore-Preview vor echtem Restore
 - Audit-Historienansicht ausbauen
 - Klare Trennung: `metadata-write` / `config-write` / `remote-apply`
-
-Betroffene Dateien:
-- `backend/internal/wireguard.js`
-- `backend/internal/wireguard-plan.js`
-- `backend/routes/wireguard.js`
-- `frontend/src/pages/WireGuard/index.tsx`
 
 ---
 
@@ -51,10 +48,6 @@ Betroffene Dateien:
 - Gateway auf importierte/exportierte Netze, fehlende Rückwege, NAT-Kandidaten ausrichten
 - Platform auf reale Capabilities und nächste Schritte ausrichten
 - Statuskarten an `capabilities` koppeln
-
-Betroffene Dateien:
-- `frontend/src/pages/Gateway/index.tsx`
-- `frontend/src/pages/Platform/index.tsx`
 
 ---
 
