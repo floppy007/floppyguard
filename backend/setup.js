@@ -144,7 +144,7 @@ const setupLogrotation = () => {
 
 	const runLogrotate = async () => {
 		try {
-			await utils.exec("logrotate /etc/logrotate.d/floppyguard");
+			await utils.execFile("logrotate", ["/etc/logrotate.d/floppyguard"]);
 			logger.info("Logrotate completed.");
 		} catch (e) {
 			logger.warn(e);

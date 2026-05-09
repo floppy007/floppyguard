@@ -642,7 +642,7 @@ const internalCertificate = {
 		}, 10000);
 
 		try {
-			const result = await utils.exec(`openssl pkey -in ${filepath} -check -noout 2>&1 `);
+			const result = await utils.execFile("openssl", ["pkey", "-in", filepath, "-check", "-noout"]);
 			clearTimeout(failTimeout);
 			if (!result.toLowerCase().includes("key is valid")) {
 				throw new error.ValidationError(`Result Validation Error: ${result}`);
@@ -1118,7 +1118,7 @@ const internalCertificate = {
 
 		try {
 			const result = await utils.execFile(certbotCommand, args, adds.opts);
-			await utils.exec(`rm -f '${letsencryptRoot}/credentials/credentials-${certificate.id}' || true`);
+			await utils.execFile("rm", ["-f", `${letsencryptRoot}/credentials/credentials-${certificate.id}`]).catch(() => {});
 			logger.info(result);
 			return result;
 		} catch (err) {

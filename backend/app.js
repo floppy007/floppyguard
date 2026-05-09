@@ -47,6 +47,7 @@ app.use((_, res, next) => {
 		"X-XSS-Protection": "1; mode=block",
 		"X-Content-Type-Options": "nosniff",
 		"X-Frame-Options": x_frame_options,
+		"Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; object-src 'none'; frame-ancestors 'none'",
 		"Cache-Control": "no-cache, no-store, max-age=0, must-revalidate",
 		Pragma: "no-cache",
 		Expires: 0,

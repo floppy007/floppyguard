@@ -2,6 +2,7 @@ import express from "express";
 import internalAgent from "../internal/agent.js";
 import error from "../lib/error.js";
 import jwtdecode from "../lib/express/jwt-decode.js";
+import requireAdmin from "../lib/express/require-admin.js";
 import { debug, express as logger } from "../logger.js";
 
 const router = express.Router({ caseSensitive: true, strict: true, mergeParams: true });
@@ -26,6 +27,7 @@ router
 		res.sendStatus(204);
 	})
 	.all(jwtdecode())
+	.all(requireAdmin())
 	.get(async (req, res, next) => {
 		try {
 			const agents = await internalAgent.getAll();
@@ -56,6 +58,7 @@ router
 		res.sendStatus(204);
 	})
 	.all(jwtdecode())
+	.all(requireAdmin())
 	.get(async (req, res, next) => {
 		try {
 			const agent = await internalAgent.getById(Number.parseInt(req.params.id, 10));
@@ -94,6 +97,7 @@ router
 		res.sendStatus(204);
 	})
 	.all(jwtdecode())
+	.all(requireAdmin())
 	.post(async (req, res, next) => {
 		try {
 			const result = await internalAgent.resetToken(Number.parseInt(req.params.id, 10));
@@ -115,6 +119,7 @@ router
 		res.sendStatus(204);
 	})
 	.all(jwtdecode())
+	.all(requireAdmin())
 	.get(async (req, res, next) => {
 		try {
 			const id = Number.parseInt(req.params.id, 10);
@@ -177,7 +182,8 @@ router
 		try {
 			const agentToken = extractBearerToken(req);
 			if (!agentToken) return next(new error.AuthError("Bearer token required", "error.auth"));
-			const script = await internalAgent.getLoopScript(agentToken);
+			const { script, signature } = await internalAgent.getLoopScript(agentToken);
+			res.setHeader("X-Script-Signature", signature);
 			res.status(200).type("text/plain").send(script);
 		} catch (err) {
 			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);

@@ -6,9 +6,14 @@ const hostReportMock = vi.fn();
 const statusMock = vi.fn();
 const navigateMock = vi.fn();
 
+const fail2banMock = vi.fn();
+const unbanMock = vi.fn();
+
 vi.mock("src/hooks", () => ({
 	useHostReport: () => hostReportMock(),
 	useWireGuardStatus: () => statusMock(),
+	useFail2BanStatus: () => fail2banMock(),
+	useUnbanIp: () => unbanMock(),
 }));
 
 vi.mock("react-router-dom", async () => {
@@ -131,14 +136,16 @@ describe("Platform page", () => {
 	beforeEach(() => {
 		hostReportMock.mockReturnValue({ data: { proxy: 3 } });
 		statusMock.mockReturnValue({ data: buildStatus() });
+		fail2banMock.mockReturnValue({ data: undefined, isLoading: false });
+		unbanMock.mockReturnValue({ mutate: vi.fn(), isPending: false });
 	});
 
 	it("renders mixed client and site links with their respective runtime labels", () => {
 		render(<Platform />);
 		expect(screen.getByText("road-warrior")).toBeTruthy();
 		expect(screen.getByText("site-a")).toBeTruthy();
-		expect(screen.getByText(/client · wg0 · peer\.example\.com:51820/)).toBeTruthy();
-		expect(screen.getByText(/site-to-site · wg1/)).toBeTruthy();
+		expect(screen.getByText(/wg0 · peer\.example\.com:51820/)).toBeTruthy();
+		expect(screen.getByText("wg1")).toBeTruthy();
 		expect(screen.getByText("client 1")).toBeTruthy();
 		expect(screen.getByText("site 1")).toBeTruthy();
 		expect(screen.getByText("hub 0")).toBeTruthy();
@@ -146,6 +153,6 @@ describe("Platform page", () => {
 		expect(screen.getAllByText("Validate").length).toBeGreaterThan(0);
 		expect(screen.getAllByText("Client").length).toBeGreaterThan(0);
 		expect(screen.getAllByText("Site").length).toBeGreaterThan(0);
-		expect(screen.getAllByText("Return path missing").length).toBeGreaterThan(0);
+		expect(screen.getAllByText("Missing Return Routes").length).toBeGreaterThan(0);
 	});
 });

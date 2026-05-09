@@ -12,5 +12,9 @@ docker/dev/resolv.conf
 __pycache__/
 *.pyc
 frontend/package-lock.json
+.env
+.env.*
+!.env.example
+.gstack/
 CLAUDE.md
 AGENTS.md

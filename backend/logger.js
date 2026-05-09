@@ -16,6 +16,7 @@ const importer = new signale.Signale({ scope: "Importer ", ...opts });
 const setup = new signale.Signale({ scope: "Setup    ", ...opts });
 const ipRanges = new signale.Signale({ scope: "IP Ranges", ...opts });
 const remoteVersion = new signale.Signale({ scope: "Remote Version", ...opts });
+const wireguard = new signale.Signale({ scope: "WireGuard", ...opts });
 
 const debug = (logger, ...args) => {
 	if (isDebugMode()) {
@@ -23,4 +24,4 @@ const debug = (logger, ...args) => {
 	}
 };
 
-export { access, certbot, debug, express, global, importer, ipRanges, migrate, nginx, remoteVersion, setup, ssl };
+export { access, certbot, debug, express, global, importer, ipRanges, migrate, nginx, remoteVersion, setup, ssl, wireguard };

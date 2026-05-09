@@ -89,8 +89,8 @@ describe("Gateway page", () => {
 
 	it("renders link warnings and next actions", () => {
 		render(<Gateway />);
-		expect(screen.getByText("warning: nat-likely-needed")).toBeTruthy();
-		expect(screen.getByText("next: define-return-path-mode")).toBeTruthy();
+		expect(screen.getByText(/NAT likely needed/)).toBeTruthy();
+		expect(screen.getByText(/Define return path mode/)).toBeTruthy();
 	});
 
 	it("renders reachability badge derived from route hints", () => {

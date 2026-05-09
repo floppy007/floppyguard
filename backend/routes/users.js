@@ -2,9 +2,9 @@ import express from "express";
 import internal2FA from "../internal/2fa.js";
 import internalUser from "../internal/user.js";
 import Access from "../lib/access.js";
-import { isCI } from "../lib/config.js";
 import errs from "../lib/error.js";
 import jwtdecode from "../lib/express/jwt-decode.js";
+import requireAdmin from "../lib/express/require-admin.js";
 import userIdFromMe from "../lib/express/user-id-from-me.js";
 import apiValidator from "../lib/validator/api.js";
 import validator from "../lib/validator/index.js";
@@ -31,9 +31,9 @@ router
 	/**
 	 * GET /api/users
 	 *
-	 * Retrieve all users
+	 * Retrieve all users (admin only)
 	 */
-	.get(async (req, res, next) => {
+	.get(requireAdmin(), async (req, res, next) => {
 		try {
 			const data = await validator(
 				{
@@ -98,29 +98,10 @@ router
 	})
 
 	/**
-	 * DELETE /api/users
-	 *
-	 * Deletes ALL users. This is NOT GENERALLY AVAILABLE!
-	 * (!) It is NOT an authenticated endpoint.
-	 * (!) Only CI should be able to call this endpoint. As a result,
-	 *
-	 * it will only work when the env vars DEBUG=true and CI=true
-	 *
-	 * Do NOT set those env vars in a production environment!
+	 * DELETE /api/users — disabled in production.
+	 * Use the dedicated test harness for CI teardown.
 	 */
-	.delete(async (_, res, next) => {
-		if (isCI()) {
-			try {
-				logger.warn("Deleting all users - CI environment detected, allowing this operation");
-				await internalUser.deleteAll();
-				res.status(200).send(true);
-			} catch (err) {
-				debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
-				next(err);
-			}
-			return;
-		}
-
+	.delete((_, __, next) => {
 		next(new errs.ItemNotFoundError());
 	});
 
