@@ -70,7 +70,17 @@ function buildBody(data?: Record<string, any>): string | undefined {
 }
 
 async function processResponse(response: Response) {
-	const payload = await response.json();
+	let payload: any;
+	try {
+		payload = await response.json();
+	} catch {
+		if (response.status === 401) {
+			AuthStore.clear();
+			queryClient.clear();
+			window.location.reload();
+		}
+		throw new Error("HTTP " + response.status + " " + response.statusText);
+	}
 	if (!response.ok) {
 		if (response.status === 401) {
 			// Force logout user and reload the page if Unauthorized
@@ -106,13 +116,14 @@ export async function get(args: GetArgs, abortController?: AbortController) {
 export async function download({ url, params }: GetArgs, filename = "download.file") {
 	const headers = buildAuthHeader();
 	const res = await fetch(buildUrl({ url, params }), { headers });
+	if (!res.ok) throw new Error("Download failed: HTTP " + res.status);
 	const bl = await res.blob();
 	const u = window.URL.createObjectURL(bl);
 	const a = document.createElement("a");
 	a.href = u;
 	a.download = filename;
 	a.click();
-	window.URL.revokeObjectURL(url);
+	window.URL.revokeObjectURL(u);
 }
 
 interface PostArgs {

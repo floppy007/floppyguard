@@ -103,6 +103,7 @@ export default function Login() {
 									value={identity}
 									onChange={(e) => setIdentity(e.target.value)}
 									autoComplete="username"
+									required
 								/>
 							</div>
 							<div className="mb-4">
@@ -116,6 +117,7 @@ export default function Login() {
 									value={secret}
 									onChange={(e) => setSecret(e.target.value)}
 									autoComplete="current-password"
+									required
 								/>
 							</div>
 							<button type="submit" className="btn btn-primary w-100" disabled={isSubmitting}>

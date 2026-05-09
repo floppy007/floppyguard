@@ -502,6 +502,7 @@ export interface Agent {
 	regToken?: string | null;
 	mgmtUrl: string | null;
 	wgLinkName: string | null;
+	agentVersion: string | null;
 	services: Array<{ name: string; url: string }>;
 	// UniFi mode fields
 	unifiUrl: string | null;

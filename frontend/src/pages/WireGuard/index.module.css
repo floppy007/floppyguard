@@ -1,3 +1,17 @@
+:root {
+	--wg-type-site: #6366f1;
+	--wg-type-hub: #06b6d4;
+	--wg-type-client: #10b981;
+	--wg-type-unclassified: #94a3b8;
+}
+
+[data-bs-theme="dark"] {
+	--wg-type-site: #818cf8;
+	--wg-type-hub: #22d3ee;
+	--wg-type-client: #34d399;
+	--wg-type-unclassified: #cbd5e1;
+}
+
 /* Tabs */
 .tabs {
 	display: flex;
@@ -151,4 +165,9 @@
 /* Peer table */
 .peerTable {
 	font-size: 0.8125rem;
+}
+
+@media (max-width: 767.98px) {
+	.ifaceGrid { grid-template-columns: 1fr; }
+	.tabs { overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; }
 }

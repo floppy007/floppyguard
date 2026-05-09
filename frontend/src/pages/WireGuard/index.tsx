@@ -267,6 +267,7 @@ function TopologyMap({ links, interfaces }: { links: WireGuardLink[]; interfaces
 		"site-to-site": "#6366f1",
 		"hub-link": "#06b6d4",
 		client: "#10b981",
+		unclassified: "#94a3b8",
 	};
 
 	const activeLinkCount = links.filter((l) => l.active).length;
@@ -482,9 +483,9 @@ function TopologyMap({ links, interfaces }: { links: WireGuardLink[]; interfaces
 						className={styles.topoLegendItem}
 						style={{ marginLeft: "auto", opacity: 0.55, fontSize: "0.75rem" }}
 					>
-						<span style={{ color: "#6366f1" }}>■</span>&nbsp;
+						<span style={{ color: typeColorMap["site-to-site"] }}>■</span>&nbsp;
 						{intl.formatMessage({ id: "wireguard.topo.legend-exported" })}&nbsp;&nbsp;
-						<span style={{ color: "#94a3b8" }}>■</span>&nbsp;
+						<span style={{ color: typeColorMap["unclassified"] }}>■</span>&nbsp;
 						{intl.formatMessage({ id: "wireguard.topo.legend-imported" })}
 					</div>
 				</div>
@@ -644,6 +645,14 @@ function AgentSection({ link, agents }: { link: WireGuardLink; agents: Agent[] }
 									{timeAgo(agent.lastSeen)}
 								</div>
 							)}
+							{agent.agentVersion && (
+								<div className="small">
+									<span className="text-secondary me-1">
+										{intl.formatMessage({ id: "wireguard.agent.version" })}
+									</span>
+									v{agent.agentVersion}
+								</div>
+							)}
 							{agent.services && agent.services.length > 0
 								? agent.services.map((svc) => (
 										<div key={svc.url} className="small">
@@ -780,7 +789,6 @@ function AgentSection({ link, agents }: { link: WireGuardLink; agents: Agent[] }
 										<div className="d-flex align-items-center gap-2">
 											<code
 												className="flex-grow-1 text-truncate small bg-dark text-white px-2 py-1 rounded"
-												style={{ fontFamily: "monospace" }}
 											>
 												{oneliner}
 											</code>
@@ -1028,6 +1036,14 @@ function LinkCard({ link, missingReturnRoutes, natCandidates, planningInterfaces
 								⚠ {fmtWarning(w)}
 							</div>
 						))}
+					</div>
+				)}
+
+				{matchedAgent?.status === "active" && matchedAgent.agentVersion && (
+					<div className="d-flex flex-wrap gap-2 align-items-center mt-2">
+						<span className="badge bg-secondary-lt" title={intl.formatMessage({ id: "wireguard.agent.version" })}>
+							Agent v{matchedAgent.agentVersion}
+						</span>
 					</div>
 				)}
 
@@ -1961,8 +1977,8 @@ const WireGuard = () => {
 	const hub = data.hub;
 	const links = data.links || [];
 	const interfaces = data.interfaces;
-	const missingReturnRoutes = data.routes.missingReturnRoutes || [];
-	const natCandidates = data.routes.natCandidates || [];
+	const missingReturnRoutes = data.routes?.missingReturnRoutes || [];
+	const natCandidates = data.routes?.natCandidates || [];
 	const nextActions = data.nextActions || [];
 	const globalWarnings = (data.warnings || []) as (string | StructuredWarning)[];
 	const conflictWarnings = globalWarnings.filter(
@@ -2112,7 +2128,7 @@ const WireGuard = () => {
 										className="form-control"
 										value={newName}
 										onChange={(e) => setNewName(e.target.value)}
-										placeholder="z.B. iPhone, Büro, Homelab"
+										placeholder={intl.formatMessage({ id: "wireguard.create.name-placeholder" })}
 									/>
 								</div>
 								<div className="col-md-3">
@@ -2183,7 +2199,7 @@ const WireGuard = () => {
 											onChange={(e) => setNewImported(e.target.value)}
 											placeholder="10.10.0.0/24, 192.168.10.0/24"
 										/>
-										<div className="form-hint mt-1">Komma-separiert. Leer = nur Tunnel-Subnet.</div>
+										<div className="form-hint mt-1">{intl.formatMessage({ id: "wireguard.create.allowed-ips-hint" })}</div>
 									</div>
 								)}
 								<div className="col-12">
@@ -2585,7 +2601,7 @@ const WireGuard = () => {
 									<tbody>
 										{activePeers.length === 0 ? (
 											<tr>
-												<td colSpan={6} className="text-secondary">
+												<td colSpan={7} className="text-secondary">
 													{intl.formatMessage({ id: "wireguard.routing.no-active-peers" })}
 												</td>
 											</tr>

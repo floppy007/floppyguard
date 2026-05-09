@@ -1,9 +1,34 @@
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { promises as fs } from "node:fs";
+import { networkInterfaces } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { wireguard as logger } from "../logger.js";
 
 const execFileAsync = promisify(execFile);
+
+// ── Module-level mutex for serializing write operations ─────────────────────
+// Node.js is single-threaded but async operations interleave. This mutex
+// ensures that createPeer, deletePeer, and metadata writes don't overlap,
+// preventing race conditions (duplicate tunnel IPs, lost metadata patches).
+let _writeLock = Promise.resolve();
+function withWriteLock(fn) {
+	const next = _writeLock.then(fn, fn);
+	_writeLock = next.catch(() => {});
+	return next;
+}
+
+/**
+ * Derive a WireGuard public key from a private key using stdin piping.
+ * Avoids shell interpolation entirely — no command injection possible.
+ */
+function derivePublicKey(privateKey) {
+	return execFileSync(getWireGuardBin(), ["pubkey"], {
+		input: `${privateKey}\n`,
+		encoding: "utf8",
+	}).trim();
+}
+
 const ACTIVE_HANDSHAKE_WINDOW = 180;
 const LINK_TYPES = new Set(["client", "site-to-site", "hub-link", "imported", "unknown"]);
 const INTERFACE_ROLES = new Set(["client-hub", "site-to-site", "hub-link", "auxiliary", "unknown"]);
@@ -98,10 +123,12 @@ async function backupMetadataStore(store = null) {
 }
 
 async function applyMetadataPatch(patch = {}) {
-	const store = await readMetadataStore();
-	const nextStore = mergeMetadataStorePatch(store, patch);
-	await writeMetadataStore(nextStore);
-	return nextStore;
+	return withWriteLock(async () => {
+		const store = await readMetadataStore();
+		const nextStore = mergeMetadataStorePatch(store, patch);
+		await writeMetadataStore(nextStore);
+		return nextStore;
+	});
 }
 
 function sanitizeStringArray(value) {
@@ -258,7 +285,8 @@ async function getDump() {
 	try {
 		const { stdout } = await execFileAsync(getWireGuardBin(), ["show", "all", "dump"]);
 		return stdout;
-	} catch {
+	} catch (err) {
+		logger.debug(`wg show all dump failed: ${err.message}`);
 		return "";
 	}
 }
@@ -344,8 +372,9 @@ function classifyLinkType(allowedIps, ifaceName) {
 	const privateNetworks = allowedIps.filter((entry) => isPrivateNetwork(entry));
 	const networkRoutes = privateNetworks.filter((entry) => !isHostRoute(entry));
 	const hostRoutes = privateNetworks.filter((entry) => isHostRoute(entry));
+	// On wg0 (hub), peers with at most 1 network route are considered clients
+	// (they bring their own subnet but don't act as site-to-site links)
 	if (ifaceName === "wg0" && networkRoutes.length <= 1) return "client";
-	if (ifaceName === "wg0" && networkRoutes.length === 0 && hostRoutes.length <= 2) return "client";
 	if (networkRoutes.length >= 2) return "hub-link";
 	if (networkRoutes.length >= 1) return "site-to-site";
 	if (hostRoutes.length > 0) return "client";
@@ -423,7 +452,8 @@ async function getRoutes() {
 			(route) => route.destination !== "default" && isPrivateNetwork(route.destination),
 		);
 		return { all: parsed, wireguard, privateRoutes };
-	} catch {
+	} catch (err) {
+		logger.debug(`ip route show failed: ${err.message}`);
 		return { all: [], wireguard: [], privateRoutes: [] };
 	}
 }
@@ -728,15 +758,15 @@ async function _rotatePeerPublicKey(ifaceName, oldPubKey, newPubKey, peerAllowed
 	const wgBin = getWireGuardBin();
 	try {
 		await execFileAsync(wgBin, ["set", ifaceName, "peer", oldPubKey, "remove"]);
-	} catch {
-		/* not active */
+	} catch (err) {
+		logger.debug(`Failed to remove old peer ${oldPubKey.slice(0, 8)}… from ${ifaceName}: ${err.message}`);
 	}
 	try {
 		const args = ["set", ifaceName, "peer", newPubKey];
 		if (peerAllowedIps.length > 0) args.push("allowed-ips", peerAllowedIps.join(","));
 		await execFileAsync(wgBin, args);
-	} catch {
-		/* ignore */
+	} catch (err) {
+		logger.debug(`Failed to add rotated peer ${newPubKey.slice(0, 8)}… on ${ifaceName}: ${err.message}`);
 	}
 	return true;
 }
@@ -766,10 +796,7 @@ async function generatePeerConfig(linkId) {
 	const wgBin = getWireGuardBin();
 	const { stdout: privKeyRaw } = await execFileAsync(wgBin, ["genkey"]);
 	const privateKey = privKeyRaw.trim();
-	const { execSync } = await import("node:child_process");
-	const newPubKey = execSync(`printf '%s\\n' ${JSON.stringify(privateKey)} | ${wgBin} pubkey`)
-		.toString()
-		.trim();
+	const newPubKey = derivePublicKey(privateKey);
 
 	// Rotate the peer's public key on the hub
 	const oldPubKey = link.peerPublicKey;
@@ -803,9 +830,11 @@ async function generatePeerConfig(linkId) {
 	}
 
 	// DNS: link-level > interface-level > env fallback
+	// After key rotation the link ID changes; use the new ID to find metadata
+	const effectiveLinkId = (oldPubKey && oldPubKey !== newPubKey) ? `${link.interfaceName}:${newPubKey}` : linkId;
 	const store = await readMetadataStore();
 	const ifaceMeta = store.interfaces[link.interfaceName] || {};
-	const linkMeta = store.links[linkId] || store.links[`${link.interfaceName}:${link.peerPublicKey}`] || {};
+	const linkMeta = store.links[effectiveLinkId] || store.links[linkId] || {};
 	const dnsServers = linkMeta.dns?.length
 		? linkMeta.dns
 		: ifaceMeta.dns?.length
@@ -849,6 +878,7 @@ async function generatePeerConfigQr(linkId) {
 }
 
 async function getStatus() {
+	_ensureBandwidthPolling();
 	const metadataStore = await readMetadataStore();
 	const wireGuardConfDir = getWireGuardConfDir();
 	const wireGuardBin = getWireGuardBin();
@@ -906,6 +936,31 @@ async function getStatus() {
 	const interfaces = interfaceStatuses.map((item) => enrichInterfaceStatus(item, links));
 	const hub = interfaces.find((item) => item.name === "wg0") || null;
 	const warnings = deriveGlobalWarnings(interfaces, routeAnalysis);
+
+	// ── AllowedIPs conflict detection ─────────────────────────────────────────
+	// When two or more peers claim the same subnet in AllowedIPs, WireGuard
+	// silently assigns it to the last peer processed — breaking routing for
+	// all others.  Detect this and warn prominently.
+	const subnetToPeers = new Map(); // subnet → [{linkId, name}]
+	for (const link of links) {
+		for (const cidr of link.allowedIps || []) {
+			if (isHostRoute(cidr)) continue; // /32 and /128 tunnel IPs are expected per-peer
+			if (!subnetToPeers.has(cidr)) subnetToPeers.set(cidr, []);
+			subnetToPeers.get(cidr).push({ id: link.id, name: link.name });
+		}
+	}
+	for (const [subnet, claimants] of subnetToPeers) {
+		if (claimants.length > 1) {
+			const peerNames = claimants.map((c) => c.name);
+			warnings.push({
+				code: "allowedips-conflict",
+				subnet,
+				peers: peerNames,
+				message: `Subnet ${subnet} claimed by multiple peers - only one peer can route this subnet`,
+			});
+		}
+	}
+
 	const nextActions = deriveGlobalNextActions(interfaces, links, routeAnalysis);
 	const totalPeers = interfaces.reduce((sum, item) => sum + item.peerCount, 0);
 	const activePeers = interfaces.reduce((sum, item) => sum + item.activePeerCount, 0);
@@ -960,6 +1015,28 @@ async function getStatus() {
 //   AllowedIPs = <existing /32+/128 tunnel IPs> + <metadata importedNetworks>
 // Peers without a metadata entry are left unchanged.
 // PostUp/PostDown ip-route lines are rebuilt from the union of all effective AllowedIPs.
+
+/**
+ * Discover non-WireGuard network interfaces that carry private IPv4 subnets.
+ * Returns an array of { name, address, netmask, cidr } for each qualifying address.
+ * Used to auto-generate MASQUERADE rules so wg0-sourced traffic can exit via
+ * physical interfaces (e.g. eth1 for a LAN behind the hub).
+ */
+function _getPrivatePhysicalInterfaces() {
+	const nics = networkInterfaces();
+	const result = [];
+	for (const [name, addrs] of Object.entries(nics)) {
+		if (name.startsWith("wg") || name === "lo") continue;
+		for (const addr of addrs || []) {
+			if (addr.family !== "IPv4" || addr.internal) continue;
+			if (!isPrivateNetwork(addr.address)) continue;
+			// Derive CIDR from netmask prefix length
+			const prefix = addr.cidr ? addr.cidr : `${addr.address}/${addr.netmask}`;
+			result.push({ name, address: addr.address, cidr: prefix });
+		}
+	}
+	return result;
+}
 
 function _parsePeersFromConf(lines) {
 	const peers = new Map(); // pubkey → current AllowedIPs string[]
@@ -1022,7 +1099,7 @@ function _buildPeerUpdates(peerMap, linksMeta, ifaceName) {
 	return updates;
 }
 
-function _rewriteHubConf(lines, ifaceName, peerUpdates, allRouteNets) {
+function _rewriteHubConf(lines, ifaceName, peerUpdates, allRouteNets, masqueradeIfaces = []) {
 	let inPeer = false;
 	let currentPubKey = null;
 	const out = [];
@@ -1053,20 +1130,47 @@ function _rewriteHubConf(lines, ifaceName, peerUpdates, allRouteNets) {
 			const isUp = t.startsWith("PostUp");
 			const key = isUp ? "PostUp" : "PostDown";
 			const verb = isUp ? "add" : "del";
+			const iptVerb = isUp ? "-A" : "-D";
 			const value = rawLine.slice(rawLine.indexOf("=") + 1).trim();
 			const routeRe = new RegExp(`^ip route (?:add|del) \\S+ dev ${ifaceName}`);
+			const masqRe = /^iptables -t nat -[AD] POSTROUTING -o \S+ -s \S+ -j MASQUERADE$/;
 			const nonRoute = value
 				.split(";")
 				.map((s) => s.trim())
-				.filter((p) => p && !routeRe.test(p));
+				.filter((p) => p && !routeRe.test(p) && !masqRe.test(p));
 			const routeCmds = [...allRouteNets]
 				.sort()
 				.map((net) => `ip route ${verb} ${net} dev ${ifaceName} 2>/dev/null || true`);
-			out.push(`${key} = ${[...nonRoute, ...routeCmds].join("; ")}`);
+			// Auto-MASQUERADE: for each physical interface with a private IP,
+			// ensure wg-sourced traffic going out that interface gets NATed.
+			const masqCmds = [];
+			for (const nic of masqueradeIfaces) {
+				masqCmds.push(`iptables -t nat ${iptVerb} POSTROUTING -o ${nic.name} -s ${nic.cidr} -j MASQUERADE`);
+			}
+			out.push(`${key} = ${[...nonRoute, ...routeCmds, ...masqCmds].join("; ")}`);
 			continue;
 		}
 		out.push(rawLine);
 	}
+
+	// If no PostUp/PostDown existed in the original config, inject them before the first [Peer]
+	const hasPostUp = lines.some((l) => l.trim().startsWith("PostUp"));
+	if (!hasPostUp && (allRouteNets.size > 0 || masqueradeIfaces.length > 0)) {
+		const routeUpCmds = [...allRouteNets].sort().map((net) => `ip route add ${net} dev ${ifaceName} 2>/dev/null || true`);
+		const routeDownCmds = [...allRouteNets].sort().map((net) => `ip route del ${net} dev ${ifaceName} 2>/dev/null || true`);
+		const masqUpCmds = masqueradeIfaces.map((nic) => `iptables -t nat -A POSTROUTING -o ${nic.name} -s ${nic.cidr} -j MASQUERADE`);
+		const masqDownCmds = masqueradeIfaces.map((nic) => `iptables -t nat -D POSTROUTING -o ${nic.name} -s ${nic.cidr} -j MASQUERADE 2>/dev/null || true`);
+		const postUp = [...routeUpCmds, ...masqUpCmds].join("; ");
+		const postDown = [...routeDownCmds, ...masqDownCmds].join("; ");
+		// Insert before the first [Peer] line
+		const peerIdx = out.findIndex((l) => l.trim() === "[Peer]");
+		const insertAt = peerIdx > 0 ? peerIdx : out.length;
+		const newLines = [];
+		if (postUp) newLines.push(`PostUp = ${postUp}`);
+		if (postDown) newLines.push(`PostDown = ${postDown}`);
+		out.splice(insertAt, 0, ...newLines);
+	}
+
 	return out.join("\n");
 }
 
@@ -1171,8 +1275,8 @@ async function deletePeer(linkId) {
 	const wgBin = getWireGuardBin();
 	try {
 		await execFileAsync(wgBin, ["set", ifaceName, "peer", publicKey, "remove"]);
-	} catch {
-		// Peer may not be active — continue with conf/metadata cleanup
+	} catch (err) {
+		logger.debug(`Peer ${publicKey.slice(0, 8)}… not active on ${ifaceName}, skipping live removal: ${err.message}`);
 	}
 
 	// ── Remove from config file ──
@@ -1181,8 +1285,8 @@ async function deletePeer(linkId) {
 		const confText = await fs.readFile(confPath, "utf8");
 		const newConf = _removePeerFromConf(confText, publicKey);
 		await fs.writeFile(confPath, newConf, "utf8");
-	} catch {
-		// Config file may not exist — metadata cleanup still proceeds
+	} catch (err) {
+		logger.warn(`Could not update conf for ${ifaceName} during peer deletion: ${err.message}`);
 	}
 
 	// ── Remove exclusive routes ──
@@ -1201,8 +1305,8 @@ async function deletePeer(linkId) {
 			if (!otherNets.has(net)) {
 				try {
 					await execFileAsync(ipBin, ["route", "del", net, "dev", ifaceName]);
-				} catch {
-					/* route may already be gone */
+				} catch (err) {
+					logger.debug(`Route del ${net} dev ${ifaceName}: ${err.message}`);
 				}
 			}
 		}
@@ -1296,7 +1400,8 @@ async function syncHubConf(metadata, ifaceName = "wg0") {
 	let liveDump;
 	try {
 		liveDump = parseDump(await getDump());
-	} catch {
+	} catch (err) {
+		logger.debug(`Live dump for sync failed: ${err.message}`);
 		liveDump = new Map();
 	}
 	const liveIface = liveDump.get(ifaceName);
@@ -1324,7 +1429,24 @@ async function syncHubConf(metadata, ifaceName = "wg0") {
 		}
 	}
 
-	const newText = _rewriteHubConf(lines, ifaceName, peerUpdates, allRouteNets);
+	// Discover physical interfaces with private IPs for auto-MASQUERADE.
+	// wg0 peers that route traffic to subnets reachable via eth1/ens* etc.
+	// need MASQUERADE so return packets find their way back through the tunnel.
+	const physicalIfaces = _getPrivatePhysicalInterfaces();
+	// Build a deduplicated list: one entry per (nicName, nicCidr) pair.
+	// The CIDR used is the interface's own subnet (covers all wg traffic
+	// destined for that physical network).
+	const masqueradeIfaces = [];
+	const seenMasq = new Set();
+	for (const nic of physicalIfaces) {
+		const key = `${nic.name}:${nic.cidr}`;
+		if (!seenMasq.has(key)) {
+			seenMasq.add(key);
+			masqueradeIfaces.push(nic);
+		}
+	}
+
+	const newText = _rewriteHubConf(lines, ifaceName, peerUpdates, allRouteNets, masqueradeIfaces);
 	await fs.writeFile(confPath, newText, "utf8");
 
 	const wgBin = getWireGuardBin();
@@ -1335,8 +1457,8 @@ async function syncHubConf(metadata, ifaceName = "wg0") {
 		try {
 			await execFileAsync(wgBin, ["set", ifaceName, "peer", pubkey, "allowed-ips", newIPs.join(",")]);
 			changes.push({ peer: `${pubkey.slice(0, 8)}…`, allowedIPs: newIPs });
-		} catch {
-			// peer not currently connected — conf is updated, live apply skipped
+		} catch (err) {
+			logger.debug(`wg set peer ${pubkey.slice(0, 8)}… skipped (not connected): ${err.message}`);
 		}
 	}
 
@@ -1353,13 +1475,13 @@ async function syncHubConf(metadata, ifaceName = "wg0") {
 			if (!existing.has(net)) {
 				try {
 					await execFileAsync(ipBin, ["route", "add", net, "dev", ifaceName]);
-				} catch {
-					/* already exists */
+				} catch (err) {
+					logger.debug(`Route add ${net} dev ${ifaceName}: ${err.message}`);
 				}
 			}
 		}
-	} catch {
-		/* ignore route lookup failures */
+	} catch (err) {
+		logger.debug(`Route lookup for ${ifaceName} failed: ${err.message}`);
 	}
 
 	return { synced: true, changes };
@@ -1392,6 +1514,7 @@ async function _pollBandwidth() {
 		if (_bwPrev) {
 			const dt = (now - _bwPrev.get("__ts__")) / 1000 || BW_POLL_INTERVAL / 1000;
 			for (const [key, curr] of snap) {
+				if (key === "__ts__") continue;
 				const prev = _bwPrev.get(key);
 				if (!prev) continue;
 				const rx = Math.max(0, curr.rxBytes - prev.rxBytes) / dt;
@@ -1404,22 +1527,27 @@ async function _pollBandwidth() {
 		}
 		snap.set("__ts__", now);
 		_bwPrev = snap;
-	} catch {
-		// silently ignore poll errors
+	} catch (err) {
+		logger.debug(`Bandwidth poll error: ${err.message}`);
 	}
 }
 
-// Kick off polling as soon as the module is loaded
-_pollBandwidth();
-const _bwTimer = setInterval(_pollBandwidth, BW_POLL_INTERVAL);
-// Avoid keeping Node process alive for this background timer alone
-if (typeof _bwTimer.unref === "function") _bwTimer.unref();
+// Lazy-initialize bandwidth polling on first getBandwidth() or getStatus() call,
+// not at module import — avoids unnecessary `wg show` calls when WireGuard is not installed.
+let _bwTimer = null;
+function _ensureBandwidthPolling() {
+	if (_bwTimer) return;
+	_pollBandwidth();
+	_bwTimer = setInterval(_pollBandwidth, BW_POLL_INTERVAL);
+	if (typeof _bwTimer.unref === "function") _bwTimer.unref();
+}
 
 /**
  * Returns the bandwidth ring buffer, annotated with link names from metadata.
  * Each entry: { id, name, history: [{ts, rx, tx}] }
  */
 async function getBandwidth() {
+	_ensureBandwidthPolling();
 	const metadataStore = await readMetadataStore();
 	const result = [];
 	for (const [key, history] of _bwHistory) {
@@ -1440,14 +1568,17 @@ export {
 	buildRouteAnalysis,
 	buildTopology,
 	classifyLinkType,
+	dedupe,
 	deriveGlobalNextActions,
 	deriveGlobalWarnings,
 	enrichInterfaceStatus,
 	enrichLinkRecord,
+	getMetadataFile,
 	getMissingImportedNetworks,
 	getNatCandidateNetworks,
 	inferInterfaceRole,
 	inferPlanState,
+	mergeMetadataEntry,
 	mergeMetadataStorePatch,
 	normalizeInterfaceRole,
 	normalizeLinkType,
@@ -1466,6 +1597,8 @@ export {
  * @param {number} [opts.listenPort] - UDP listen port (auto-assigned if omitted)
  * @param {string} [opts.role] - Interface role hint for metadata
  */
+const VALID_IFACE_NAME = /^wg\d{1,3}$/;
+
 async function createInterface({ name, address, listenPort, role } = {}) {
 	if (!address?.trim()) throw new Error("Address is required (e.g. 10.20.0.1/24)");
 
@@ -1483,6 +1616,10 @@ async function createInterface({ name, address, listenPort, role } = {}) {
 			}
 		}
 		if (!name) throw new Error("No free interface name available");
+	}
+
+	if (!VALID_IFACE_NAME.test(name)) {
+		throw new Error(`Invalid interface name "${name}" — must match wgN (e.g. wg0, wg1)`);
 	}
 
 	const confPath = path.join(confDir, `${name}.conf`);
@@ -1510,10 +1647,7 @@ async function createInterface({ name, address, listenPort, role } = {}) {
 	// ── Generate keypair ──
 	const { stdout: privKeyRaw } = await execFileAsync(wgBin, ["genkey"]);
 	const privateKey = privKeyRaw.trim();
-	const { execSync } = await import("node:child_process");
-	const publicKey = execSync(`printf '%s\\n' ${JSON.stringify(privateKey)} | ${wgBin} pubkey`)
-		.toString()
-		.trim();
+	const publicKey = derivePublicKey(privateKey);
 
 	// ── Write config file ──
 	const confLines = [
@@ -1539,8 +1673,8 @@ async function createInterface({ name, address, listenPort, role } = {}) {
 	// ── Enable on boot ──
 	try {
 		await execFileAsync("systemctl", ["enable", `wg-quick@${name}`]);
-	} catch {
-		// non-fatal
+	} catch (err) {
+		logger.warn(`Failed to enable wg-quick@${name} on boot: ${err.message}`);
 	}
 
 	// ── Write metadata ──
@@ -1568,6 +1702,9 @@ async function deleteInterface(rawName) {
 	if (!rawName?.trim()) throw new Error("Interface name is required");
 	const name = rawName.trim();
 
+	if (!VALID_IFACE_NAME.test(name)) {
+		throw new Error(`Invalid interface name "${name}" — must match wgN (e.g. wg0, wg1)`);
+	}
 	if (name === "wg0") throw new Error("Cannot delete the primary hub interface wg0");
 
 	const confDir = getWireGuardConfDir();
@@ -1583,15 +1720,15 @@ async function deleteInterface(rawName) {
 	// ── Bring interface down ──
 	try {
 		await execFileAsync("wg-quick", ["down", name]);
-	} catch {
-		// may already be down
+	} catch (err) {
+		logger.debug(`wg-quick down ${name}: ${err.message}`);
 	}
 
 	// ── Disable on boot ──
 	try {
 		await execFileAsync("systemctl", ["disable", `wg-quick@${name}`]);
-	} catch {
-		// non-fatal
+	} catch (err) {
+		logger.debug(`systemctl disable wg-quick@${name}: ${err.message}`);
 	}
 
 	// ── Remove config file ──
@@ -1616,6 +1753,7 @@ async function deleteInterface(rawName) {
  * live interface and config file, writes metadata, and returns the client config.
  */
 async function createPeer({ name, type, dns, fullTunnel, platform, importedNetworks, ifaceName = "wg0" }) {
+	return withWriteLock(async () => {
 	const status = await getStatus();
 	if (!status.available) throw new Error("WireGuard is not available");
 
@@ -1652,20 +1790,14 @@ async function createPeer({ name, type, dns, fullTunnel, platform, importedNetwo
 	const wgBin = getWireGuardBin();
 	const { stdout: privKeyRaw } = await execFileAsync(wgBin, ["genkey"]);
 	const privateKey = privKeyRaw.trim();
-	const { execSync } = await import("node:child_process");
-	const publicKey = execSync(`printf '%s\\n' ${JSON.stringify(privateKey)} | ${wgBin} pubkey`)
-		.toString()
-		.trim();
+	const publicKey = derivePublicKey(privateKey);
 
 	// ── Compute AllowedIPs for hub side ──
 	const hubAllowedIPs = [peerAllowedIP];
 	const importedNets = (importedNetworks || []).filter(Boolean);
 	if (importedNets.length) hubAllowedIPs.push(...importedNets);
 
-	// ── Add peer to live interface ──
-	await execFileAsync(wgBin, ["set", ifaceName, "peer", publicKey, "allowed-ips", hubAllowedIPs.join(",")]);
-
-	// ── Append peer to config file ──
+	// ── Write config file FIRST (safe to fail without side effects) ──
 	const confPath = path.join(getWireGuardConfDir(), `${ifaceName}.conf`);
 	const peerBlock = [
 		"",
@@ -1676,6 +1808,17 @@ async function createPeer({ name, type, dns, fullTunnel, platform, importedNetwo
 		"",
 	].join("\n");
 	await fs.appendFile(confPath, peerBlock, "utf8");
+
+	// ── Add peer to live interface (rollback conf on failure) ──
+	try {
+		await execFileAsync(wgBin, ["set", ifaceName, "peer", publicKey, "allowed-ips", hubAllowedIPs.join(",")]);
+	} catch (err) {
+		// Rollback: remove the peer block we just appended
+		const conf = await fs.readFile(confPath, "utf8");
+		const cleaned = conf.replace(peerBlock, "");
+		await fs.writeFile(confPath, cleaned, "utf8");
+		throw new Error(`Failed to add peer to live interface: ${err.message}`);
+	}
 
 	// ── Write metadata ──
 	const linkId = `${ifaceName}:${publicKey}`;
@@ -1732,6 +1875,7 @@ async function createPeer({ name, type, dns, fullTunnel, platform, importedNetwo
 	const content = `${configLines.join("\n")}\n`;
 
 	return { linkId, publicKey, tunnelAddress, filename, content };
+	}); // end withWriteLock
 }
 
 export default {

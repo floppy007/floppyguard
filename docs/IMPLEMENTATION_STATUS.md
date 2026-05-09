@@ -101,6 +101,16 @@ Agents self-update automatically when the server script version changes:
 **Rule:** Any edit to `buildLoopScript()` in `agent.js` that affects the generated bash script
 **requires a `AGENT_SCRIPT_VERSION` bump** — otherwise running agents never pick up the change.
 
+## Agent Version Tracking — DONE (v1.3.4)
+
+Agents report their script version to the hub on every heartbeat:
+
+- Heartbeat payload includes `script_version` field
+- Stored in `agent_version` column (migration `20260509160000_agent_version.js`)
+- `GET /api/agents` returns `agent_version` for each agent
+- UI shows `Agent v{version}` badge directly on link cards (no panel open needed)
+- Also visible in the Agent panel next to "Host" and "Last seen"
+
 ## Agent Script Signing — DONE (v1.3.2)
 
 Agent self-update is now cryptographically verified:

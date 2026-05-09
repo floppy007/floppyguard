@@ -298,7 +298,7 @@ body:not(.auth) {
 }
 
 .domain-name {
-	font-family: monospace;
+	font-family: var(--tblr-font-monospace);
 }
 
 .mr-1 {
@@ -371,7 +371,7 @@ body:not(.auth) {
 }
 
 .textareaMono {
-	font-family: 'Courier New', Courier, monospace !important;
+	font-family: var(--tblr-font-monospace) !important;
 	resize: vertical;
 }
 
@@ -405,12 +405,6 @@ label.row {
 	position: static;
 }
 
-/* Fix for Tabler scrollbar compensation */
-@media (min-width: 992px) {
-  :host, :root {
-    margin-left: 0;
-  }
-}
 
 .platform-hero {
 	background: rgba(var(--tblr-primary-rgb), 0.04);

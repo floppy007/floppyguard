@@ -7,6 +7,95 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.3.4] – 2026-05-09
+
+### Added
+
+- **Agent version display** — agent script version shown as badge on link cards and in agent panel; agents report their version via heartbeat; new `agent_version` DB column with auto-migration
+- **WCAG focus-visible** — keyboard focus ring on all SiteMenu nav items (was: `outline: none` with no replacement)
+- **WireGuard responsive layout** — link cards and tabs now usable on mobile (768px breakpoint, scrollable tabs, single-column grid)
+- **Dark mode SVG colors** — topology map type colors defined as CSS variables with light/dark mode variants
+- **Auto-MASQUERADE for cross-interface routing** — `syncHubConf()` discovers non-WG interfaces and adds NAT rules so WireGuard peers can reach hosts on eth1/etc
+
+### Security
+
+- **Shell injection prevented** — `publicUrl`/`tunnelUrl` in agent install scripts validated against URL format; shell-unsafe characters rejected
+
+### Fixed
+
+- **Race condition in `createPeer`** — serialized via in-process write mutex; prevents duplicate tunnel IP assignment
+- **Write ordering in `createPeer`** — conf file written BEFORE live `wg set`; rolls back on failure
+- **Metadata write mutex** — `applyMetadataPatch` serialized; prevents last-write-wins data loss
+- **Bandwidth NaN** — `__ts__` sentinel skipped in polling loop
+- **`generatePeerConfig` stale linkId** — uses new link ID after key rotation for metadata lookup
+- **`_rewriteHubConf` missing PostUp** — injects PostUp/PostDown when none exist in original conf
+- **`revokeObjectURL` wrong variable** — blob URLs now correctly revoked after config download (was: memory leak)
+- **`processResponse` crash on non-JSON** — gracefully handles nginx 502, HTML error pages
+- **`download()` missing error check** — non-2xx responses now throw instead of downloading garbage
+- **AuthContext `refresh` not memoized** — wrapped in `useCallback` to prevent interval churn
+- **AuthContext `logout` not clearing 2FA** — `twoFactorChallenge` now reset on logout
+- **`data.routes` not null-guarded** — optional chaining prevents crash if backend omits routes
+- **Active peers table `colSpan`** — empty state now spans all 7 columns (was: 6)
+- **Hardcoded German placeholder** — tunnel name placeholder and AllowedIPs hint now use i18n
+- **Login form fields** — added `required` attribute to email and password inputs
+- **Dead CSS** — removed stray `:host` selector, fixed monospace font stacks to use Tabler tokens
+- **Toast component** — converted px to rem for accessibility (respects browser font-size)
+
+---
+
+## [1.3.3] – 2026-05-09
+
+### Added
+
+- **AllowedIPs conflict detection** — WireGuard status API now detects and warns when multiple peers claim the same subnet; shown as a prominent alert in the UI with affected peers listed
+- **Auto-MASQUERADE for cross-interface routing** — `syncHubConf()` automatically discovers non-WireGuard interfaces with private IPs and adds MASQUERADE rules so WireGuard peers can reach hosts on those LANs (e.g., VMs on eth1)
+- **Full i18n coverage** — all hardcoded German strings in the tunnel creation form (15 strings), routing matrix (5 keys), Login page (3 strings), and misc WireGuard labels translated to EN/DE/FR
+
+### Fixed
+
+- **Unhandled promise rejections** — replaced all 8 bare `mutateAsync()` calls in onClick handlers with the `mutate()` callback form; prevents crashes in strict environments
+- **TypeScript type safety** — added `dns` and `fullTunnel` fields to `WireGuardLink` and `WireGuardInterface` types; removed 5 `as any` casts
+- **useEffect loop risk** — AgentSection auto-create effect now uses a ref guard instead of unstable mutation dependencies
+- **Clipboard error handling** — `navigator.clipboard.writeText()` now catches rejections
+- **Redundant middleware** — removed duplicate `requireAdmin()` on PUT /wireguard/metadata
+
+### Changed
+
+- **README badge** — version updated to 1.3.3
+
+---
+
+## [1.3.2] – 2026-05-09
+
+### Security
+
+- **Broken access control fixes** — added `requireAdmin()` to all `/api/agents` CRUD routes, `/api/wireguard/status`, `/metadata` (GET), `/bandwidth`, `/apply-state`, `/link-config`, `/link-config-qr`, `GET /api/users`, and `GET /api/security/fail2ban`; previously any authenticated user could access these admin-only endpoints
+- **Unauthenticated file upload closed** — `POST /api/design/screenshot` now requires JWT + admin role; added magic-bytes validation to reject files whose content doesn't match the declared extension
+- **Bulk user delete removed** — `DELETE /api/users` (previously guarded only by `CI=true && DEBUG=true` env vars) now always returns 404; eliminates unauthenticated account-wipe risk
+- **Agent self-update signed** — server computes HMAC-SHA256 of the loop script using the agent token as key; agents verify the signature before accepting a self-update, preventing server-compromise-to-RCE escalation
+- **JWT expiry capped** — token expiry now limited to 30 days maximum; prevents long-lived tokens that survive password changes
+- **Rate limiter persistent** — replaced in-memory rate limiter with SQLite-backed storage; survives process restarts and is shared across cluster workers
+- **CORS hardened** — disallowed cross-origin requests now receive 403 instead of silently proceeding without CORS headers
+- **CSP header added** — `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; object-src 'none'; frame-ancestors 'none'`
+- **GitHub Actions SHA-pinned** — all `actions/checkout`, `actions/setup-node`, and `actions/stale` references pinned to immutable commit SHAs
+- **CODEOWNERS added** — `.github/workflows/` now requires review from `@floppy007`
+- **Shell injection mitigated** — converted 3 of 4 `utils.exec()` calls (shell-based) to `utils.execFile()` (argument array, no shell)
+- **Dockerfile hardened** — Cypress test image now explicitly sets `USER 1000` before CMD
+
+### Fixed
+
+- **Frontend test drift** — fixed 10 failing WireGuard tests (missing `useAgents` mock export + stale text assertions), 1 failing Platform test (missing `useFail2BanStatus` mock), 1 failing Gateway test (untranslated key assertions)
+- **Backend lint warnings** — removed 2 unused parameters in `buildApplyContract()`, renamed unused `err` to `_err` in `require-admin.js`
+- **Frontend dependency vulnerabilities** — resolved 6 high-severity npm audit findings (vite path traversal, lodash prototype pollution, picomatch ReDoS, postcss XSS)
+
+### Changed
+
+- **`.gitignore` updated** — added `.env`, `.env.*`, `.gstack/` to prevent accidental secret commits
+- **Default DB credentials** — `backend/config/default.json` now uses `changeme` placeholder instead of `npm`/`npm`
+- **Agent script version bumped** — `AGENT_SCRIPT_VERSION` incremented to `1.3.0` to trigger self-update on all connected agents
+
+---
+
 ## [1.3.1] – 2026-05-09
 
 ### Added
@@ -48,6 +137,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Bandwidth charts starting in the middle when history is incomplete (left-padded with zeros)
 - Nav link active state not visible (Tabler CSS specificity override)
+
+---
+
+## [1.2.4] – 2026-05-05
+
+### Added
+
+- **WireGuard peer config export** — download client config files with auto-generated keypair; `GET /api/wireguard/link-config` returns the full `.conf` file as attachment
+- **QR code modal** — `GET /api/wireguard/link-config-qr` generates a PNG QR code for mobile enrollment; shown in a modal on the link card
+- **Routing matrix** — visual matrix showing which peers export which networks; displayed in the Routing tab
+- **Active peer names** — peer names from metadata shown in status cards and link headers instead of raw public keys
+
+### Fixed
+
+- CI test failures from upstream dependency updates
 
 ---
 
