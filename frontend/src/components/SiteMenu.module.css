@@ -38,7 +38,7 @@
 	line-height: 1 !important;
 	background: transparent !important;
 	border: 0 !important;
-	outline: none !important;
+	outline: 2px solid transparent;
 	box-shadow: none !important;
 	transition: background 120ms ease, color 120ms ease;
 }
@@ -48,6 +48,11 @@
 	color: var(--tblr-body-color) !important;
 	background: rgba(var(--tblr-primary-rgb), 0.08) !important;
 	text-decoration: none !important;
+}
+
+.itemLink:focus-visible {
+	outline: 2px solid rgba(var(--tblr-primary-rgb), 0.7);
+	outline-offset: 2px;
 }
 
 /* Demo: .nav-link.active */

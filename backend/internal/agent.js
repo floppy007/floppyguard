@@ -1,5 +1,5 @@
-import { exec } from "node:child_process";
-import { createHash, randomBytes } from "node:crypto";
+import { execFile } from "node:child_process";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 import { createConnection } from "node:net";
 import error from "../lib/error.js";
 import Agent from "../models/agent.js";
@@ -24,7 +24,18 @@ const hashConfig = (text) => {
 	return createHash("sha256").update(text).digest("hex");
 };
 
-const AGENT_SCRIPT_VERSION = "1.2.2";
+const AGENT_SCRIPT_VERSION = "1.3.4";
+
+/**
+ * Compute HMAC-SHA256 of the script using the agent_token as key.
+ * The agent verifies this signature before accepting a self-update.
+ *
+ * @param {string} script
+ * @param {string} agentToken
+ * @returns {string}
+ */
+const signScript = (script, agentToken) =>
+	createHmac("sha256", agentToken).update(script).digest("hex");
 
 /**
  * Parse agent.services JSON string into array. Returns [] on failure.
@@ -84,9 +95,13 @@ const tcpProbe = (host, port) =>
  */
 const fetchTitle = (url) =>
 	new Promise((resolve) => {
-		// curl: follow redirects, ignore cert errors, 4s timeout, write final URL to stdout after body
-		const cmd = `curl -skL --max-time 4 --write-out '\\n__FINALURL__%{url_effective}' '${url.replace(/'/g, "'\\''")}' 2>/dev/null`;
-		exec(cmd, { timeout: 5000 }, (err, stdout) => {
+		const args = [
+			"-skL",
+			"--max-time", "4",
+			"--write-out", "\n__FINALURL__%{url_effective}",
+			url,
+		];
+		execFile("curl", args, { timeout: 5000 }, (err, stdout) => {
 			if (err) {
 				resolve(null);
 				return;
@@ -473,20 +488,29 @@ while true; do
         fi
       fi
 
-      # ── Script self-update ───────────────────────────────────────────────────────
+      # ── Script self-update (with HMAC-SHA256 signature verification) ────────────
       SCRIPT_VERSION_SERVER=$(python3 -c "import sys,json; print(json.loads(sys.argv[1]).get('script_version') or '')" "$RESPONSE" 2>/dev/null || echo "")
       if [ -n "$SCRIPT_VERSION_SERVER" ] && [ "$SCRIPT_VERSION_SERVER" != "$SCRIPT_VERSION" ]; then
         log "Script update available ($SCRIPT_VERSION → $SCRIPT_VERSION_SERVER), downloading..."
-        NEW_SCRIPT=$(curl -sf --max-time 30 \\
+        HEADERS_FILE=$(mktemp /tmp/fg_headers.XXXXXX)
+        NEW_SCRIPT=$(curl -sf --max-time 30 -D "$HEADERS_FILE" \\
           -H "Authorization: Bearer $FGTOKEN" \\
           "$SERVER/api/agent/loop-script" 2>/dev/null) || NEW_SCRIPT=""
+        SERVER_SIG=$(grep -i '^X-Script-Signature:' "$HEADERS_FILE" 2>/dev/null | sed 's/^[^:]*: *//' | tr -d '\\r\\n' || echo "")
+        rm -f "$HEADERS_FILE"
         if [ -n "$NEW_SCRIPT" ] && echo "$NEW_SCRIPT" | head -1 | grep -q '^#!'; then
-          printf '%s\\n' "$NEW_SCRIPT" > /tmp/fg_loop_update
-          chmod +x /tmp/fg_loop_update
-          cp /tmp/fg_loop_update /usr/local/sbin/floppyguard-agent
-          rm -f /tmp/fg_loop_update
-          log "Script updated to version $SCRIPT_VERSION_SERVER, restarting..."
-          exec /usr/local/sbin/floppyguard-agent
+          # Verify HMAC-SHA256 signature using agent token as key
+          LOCAL_SIG=$(printf '%s' "$NEW_SCRIPT" | openssl dgst -sha256 -hmac "$FGTOKEN" 2>/dev/null | awk '{print $NF}')
+          if [ -n "$SERVER_SIG" ] && [ "$LOCAL_SIG" = "$SERVER_SIG" ]; then
+            printf '%s\\n' "$NEW_SCRIPT" > /tmp/fg_loop_update
+            chmod +x /tmp/fg_loop_update
+            cp /tmp/fg_loop_update /usr/local/sbin/floppyguard-agent
+            rm -f /tmp/fg_loop_update
+            log "Script updated to version $SCRIPT_VERSION_SERVER (signature verified), restarting..."
+            exec /usr/local/sbin/floppyguard-agent
+          else
+            log "Script signature verification failed, rejecting update (expected=$SERVER_SIG got=$LOCAL_SIG)"
+          fi
         else
           log "Script update download failed or invalid, skipping"
         fi
@@ -496,8 +520,8 @@ while true; do
       MY_LAN_IP=$(ip route get 8.8.8.8 2>/dev/null | grep -oP 'src \\K\\S+' | head -1 || echo "")
       HEARTBEAT=$(python3 -c "
 import sys, json
-print(json.dumps({'hash': sys.argv[1], 'server': sys.argv[2], 'services': json.loads(sys.argv[3]), 'hostname': sys.argv[4], 'lan_ip': sys.argv[5]}))
-" "$NEW_HASH" "$SERVER" "$SERVICES_JSON" "$MY_HOSTNAME" "$MY_LAN_IP" 2>/dev/null || echo "{\\"hash\\":\\"$NEW_HASH\\",\\"server\\":\\"$SERVER\\"}")
+print(json.dumps({'hash': sys.argv[1], 'server': sys.argv[2], 'services': json.loads(sys.argv[3]), 'hostname': sys.argv[4], 'lan_ip': sys.argv[5], 'script_version': sys.argv[6]}))
+" "$NEW_HASH" "$SERVER" "$SERVICES_JSON" "$MY_HOSTNAME" "$MY_LAN_IP" "$SCRIPT_VERSION" 2>/dev/null || echo "{\\"hash\\":\\"$NEW_HASH\\",\\"server\\":\\"$SERVER\\"}")
 
       curl -sf --max-time 5 -X POST \\
         -H "Authorization: Bearer $FGTOKEN" \\
@@ -536,6 +560,7 @@ const internalAgent = {
 				"reg_token",
 				"last_seen",
 				"status",
+				"agent_version",
 				"created_on",
 				"modified_on",
 			)
@@ -722,6 +747,25 @@ const internalAgent = {
 	 * @returns {Promise<string>}
 	 */
 	async getInstallScript(id, publicUrl, tunnelUrl) {
+		// Validate URLs to prevent shell injection in the generated bash script.
+		// publicUrl and tunnelUrl are interpolated into double-quoted strings in the
+		// install script; characters like $, `, ; would be evaluated by bash.
+		for (const [label, url] of [["public_url", publicUrl], ["tunnel_url", tunnelUrl]]) {
+			if (!url) continue;
+			try {
+				const parsed = new URL(url);
+				if (!["http:", "https:"].includes(parsed.protocol)) {
+					throw new error.ValidationError(`${label} must use http or https protocol`);
+				}
+			} catch (err) {
+				if (err instanceof error.ValidationError) throw err;
+				throw new error.ValidationError(`${label} is not a valid URL`);
+			}
+			if (/[$`\\;|&(){}<>!#]/.test(url)) {
+				throw new error.ValidationError(`${label} contains characters unsafe for shell interpolation`);
+			}
+		}
+
 		const agent = await Agent.query().where("id", id).where("is_deleted", 0).first();
 
 		if (!agent) {
@@ -906,7 +950,9 @@ echo "[floppyguard-agent]   journalctl -u floppyguard-agent -f"
 			throw new error.AuthError("Invalid agent token", "error.auth");
 		}
 
-		return buildLoopScript(agent.mode || "native");
+		const script = buildLoopScript(agent.mode || "native");
+		const signature = signScript(script, agentToken);
+		return { script, signature };
 	},
 
 	/**
@@ -936,6 +982,10 @@ echo "[floppyguard-agent]   journalctl -u floppyguard-agent -f"
 
 		if (data && Array.isArray(data.services)) {
 			patch.services = JSON.stringify(data.services);
+		}
+
+		if (data?.script_version) {
+			patch.agent_version = String(data.script_version);
 		}
 
 		await Agent.query().patchAndFetchById(agent.id, patch);

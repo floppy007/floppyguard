@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { createContext, type ReactNode, useContext, useEffect, useState } from "react";
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useState } from "react";
 import {
 	getToken,
 	isTwoFactorChallenge,
@@ -85,13 +85,14 @@ function AuthProvider({ children, tokenRefreshInterval = 5 * 60 * 1000 }: Props)
 		}
 		AuthStore.clear();
 		setAuthenticated(false);
+		setTwoFactorChallenge(null);
 		queryClient.clear();
 	};
 
-	const refresh = async () => {
+	const refresh = useCallback(async () => {
 		const response = await refreshToken();
 		handleTokenUpdate(response);
-	};
+	}, []);
 
 	useEffect(() => {
 		if (!authenticated) {
