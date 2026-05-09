@@ -3,6 +3,7 @@ import internalWireGuard from "../internal/wireguard.js";
 import internalWireGuardPlan from "../internal/wireguard-plan.js";
 import error from "../lib/error.js";
 import jwtdecode from "../lib/express/jwt-decode.js";
+import requireAdmin from "../lib/express/require-admin.js";
 import { debug, express as logger } from "../logger.js";
 
 const router = express.Router({ caseSensitive: true, strict: true, mergeParams: true });
@@ -13,6 +14,7 @@ router
 		res.sendStatus(204);
 	})
 	.all(jwtdecode())
+	.all(requireAdmin())
 	.get(async (req, res, next) => {
 		try {
 			const status = await internalWireGuard.getStatus();
@@ -29,6 +31,7 @@ router
 		res.sendStatus(204);
 	})
 	.all(jwtdecode())
+	.all(requireAdmin())
 	.get(async (req, res, next) => {
 		try {
 			const status = await internalWireGuard.getStatus();
@@ -61,6 +64,7 @@ router
 		res.sendStatus(204);
 	})
 	.all(jwtdecode())
+	.all(requireAdmin())
 	.post(async (req, res, next) => {
 		try {
 			const preview = await internalWireGuardPlan.previewPlan(req.body || {});
@@ -77,6 +81,7 @@ router
 		res.sendStatus(204);
 	})
 	.all(jwtdecode())
+	.all(requireAdmin())
 	.post(async (req, res, next) => {
 		try {
 			const result = await internalWireGuardPlan.applyMetadata(req.body || {});
@@ -97,6 +102,7 @@ router
 		res.sendStatus(204);
 	})
 	.all(jwtdecode())
+	.all(requireAdmin())
 	.get(async (req, res, next) => {
 		try {
 			const state = await internalWireGuardPlan.getApplyState();
@@ -113,6 +119,7 @@ router
 		res.sendStatus(204);
 	})
 	.all(jwtdecode())
+	.all(requireAdmin())
 	.get(async (req, res, next) => {
 		try {
 			const { filename, content } = await internalWireGuard.generatePeerConfig(req.query.link_id);
@@ -135,6 +142,7 @@ router
 		res.sendStatus(204);
 	})
 	.all(jwtdecode())
+	.all(requireAdmin())
 	.get(async (req, res, next) => {
 		try {
 			const png = await internalWireGuard.generatePeerConfigQr(req.query.link_id);
@@ -156,6 +164,7 @@ router
 		res.sendStatus(204);
 	})
 	.all(jwtdecode())
+	.all(requireAdmin())
 	.get(async (req, res, next) => {
 		try {
 			const data = await internalWireGuard.getBandwidth();
@@ -172,6 +181,7 @@ router
 		res.sendStatus(204);
 	})
 	.all(jwtdecode())
+	.all(requireAdmin())
 	.post(async (req, res, next) => {
 		try {
 			const { name, type, dns, fullTunnel, platform, importedNetworks, ifaceName } = req.body || {};
@@ -201,6 +211,7 @@ router
 		res.sendStatus(204);
 	})
 	.all(jwtdecode())
+	.all(requireAdmin())
 	.post(async (req, res, next) => {
 		try {
 			const { name, address, listenPort, role } = req.body || {};
@@ -231,6 +242,7 @@ router
 		res.sendStatus(204);
 	})
 	.all(jwtdecode())
+	.all(requireAdmin())
 	.post(async (req, res, next) => {
 		try {
 			const { name } = req.body || {};
@@ -256,6 +268,7 @@ router
 		res.sendStatus(204);
 	})
 	.all(jwtdecode())
+	.all(requireAdmin())
 	.post(async (req, res, next) => {
 		try {
 			const { linkId } = req.body || {};
@@ -281,6 +294,7 @@ router
 		res.sendStatus(204);
 	})
 	.all(jwtdecode())
+	.all(requireAdmin())
 	.post(async (req, res, next) => {
 		try {
 			const { linkId, ...changes } = req.body || {};
@@ -306,12 +320,134 @@ router
 		res.sendStatus(204);
 	})
 	.all(jwtdecode())
+	.all(requireAdmin())
 	.post(async (req, res, next) => {
 		try {
 			const result = await internalWireGuardPlan.restoreMetadataBackup(req.body?.backupPath);
 			res.status(200).send(result);
 		} catch (err) {
 			if (err?.code === "restore-invalid-backup") {
+				next(new error.ValidationError(err.message));
+				return;
+			}
+			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
+			next(err);
+		}
+	});
+
+// ── RESTful aliases ──────────────────────────────────────────────────────────
+// Provide proper REST endpoints alongside the legacy RPC-style routes above.
+
+router
+	.route("/peers")
+	.options((_, res) => {
+		res.sendStatus(204);
+	})
+	.all(jwtdecode())
+	.all(requireAdmin())
+	.post(async (req, res, next) => {
+		try {
+			const { name, type, dns, fullTunnel, platform, importedNetworks, ifaceName } = req.body || {};
+			if (!name?.trim()) {
+				next(new error.ValidationError("Name is required"));
+				return;
+			}
+			const result = await internalWireGuard.createPeer({
+				name: name.trim(),
+				type: type || "client",
+				dns: dns || [],
+				fullTunnel: Boolean(fullTunnel),
+				platform: platform || undefined,
+				importedNetworks: importedNetworks || [],
+				ifaceName: ifaceName || "wg0",
+			});
+			res.status(201).send(result);
+		} catch (err) {
+			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
+			next(err);
+		}
+	});
+
+router
+	.route("/peers/:linkId")
+	.options((_, res) => {
+		res.sendStatus(204);
+	})
+	.all(jwtdecode())
+	.all(requireAdmin())
+	.put(async (req, res, next) => {
+		try {
+			const { linkId } = req.params;
+			const result = await internalWireGuard.updatePeer(linkId, req.body || {});
+			res.status(200).send(result);
+		} catch (err) {
+			if (err?.message?.startsWith("Link not found") || err?.message?.startsWith("Interface")) {
+				next(new error.ItemNotFoundError(err.message));
+				return;
+			}
+			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
+			next(err);
+		}
+	})
+	.delete(async (req, res, next) => {
+		try {
+			const { linkId } = req.params;
+			const result = await internalWireGuard.deletePeer(linkId);
+			res.status(200).send(result);
+		} catch (err) {
+			if (err?.message?.startsWith("Link not found") || err?.message?.startsWith("Interface")) {
+				next(new error.ItemNotFoundError(err.message));
+				return;
+			}
+			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
+			next(err);
+		}
+	});
+
+router
+	.route("/interfaces")
+	.options((_, res) => {
+		res.sendStatus(204);
+	})
+	.all(jwtdecode())
+	.all(requireAdmin())
+	.post(async (req, res, next) => {
+		try {
+			const { name, address, listenPort, role } = req.body || {};
+			if (!address?.trim()) {
+				next(new error.ValidationError("address is required (e.g. 10.20.0.1/24)"));
+				return;
+			}
+			const result = await internalWireGuard.createInterface({
+				name: name?.trim() || undefined,
+				address: address.trim(),
+				listenPort: listenPort ? Number(listenPort) : undefined,
+				role: role || undefined,
+			});
+			res.status(201).send(result);
+		} catch (err) {
+			if (err?.message?.includes("already exists")) {
+				next(new error.ValidationError(err.message));
+				return;
+			}
+			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
+			next(err);
+		}
+	});
+
+router
+	.route("/interfaces/:name")
+	.options((_, res) => {
+		res.sendStatus(204);
+	})
+	.all(jwtdecode())
+	.all(requireAdmin())
+	.delete(async (req, res, next) => {
+		try {
+			const result = await internalWireGuard.deleteInterface(req.params.name);
+			res.status(200).send(result);
+		} catch (err) {
+			if (err?.message?.includes("not found") || err?.message?.includes("Cannot delete")) {
 				next(new error.ValidationError(err.message));
 				return;
 			}

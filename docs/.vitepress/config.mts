@@ -34,7 +34,7 @@ export default defineConfig({
 			provider: 'local'
 		},
 		footer: {
-			message: 'Released under the MIT License.',
+			message: 'Released under the AGPL-3.0 License.',
 			copyright: 'Copyright © 2026 Florian Hesse | Comnic-IT'
 		}
 	}

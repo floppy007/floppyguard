@@ -1,6 +1,6 @@
 import { IconPlugConnected, IconPlus, IconRoute, IconShieldHalfFilled, IconTopologyStar3 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
 	Agent,
 	WireGuardApplyMetadataResponse,
@@ -62,9 +62,28 @@ const KNOWN_WARNINGS = new Set([
 	"return-path-mode-undefined",
 	"remote-management-mode-undefined",
 	"link-not-currently-active",
+	"allowedips-conflict",
 ]);
 
 const fmtWarning = (w: string) => (KNOWN_WARNINGS.has(w) ? intl.formatMessage({ id: `wireguard.warning.${w}` }) : w);
+
+// Structured warning from the backend (e.g. allowedips-conflict)
+type StructuredWarning = { code: string; subnet: string; peers: string[]; message: string };
+const isStructuredWarning = (w: unknown): w is StructuredWarning =>
+	typeof w === "object" && w !== null && "code" in w;
+
+const fmtGlobalWarning = (w: string | StructuredWarning): string => {
+	if (isStructuredWarning(w)) {
+		if (w.code === "allowedips-conflict") {
+			return intl.formatMessage(
+				{ id: "wireguard.warning.allowedips-conflict" },
+				{ subnet: w.subnet, peers: w.peers.join(", ") },
+			);
+		}
+		return w.message;
+	}
+	return fmtWarning(w);
+};
 
 const byteFmt = (value?: number) => {
 	const bytes = Number(value) || 0;
@@ -100,7 +119,7 @@ const parseIfaceMgmt = (v: string): WireGuardManagementMode =>
 	(["local", "imported", "unknown"] as const).includes(v as never) ? (v as WireGuardManagementMode) : "unknown";
 
 const timeAgo = (ts: number) => {
-	if (!ts) return "never";
+	if (!ts) return intl.formatMessage({ id: "wireguard.time.never" });
 	const s = Math.floor(Date.now() / 1000 - ts);
 	if (s < 60) return `${s}s ago`;
 	if (s < 3600) return `${Math.floor(s / 60)}m ago`;
@@ -255,7 +274,7 @@ function TopologyMap({ links, interfaces }: { links: WireGuardLink[]; interfaces
 	return (
 		<div className={styles.topologyContainer}>
 			{/* Map SVG */}
-			<svg viewBox={`0 0 ${W} ${H}`} className={styles.topologySvg} style={{ height: 420 }}>
+			<svg viewBox={`0 0 ${W} ${H}`} className={styles.topologySvg} preserveAspectRatio="xMidYMid meet">
 				{/* Connection lines */}
 				{links.map((link) => {
 					const pos = positions[link.id];
@@ -540,32 +559,26 @@ function AgentSection({ link, agents }: { link: WireGuardLink; agents: Agent[] }
 	const [mgmtUrlEdit, setMgmtUrlEdit] = useState<string | null>(null);
 	const [showReinstall, setShowReinstall] = useState(false);
 	const [resetLoading, setResetLoading] = useState(false);
+	const agentCreateAttempted = useRef(false);
 
 	// Auto-create agent if none exists for this link
 	useEffect(() => {
-		if (!existingAgent && !activeAgent && !createAgent.isPending && !createAgent.isSuccess) {
-			createAgent
-				.mutateAsync({
+		if (!existingAgent && !activeAgent && !agentCreateAttempted.current) {
+			agentCreateAttempted.current = true;
+			createAgent.mutate(
+				{
 					name: link.name,
 					mode: "native",
 					wgInterface: link.interfaceName,
 					wgLinkName: link.name,
-				})
-				.then(setActiveAgent)
-				.catch(() => {});
+				},
+				{ onSuccess: setActiveAgent },
+			);
 		}
-	}, [
-		activeAgent,
-		createAgent.isPending,
-		createAgent.isSuccess,
-		createAgent.mutateAsync,
-		existingAgent,
-		link.interfaceName,
-		link.name,
-	]);
+	}, [existingAgent, activeAgent, link.interfaceName, link.name]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	const handleCopy = (text: string) => {
-		navigator.clipboard.writeText(text);
+		navigator.clipboard.writeText(text).catch(() => {});
 		setCopied(true);
 		setTimeout(() => setCopied(false), 2000);
 	};
@@ -581,14 +594,20 @@ function AgentSection({ link, agents }: { link: WireGuardLink; agents: Agent[] }
 		}
 	};
 
-	const handleSaveMgmtUrl = async (agentId: number) => {
+	const handleSaveMgmtUrl = (agentId: number) => {
 		if (mgmtUrlEdit === null) return;
-		const updated = await updateAgent.mutateAsync({
-			id: agentId,
-			data: { mgmtUrl: mgmtUrlEdit.trim() || undefined },
-		});
-		setActiveAgent(updated);
-		setMgmtUrlEdit(null);
+		updateAgent.mutate(
+			{
+				id: agentId,
+				data: { mgmtUrl: mgmtUrlEdit.trim() || undefined },
+			},
+			{
+				onSuccess: (updated) => {
+					setActiveAgent(updated);
+					setMgmtUrlEdit(null);
+				},
+			},
+		);
 	};
 
 	// Use the resolved agent (either pre-existing or just created)
@@ -861,8 +880,8 @@ function LinkCard({ link, missingReturnRoutes, natCandidates, planningInterfaces
 		setDraftExported(link.exportedNetworks.join(", "));
 		setDraftMgmt(link.remoteManagementMode || "none");
 		setDraftReturn(link.returnPathMode || "auto");
-		setDraftDns(((link as any).dns || []).join(", "));
-		setDraftFullTunnel(Boolean((link as any).fullTunnel));
+		setDraftDns((link.dns || []).join(", "));
+		setDraftFullTunnel(Boolean(link.fullTunnel));
 		setEditorOpen(true);
 		setPlannerOpen(false);
 	};
@@ -894,8 +913,8 @@ function LinkCard({ link, missingReturnRoutes, natCandidates, planningInterfaces
 	if (draftMgmt !== (link.remoteManagementMode || "none")) editorLinkPatch.remoteManagementMode = draftMgmt;
 	if (draftReturn !== (link.returnPathMode || "auto")) editorLinkPatch.returnPathMode = draftReturn;
 	const draftDnsArr = splitCsv(draftDns);
-	if (draftDnsArr.join(",") !== ((link as any).dns || []).join(",")) editorLinkPatch.dns = draftDnsArr;
-	if (draftFullTunnel !== Boolean((link as any).fullTunnel)) editorLinkPatch.fullTunnel = draftFullTunnel;
+	if (draftDnsArr.join(",") !== (link.dns || []).join(",")) editorLinkPatch.dns = draftDnsArr;
+	if (draftFullTunnel !== Boolean(link.fullTunnel)) editorLinkPatch.fullTunnel = draftFullTunnel;
 
 	const editorPatch: WireGuardMetadataPatch = {
 		links: { [link.id]: editorLinkPatch },
@@ -1209,7 +1228,7 @@ function LinkCard({ link, missingReturnRoutes, natCandidates, planningInterfaces
 						</div>
 						<div className="col-md-4">
 							<label className="form-label">
-								DNS
+								{intl.formatMessage({ id: "wireguard.field.dns" })}
 								<input
 									type="text"
 									className="form-control"
@@ -1227,7 +1246,7 @@ function LinkCard({ link, missingReturnRoutes, natCandidates, planningInterfaces
 									checked={draftFullTunnel}
 									onChange={(e) => setDraftFullTunnel(e.target.checked)}
 								/>
-								<span className="form-check-label">Full Tunnel</span>
+								<span className="form-check-label">{intl.formatMessage({ id: "wireguard.field.full-tunnel" })}</span>
 							</label>
 						</div>
 					</div>
@@ -1236,9 +1255,10 @@ function LinkCard({ link, missingReturnRoutes, natCandidates, planningInterfaces
 							className="btn btn-sm btn-primary"
 							type="button"
 							disabled={applyMetadata.isPending || Object.keys(editorLinkPatch).length === 0}
-							onClick={async () => {
-								await applyMetadata.mutateAsync(editorPatch);
-								setEditorOpen(false);
+							onClick={() => {
+								applyMetadata.mutate(editorPatch, {
+									onSuccess: () => setEditorOpen(false),
+								});
 							}}
 						>
 							{applyMetadata.isPending
@@ -1343,10 +1363,13 @@ function LinkCard({ link, missingReturnRoutes, natCandidates, planningInterfaces
 							className="btn btn-sm btn-primary"
 							type="button"
 							disabled={applyMetadata.isPending}
-							onClick={async () => {
-								await applyMetadata.mutateAsync(plannerPatch);
-								setPlannerOpen(false);
-								if (planMgmt === "agent") setAgentOpen(true);
+							onClick={() => {
+								applyMetadata.mutate(plannerPatch, {
+									onSuccess: () => {
+										setPlannerOpen(false);
+										if (planMgmt === "agent") setAgentOpen(true);
+									},
+								});
 							}}
 						>
 							{applyMetadata.isPending
@@ -1393,7 +1416,7 @@ function InterfaceCard({ iface, allLinks }: { iface: EnhancedInterface; allLinks
 		setDraftExported(iface.exportedNetworks.join(", "));
 		setDraftImported(iface.importedNetworks.join(", "));
 		setDraftRouteTargets(iface.routeTargets.join(", "));
-		setDraftDns(((iface as any).dns || []).join(", "));
+		setDraftDns((iface.dns || []).join(", "));
 		setDraftNotes(iface.notes.join(", "));
 		setPreview(null);
 		setPreviewKey("");
@@ -1637,10 +1660,13 @@ function InterfaceCard({ iface, allLinks }: { iface: EnhancedInterface; allLinks
 							className="btn btn-sm btn-outline-primary"
 							type="button"
 							disabled={previewPlan.isPending}
-							onClick={async () => {
-								const result = await previewPlan.mutateAsync(patch);
-								setPreview(result);
-								setPreviewKey(patchKey);
+							onClick={() => {
+								previewPlan.mutate(patch, {
+									onSuccess: (result) => {
+										setPreview(result);
+										setPreviewKey(patchKey);
+									},
+								});
 							}}
 						>
 							{previewPlan.isPending
@@ -1653,10 +1679,13 @@ function InterfaceCard({ iface, allLinks }: { iface: EnhancedInterface; allLinks
 							disabled={
 								applyMetadata.isPending || !preview?.valid || !preview.apply.canApply || !previewCurrent
 							}
-							onClick={async () => {
-								await applyMetadata.mutateAsync(patch);
-								setEditorOpen(false);
-								setPreview(null);
+							onClick={() => {
+								applyMetadata.mutate(patch, {
+									onSuccess: () => {
+										setEditorOpen(false);
+										setPreview(null);
+									},
+								});
 							}}
 						>
 							{applyMetadata.isPending
@@ -1732,7 +1761,7 @@ function CreateInterfaceForm() {
 						{intl.formatMessage({ id: "wireguard.iface.created" }, { name: result.name })}
 					</div>
 					<div className="small text-secondary mb-2">
-						Public Key: <code>{result.publicKey}</code>
+						{intl.formatMessage({ id: "wireguard.iface.public-key" })} <code>{result.publicKey}</code>
 					</div>
 					<button
 						className="btn btn-sm btn-outline-secondary"
@@ -1919,7 +1948,7 @@ const WireGuard = () => {
 			<div className="platform-page">
 				<div className="platform-page-header">
 					<div>
-						<div className="platform-kicker">Tunnel Inventory</div>
+						<div className="platform-kicker">{intl.formatMessage({ id: "wireguard.page.kicker" })}</div>
 						<h1 className="platform-title">WireGuard</h1>
 					</div>
 				</div>
@@ -1935,6 +1964,10 @@ const WireGuard = () => {
 	const missingReturnRoutes = data.routes.missingReturnRoutes || [];
 	const natCandidates = data.routes.natCandidates || [];
 	const nextActions = data.nextActions || [];
+	const globalWarnings = (data.warnings || []) as (string | StructuredWarning)[];
+	const conflictWarnings = globalWarnings.filter(
+		(w) => isStructuredWarning(w) && w.code === "allowedips-conflict",
+	) as StructuredWarning[];
 	const activePeers = interfaces
 		.flatMap((iface) => iface.peers.map((peer) => ({ ...peer, iface: iface.name })))
 		.filter((peer) => peer.isActive);
@@ -1981,7 +2014,7 @@ const WireGuard = () => {
 		<div className="platform-page">
 			<div className="platform-page-header">
 				<div>
-					<div className="platform-kicker">Tunnel Inventory</div>
+					<div className="platform-kicker">{intl.formatMessage({ id: "wireguard.page.kicker" })}</div>
 					<h1 className="platform-title">WireGuard</h1>
 				</div>
 				<div className="d-flex align-items-center gap-2">
@@ -2012,7 +2045,7 @@ const WireGuard = () => {
 						}}
 					>
 						<IconPlus size={16} />
-						Neuer Tunnel
+						{intl.formatMessage({ id: "wireguard.create.button" })}
 					</button>
 				</div>
 			</div>
@@ -2021,14 +2054,13 @@ const WireGuard = () => {
 			{createOpen && (
 				<div className="card platform-elevated-card">
 					<div className="card-header">
-						<h3 className="card-title">Neuer WireGuard Tunnel</h3>
+						<h3 className="card-title">{intl.formatMessage({ id: "wireguard.create.title" })}</h3>
 					</div>
 					<div className="card-body">
 						{createResult ? (
 							<div>
 								<div className="alert alert-success mb-3">
-									Tunnel <strong>{newName}</strong> erstellt — IP:{" "}
-									<code>{createResult.tunnelAddress}</code>
+									{intl.formatMessage({ id: "wireguard.create.success" }, { name: newName, ip: createResult.tunnelAddress })}
 								</div>
 								<div className="mb-3">
 									<label className="form-label fw-bold">Client-Config zum Download:</label>
@@ -2053,7 +2085,7 @@ const WireGuard = () => {
 											URL.revokeObjectURL(url);
 										}}
 									>
-										Config herunterladen
+										{intl.formatMessage({ id: "wireguard.create.download" })}
 									</button>
 									<button
 										type="button"
@@ -2067,14 +2099,14 @@ const WireGuard = () => {
 											setNewFullTunnel(false);
 										}}
 									>
-										Schliessen
+										{intl.formatMessage({ id: "wireguard.create.close" })}
 									</button>
 								</div>
 							</div>
 						) : (
 							<div className="row g-4">
 								<div className="col-md-3">
-									<label className="form-label mb-1">Name *</label>
+									<label className="form-label mb-1">{intl.formatMessage({ id: "wireguard.create.name" })}</label>
 									<input
 										type="text"
 										className="form-control"
@@ -2084,7 +2116,7 @@ const WireGuard = () => {
 									/>
 								</div>
 								<div className="col-md-3">
-									<label className="form-label mb-1">Typ</label>
+									<label className="form-label mb-1">{intl.formatMessage({ id: "wireguard.create.type" })}</label>
 									<select
 										className="form-select"
 										value={newType}
@@ -2096,7 +2128,7 @@ const WireGuard = () => {
 									</select>
 								</div>
 								<div className="col-md-3">
-									<label className="form-label mb-1">Interface</label>
+									<label className="form-label mb-1">{intl.formatMessage({ id: "wireguard.create.interface" })}</label>
 									<select
 										className="form-select"
 										value={newIfaceName}
@@ -2110,7 +2142,7 @@ const WireGuard = () => {
 									</select>
 								</div>
 								<div className="col-md-3">
-									<label className="form-label mb-1">DNS</label>
+									<label className="form-label mb-1">{intl.formatMessage({ id: "wireguard.create.dns" })}</label>
 									<input
 										type="text"
 										className="form-control"
@@ -2120,14 +2152,14 @@ const WireGuard = () => {
 									/>
 								</div>
 								<div className="col-md-3">
-									<label className="form-label mb-1">Plattform</label>
+									<label className="form-label mb-1">{intl.formatMessage({ id: "wireguard.create.platform" })}</label>
 									<select
 										className="form-select"
 										value={newPlatform}
 										onChange={(e) => setNewPlatform(e.target.value as "desktop" | "mobile")}
 									>
-										<option value="desktop">Desktop (Win/Linux/Mac)</option>
-										<option value="mobile">Mobile (iOS/Android)</option>
+										<option value="desktop">{intl.formatMessage({ id: "wireguard.create.platform-desktop" })}</option>
+										<option value="mobile">{intl.formatMessage({ id: "wireguard.create.platform-mobile" })}</option>
 									</select>
 								</div>
 								<div className="col-md-3 d-flex align-items-center" style={{ paddingTop: "0.25rem" }}>
@@ -2138,12 +2170,12 @@ const WireGuard = () => {
 											checked={newFullTunnel}
 											onChange={(e) => setNewFullTunnel(e.target.checked)}
 										/>
-										<span className="form-check-label">Full Tunnel</span>
+										<span className="form-check-label">{intl.formatMessage({ id: "wireguard.create.full-tunnel" })}</span>
 									</label>
 								</div>
 								{!newFullTunnel && (
 									<div className="col-md-6">
-										<label className="form-label mb-1">Erlaubte Netze (AllowedIPs)</label>
+										<label className="form-label mb-1">{intl.formatMessage({ id: "wireguard.create.allowed-ips" })}</label>
 										<input
 											type="text"
 											className="form-control"
@@ -2160,42 +2192,44 @@ const WireGuard = () => {
 											type="button"
 											className="btn btn-sm btn-primary"
 											disabled={!newName.trim() || createPeer.isPending}
-											onClick={async () => {
-												const result = await createPeer.mutateAsync({
-													name: newName.trim(),
-													type: newType,
-													dns: newDns
-														? newDns
-																.split(",")
-																.map((s) => s.trim())
-																.filter(Boolean)
-														: [],
-													fullTunnel: newFullTunnel,
-													platform: newPlatform,
-													importedNetworks: newImported
-														? newImported
-																.split(",")
-																.map((s) => s.trim())
-																.filter(Boolean)
-														: [],
-													ifaceName: newIfaceName,
-												});
-												setCreateResult(result);
+											onClick={() => {
+												createPeer.mutate(
+													{
+														name: newName.trim(),
+														type: newType,
+														dns: newDns
+															? newDns
+																	.split(",")
+																	.map((s) => s.trim())
+																	.filter(Boolean)
+															: [],
+														fullTunnel: newFullTunnel,
+														platform: newPlatform,
+														importedNetworks: newImported
+															? newImported
+																	.split(",")
+																	.map((s) => s.trim())
+																	.filter(Boolean)
+															: [],
+														ifaceName: newIfaceName,
+													},
+													{ onSuccess: setCreateResult },
+												);
 											}}
 										>
-											{createPeer.isPending ? "Wird erstellt..." : "Tunnel erstellen"}
+											{createPeer.isPending ? intl.formatMessage({ id: "wireguard.create.pending" }) : intl.formatMessage({ id: "wireguard.create.submit" })}
 										</button>
 										<button
 											type="button"
 											className="btn btn-sm btn-ghost-secondary"
 											onClick={() => setCreateOpen(false)}
 										>
-											Abbrechen
+											{intl.formatMessage({ id: "wireguard.create.cancel" })}
 										</button>
 									</div>
 									{createPeer.isError && (
 										<div className="alert alert-danger mt-2 mb-0">
-											{createPeer.error?.message || "Fehler beim Erstellen"}
+											{createPeer.error?.message || intl.formatMessage({ id: "wireguard.create.error" })}
 										</div>
 									)}
 								</div>
@@ -2333,6 +2367,17 @@ const WireGuard = () => {
 						</div>
 					</div>
 
+					{conflictWarnings.length > 0 && (
+						<div className="alert alert-danger mb-4 py-3">
+							<div className="fw-bold mb-2">AllowedIPs Conflict</div>
+							{conflictWarnings.map((w) => (
+								<div key={w.subnet} className="small mb-1">
+									{fmtGlobalWarning(w)}
+								</div>
+							))}
+						</div>
+					)}
+
 					<div className="row row-cards mb-4">
 						{nextActions.length > 0 && (
 							<div className="col-md-6">
@@ -2379,8 +2424,8 @@ const WireGuard = () => {
 													className="btn btn-sm btn-outline-warning"
 													type="button"
 													disabled={restoreMetadata.isPending}
-													onClick={async () => {
-														await restoreMetadata.mutateAsync(item.path);
+													onClick={() => {
+														restoreMetadata.mutate(item.path);
 													}}
 												>
 													{restoreMetadata.isPending
@@ -2417,7 +2462,7 @@ const WireGuard = () => {
 							{intl.formatMessage({ id: "wireguard.links.no-links" })}
 						</div>
 					)}
-					{renderLinks(groupedLinks.site, "Site-to-Site", "bg-indigo-lt text-indigo")}
+					{renderLinks(groupedLinks.site, intl.formatMessage({ id: "wireguard.links.site-to-site" }), "bg-indigo-lt text-indigo")}
 					{renderLinks(
 						groupedLinks.hub,
 						intl.formatMessage({ id: "wireguard.links.hub-links" }),

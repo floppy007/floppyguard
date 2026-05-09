@@ -224,6 +224,7 @@ export interface WireGuardInterface {
 	exportedNetworks?: string[];
 	routeTargets?: string[];
 	health?: "healthy" | "warning" | "inactive";
+	dns?: string[];
 	notes?: string[];
 	peers: WireGuardPeer[];
 }
@@ -266,6 +267,8 @@ export interface WireGuardLink {
 	planIntent?: string | null;
 	planState?: string | null;
 	notes?: string[];
+	dns?: string[];
+	fullTunnel?: boolean;
 	warnings: string[];
 	nextActions: string[];
 }
