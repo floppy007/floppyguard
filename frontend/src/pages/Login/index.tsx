@@ -4,8 +4,11 @@ import type { HealthResponse } from "src/api/backend";
 import { getToken, isTwoFactorChallenge, verify2FA } from "src/api/backend";
 import { BrandLogo, LocalePicker, Page, ThemeSwitcher } from "src/components";
 import { useHealth } from "src/hooks/useHealth";
+import { intl } from "src/locale/IntlProvider";
 import AuthStore from "src/modules/AuthStore";
 import styles from "./index.module.css";
+
+const t = (id: string) => intl.formatMessage({ id });
 
 export default function Login() {
 	const health = useHealth();
@@ -14,6 +17,7 @@ export default function Login() {
 	const [code, setCode] = useState("");
 	const [challengeToken, setChallengeToken] = useState<string | null>(null);
 	const [status, setStatus] = useState<string>("");
+	const [statusIsError, setStatusIsError] = useState(false);
 	const [isSubmitting, setIsSubmitting] = useState(false);
 
 	const getVersion = () => {
@@ -27,17 +31,19 @@ export default function Login() {
 		if (isSubmitting) return;
 		setIsSubmitting(true);
 		setStatus("");
+		setStatusIsError(false);
 		try {
 			const response = await getToken(identity, secret);
 			if (isTwoFactorChallenge(response)) {
 				setChallengeToken(response.challengeToken);
-				setStatus("Enter the code from your authenticator app.");
+				setStatus(t("login.2fa-prompt"));
 				return;
 			}
 			AuthStore.set(response);
 			window.location.assign("/");
 		} catch (err: any) {
-			setStatus(`Login failed: ${err?.message || "Unexpected error"}`);
+			setStatusIsError(true);
+			setStatus(intl.formatMessage({ id: "login.error" }, { error: err?.message || "Unexpected error" }));
 		} finally {
 			setIsSubmitting(false);
 		}
@@ -48,12 +54,14 @@ export default function Login() {
 		if (!challengeToken || isSubmitting) return;
 		setIsSubmitting(true);
 		setStatus("");
+		setStatusIsError(false);
 		try {
 			const response = await verify2FA(challengeToken, code);
 			AuthStore.set(response);
 			window.location.assign("/");
 		} catch (err: any) {
-			setStatus(`2FA failed: ${err?.message || "Unexpected error"}`);
+			setStatusIsError(true);
+			setStatus(intl.formatMessage({ id: "login.2fa-error" }, { error: err?.message || "Unexpected error" }));
 		} finally {
 			setIsSubmitting(false);
 		}
@@ -71,11 +79,11 @@ export default function Login() {
 				</div>
 
 				<div className={styles.cardBody}>
-					<h2 className={styles.heading}>{challengeToken ? "Two-factor verification" : "Sign in"}</h2>
+					<h2 className={styles.heading}>{challengeToken ? t("login.2fa-title") : t("login.title")}</h2>
 
 					{status ? (
 						<Alert
-							variant={status.toLowerCase().includes("failed") ? "danger" : "info"}
+							variant={statusIsError ? "danger" : "info"}
 							className="py-2 px-3 small"
 						>
 							{status}
@@ -86,7 +94,7 @@ export default function Login() {
 						<form onSubmit={handleLogin}>
 							<div className="mb-3">
 								<label className="form-label" htmlFor="identity">
-									Email
+									{t("login.email")}
 								</label>
 								<input
 									id="identity"
@@ -99,7 +107,7 @@ export default function Login() {
 							</div>
 							<div className="mb-4">
 								<label className="form-label" htmlFor="secret">
-									Password
+									{t("login.password")}
 								</label>
 								<input
 									id="secret"
@@ -111,14 +119,14 @@ export default function Login() {
 								/>
 							</div>
 							<button type="submit" className="btn btn-primary w-100" disabled={isSubmitting}>
-								{isSubmitting ? "Signing in…" : "Sign in"}
+								{isSubmitting ? t("login.signing-in") : t("login.sign-in")}
 							</button>
 						</form>
 					) : (
 						<form onSubmit={handle2FA}>
 							<div className="mb-4">
 								<label className="form-label" htmlFor="code">
-									Authenticator code
+									{t("login.2fa-code")}
 								</label>
 								<input
 									id="code"
@@ -130,7 +138,7 @@ export default function Login() {
 							</div>
 							<div className="d-grid gap-2">
 								<button type="submit" className="btn btn-primary w-100" disabled={isSubmitting}>
-									{isSubmitting ? "Verifying…" : "Verify"}
+									{isSubmitting ? t("login.2fa-verifying") : t("login.2fa-verify")}
 								</button>
 								<button
 									type="button"
@@ -141,7 +149,7 @@ export default function Login() {
 										setStatus("");
 									}}
 								>
-									Back
+									{t("login.2fa-back")}
 								</button>
 							</div>
 						</form>

@@ -1,6 +1,6 @@
 # FloppyGuard Implementation Status
 
-Stand: 2026-05-04
+Stand: 2026-05-09
 
 ## Production Infrastructure — DONE
 
@@ -22,15 +22,26 @@ Stand: 2026-05-04
 ## WireGuard — Read + Metadata Layer — DONE
 
 API endpoints live:
-- `GET /api/wireguard/status` — interfaces, peers, links, routes, topology, capabilities, warnings
-- `GET/PUT /api/wireguard/metadata` — read and write planning metadata
-- `POST /api/wireguard/plan-preview` — dry-run planning (used by Interface editor)
-- `POST /api/wireguard/apply-metadata` — apply metadata with auto-backup
-- `GET /api/wireguard/apply-state` — last apply status
-- `POST /api/wireguard/restore-metadata` — restore from backup
+- `GET /api/wireguard/status` — interfaces, peers, links, routes, topology, capabilities, warnings (admin)
+- `GET/PUT /api/wireguard/metadata` — read and write planning metadata (admin)
+- `POST /api/wireguard/plan-preview` — dry-run planning (admin)
+- `POST /api/wireguard/apply-metadata` — apply metadata with auto-backup (admin)
+- `GET /api/wireguard/apply-state` — last apply status (admin)
+- `POST /api/wireguard/restore-metadata` — restore from backup (admin)
+- `GET /api/wireguard/bandwidth` — per-interface transfer counters (admin)
+- `GET /api/wireguard/link-config` — download peer config file (admin)
+- `GET /api/wireguard/link-config-qr` — download peer config QR code (admin)
+- `POST /api/wireguard/create-peer` — create WireGuard peer with keypair (admin)
+- `POST /api/wireguard/update-peer` — update peer AllowedIPs live (admin)
+- `POST /api/wireguard/delete-peer` — remove peer from interface + config + metadata (admin)
+- `POST /api/wireguard/create-interface` — create new WireGuard interface (admin)
+- `POST /api/wireguard/delete-interface` — remove non-hub interface (admin)
+- `POST /api/wireguard/peers` — RESTful alias for create-peer (admin)
+- `PUT/DELETE /api/wireguard/peers/:linkId` — RESTful alias for update/delete peer (admin)
+- `POST /api/wireguard/interfaces` — RESTful alias for create-interface (admin)
+- `DELETE /api/wireguard/interfaces/:name` — RESTful alias for delete-interface (admin)
 
-Current capability: `runtime-read + metadata-write + metadata-restore`
-Live WireGuard config writes are intentionally not yet implemented.
+Current capability: `runtime-read + metadata-write + config-write + metadata-restore`
 
 ## WireGuard — Routing Automation — DONE (v1.2.2)
 
@@ -90,6 +101,40 @@ Agents self-update automatically when the server script version changes:
 **Rule:** Any edit to `buildLoopScript()` in `agent.js` that affects the generated bash script
 **requires a `AGENT_SCRIPT_VERSION` bump** — otherwise running agents never pick up the change.
 
+## Agent Script Signing — DONE (v1.3.2)
+
+Agent self-update is now cryptographically verified:
+
+- Server computes HMAC-SHA256 of the loop script using the agent's `agent_token` as key
+- Signature is sent in `X-Script-Signature` response header on `GET /api/agent/loop-script`
+- Agent computes local HMAC using `openssl dgst -sha256 -hmac "$FGTOKEN"` and compares
+- Script replacement is rejected if signatures don't match
+- Prevents server-compromise-to-RCE escalation on agent hosts
+
+## Security Hardening — DONE (v1.3.2)
+
+Full security audit performed and all findings remediated:
+
+**Access control:**
+- All admin endpoints (`/api/agents/*`, `/api/wireguard/*` reads, `GET /api/users`,
+  `GET /api/security/fail2ban`) now require `requireAdmin()` middleware
+- `POST /api/design/screenshot` requires JWT + admin + magic-bytes file validation
+- `DELETE /api/users` (bulk delete) permanently disabled (always returns 404)
+- `GET /api/wireguard/link-config` and `/link-config-qr` require admin (expose private keys)
+
+**Authentication:**
+- JWT token expiry capped at 30 days maximum
+- Rate limiter upgraded from in-memory Map to SQLite-backed persistent storage
+
+**Infrastructure:**
+- GitHub Actions SHA-pinned (immutable commit references)
+- `.github/CODEOWNERS` protects workflow files
+- CSP header added to all responses
+- CORS returns 403 for disallowed origins (was silently passing)
+- `.env` and `.gstack/` added to `.gitignore`
+- Cypress Dockerfile explicitly sets `USER 1000`
+- `utils.exec()` shell calls replaced with `utils.execFile()` where possible
+
 ## WireGuard UI — DONE
 
 - Link cards with inline metadata editor and link planner
@@ -109,6 +154,8 @@ Agents self-update automatically when the server script version changes:
 
 ## WireGuard — Completed
 
+- AllowedIPs conflict detection ✔ v1.3.3 — warns when multiple peers claim the same subnet; shown as alert in UI
+- Auto-MASQUERADE ✔ v1.3.3 — `syncHubConf` discovers non-WG interfaces and adds NAT rules for cross-interface routing
 - Peer CRUD ✔ v1.3.1 — `createPeer`, `deletePeer`, `updatePeer` with live `wg set`, conf rewrite, metadata cleanup
 - Interface CRUD ✔ v1.3.1 — `createInterface`, `deleteInterface` with wg-quick up/down, systemctl enable/disable
 - Interface selector ✔ v1.3.1 — tunnel creation supports all interfaces, not just wg0
@@ -132,8 +179,8 @@ Agents self-update automatically when the server script version changes:
 | Settings | Live |
 | Audit Log | Live |
 | `/wireguard` | Live (full CRUD + routing automation + agent management) |
-| `/gateway` | Live (status only) |
-| `/platform` | Live (status only) |
+| `/gateway` | Live (WireGuard gateway status + link warnings) |
+| `/platform` | Alias for Dashboard (`/`) |
 
 ## Next Priorities
 
