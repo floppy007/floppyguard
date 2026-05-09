@@ -1,11 +1,13 @@
-import { exec } from "node:child_process";
+import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import express from "express";
 import error from "../lib/error.js";
 import jwtdecode from "../lib/express/jwt-decode.js";
+import requireAdmin from "../lib/express/require-admin.js";
 import { debug, express as logger } from "../logger.js";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
+
 const router = express.Router({ caseSensitive: true, strict: true, mergeParams: true });
 
 /**
@@ -13,7 +15,7 @@ const router = express.Router({ caseSensitive: true, strict: true, mergeParams: 
  */
 async function f2b(...args) {
 	try {
-		const { stdout } = await execAsync(`fail2ban-client ${args.join(" ")}`, { timeout: 5000 });
+		const { stdout } = await execFileAsync("fail2ban-client", args, { timeout: 5000 });
 		return stdout.trim();
 	} catch {
 		return null;
@@ -49,6 +51,7 @@ router
 		res.sendStatus(204);
 	})
 	.all(jwtdecode())
+	.all(requireAdmin())
 	.get(async (req, res, next) => {
 		try {
 			const statusRaw = await f2b("status");
@@ -88,6 +91,7 @@ router
 		res.sendStatus(204);
 	})
 	.all(jwtdecode())
+	.all(requireAdmin())
 	.delete(async (req, res, next) => {
 		try {
 			const { jail, ip } = req.params;

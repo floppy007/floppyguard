@@ -1,9 +1,12 @@
 import express from "express";
 import internalToken from "../internal/token.js";
 import jwtdecode from "../lib/express/jwt-decode.js";
+import rateLimit from "../lib/express/rate-limit.js";
 import apiValidator from "../lib/validator/api.js";
 import { debug, express as logger } from "../logger.js";
 import { getValidationSchema } from "../schema/index.js";
+
+const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 15 });
 
 const router = express.Router({
 	caseSensitive: true,
@@ -42,7 +45,7 @@ router
 	 *
 	 * Create a new Token
 	 */
-	.post(async (req, res, next) => {
+	.post(loginLimiter, async (req, res, next) => {
 		try {
 			const data = await apiValidator(getValidationSchema("/tokens", "post"), req.body);
 			const result = await internalToken.getTokenFromEmail(data);
@@ -64,7 +67,7 @@ router
 	 *
 	 * Verify 2FA code and get full token
 	 */
-	.post(async (req, res, next) => {
+	.post(loginLimiter, async (req, res, next) => {
 		try {
 			const { challenge_token, code } = await apiValidator(getValidationSchema("/tokens/2fa", "post"), req.body);
 			const result = await internalToken.verify2FA(challenge_token, code);

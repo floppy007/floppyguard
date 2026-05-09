@@ -1,0 +1,2 @@
+# Protect CI/CD workflows — require review from repo owner
+.github/workflows/ @floppy007

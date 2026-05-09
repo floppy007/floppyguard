@@ -1,0 +1,19 @@
+[Unit]
+Description=FloppyGuard Backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/floppyguard/backend
+ExecStart=/usr/bin/node index.js
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=floppyguard
+EnvironmentFile=-/opt/floppyguard/backend/.env
+
+[Install]
+WantedBy=multi-user.target

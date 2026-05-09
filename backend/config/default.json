@@ -3,8 +3,8 @@
     "engine": "mysql2",
     "host": "db",
     "name": "npm",
-    "user": "npm",
-    "password": "npm",
+    "user": "changeme",
+    "password": "changeme",
     "port": 3306
   }
 }

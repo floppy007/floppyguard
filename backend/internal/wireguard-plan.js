@@ -3,22 +3,17 @@ import path from "node:path";
 import internalWireGuard, {
 	buildRouteAnalysis,
 	buildTopology,
+	dedupe,
 	deriveGlobalNextActions,
 	deriveGlobalWarnings,
 	enrichInterfaceStatus,
 	enrichLinkRecord,
+	getMetadataFile,
+	mergeMetadataEntry,
 	sanitizeInterfaceMetadataPatch,
 	sanitizeLinkMetadataPatch,
 	syncHubConf,
 } from "./wireguard.js";
-
-function dedupe(values) {
-	return Array.from(new Set((values || []).filter(Boolean)));
-}
-
-function getMetadataFile() {
-	return process.env.WG_METADATA_FILE || path.resolve(process.cwd(), ".local-data", "wireguard-metadata.json");
-}
 
 function getApplyAuditFile() {
 	return process.env.WG_APPLY_AUDIT_FILE || `${getMetadataFile()}.apply-audit.json`;
@@ -43,13 +38,8 @@ function normalizePatch(patch = {}) {
 	return { interfaces, links };
 }
 
-function mergeMetadata(current = {}, patch = {}) {
-	const merged = { ...current, ...patch };
-	for (const [key, value] of Object.entries(merged)) {
-		if (value === undefined) delete merged[key];
-	}
-	return merged;
-}
+// Re-export mergeMetadataEntry as mergeMetadata for local usage
+const mergeMetadata = mergeMetadataEntry;
 
 function buildDiffEntries(currentEntries, patchedEntries, kind) {
 	return Object.entries(patchedEntries).flatMap(([id, patch]) => {
@@ -142,7 +132,7 @@ function classifyChangeScope(diff) {
 	return "metadata-only";
 }
 
-function buildApplyContract({ errors, warnings, nextActions, normalizedPatch, diff }) {
+function buildApplyContract({ errors, nextActions, diff }) {
 	const changedFieldCount =
 		diff.interfaces.reduce((sum, item) => sum + item.changedFields.length, 0) +
 		diff.links.reduce((sum, item) => sum + item.changedFields.length, 0);

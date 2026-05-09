@@ -115,6 +115,12 @@ export default {
 				throw new errs.AuthError(`Invalid expiry time: ${thisData.expiry}`);
 			}
 
+			// Cap token expiry to 30 days maximum
+			const maxExpiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+			if (expiry > maxExpiry) {
+				throw new errs.AuthError("Token expiry cannot exceed 30 days");
+			}
+
 			const token_attrs = {
 				id: access.token.getUserId(0),
 			};
