@@ -196,6 +196,7 @@ Docker Compose stack for FloppyGuard (backend + frontend + nginx), usable as a s
 
 | Version | Highlights |
 |---------|-----------|
+| v1.3.7  | Netz-Auswahl UI, Platform-Badge, Type/Platform Editor, Client-Warning-Fix, AllowedIPs Konfliktpruefung |
 | v1.3.6  | Hub-managed firewall rules, per-agent network ACLs, agent config auto-upload, reboot resilience, PrivateKey preservation |
 | v1.3.4  | Agent version display, WCAG focus-visible, responsive layout, 7 backend bug fixes, design + QA audit fixes |
 | v1.3.3  | AllowedIPs conflict detection, auto-MASQUERADE, full i18n, error handling fixes |
