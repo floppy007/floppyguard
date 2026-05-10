@@ -7,6 +7,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.3.7] – 2026-05-10
+
+### Added
+
+- **Netz-Auswahl beim Tunnel erstellen** — Checkbox-Karten pro Site mit einzeln waehlbaren Subnetzen statt manueller CIDR-Eingabe; Clients werden aus der Auswahl ausgeblendet
+- **Platform-Badge auf Link-Karten** — zeigt Desktop/Mobile Badge in der WireGuard-Uebersicht
+- **Type/Platform/FullTunnel im Metadata-Editor** — Verbindungstyp, Platform und Full-Tunnel nachtraeglich aenderbar; Platform und Full-Tunnel nur bei Client-Type sichtbar
+
+### Fixed
+
+- **Client-Links erzeugen keine falschen Warnungen mehr** — `remote-management-mode-undefined` und `link-not-currently-active` werden fuer Client-Type uebersprungen
+- **delete-peer/update-peer akzeptiert camelCase und snake_case** — Frontend sendet `link_id`, Backend las nur `linkId`; jetzt werden beide Formate akzeptiert
+- **AllowedIPs Konfliktpruefung** — `createPeer` und `updatePeer` verhindern doppelte Subnet-Zuweisungen mit Fehlermeldung
+- **Agent Script-Update vor Config-Apply** — verhindert Crash-Loop wenn der Agent ein Script-Update braucht um einen Config-Bug zu fixen
+
+---
+
 ## [1.3.6] – 2026-05-10
 
 ### Added
