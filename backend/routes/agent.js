@@ -3,7 +3,10 @@ import internalAgent from "../internal/agent.js";
 import error from "../lib/error.js";
 import jwtdecode from "../lib/express/jwt-decode.js";
 import requireAdmin from "../lib/express/require-admin.js";
+import rateLimit from "../lib/express/rate-limit.js";
 import { debug, express as logger } from "../logger.js";
+
+const agentLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10 });
 
 const router = express.Router({ caseSensitive: true, strict: true, mergeParams: true });
 
@@ -254,6 +257,31 @@ router
 				return next(new error.AuthError("Bearer token required", "error.auth"));
 			}
 			const result = await internalAgent.heartbeat(agentToken, req.body || {});
+			res.status(200).send(result);
+		} catch (err) {
+			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
+			next(err);
+		}
+	});
+
+/**
+ * POST /api/agent/upload-config
+ * Authorization: Bearer <agent_token>
+ * Body: { config_text: string }
+ * Agents upload their local WG config when the server has none.
+ */
+router
+	.route("/agent/upload-config")
+	.options((_, res) => {
+		res.sendStatus(204);
+	})
+	.post(agentLimiter, async (req, res, next) => {
+		try {
+			const agentToken = extractBearerToken(req);
+			if (!agentToken) {
+				return next(new error.AuthError("Bearer token required", "error.auth"));
+			}
+			const result = await internalAgent.uploadConfig(agentToken, req.body || {});
 			res.status(200).send(result);
 		} catch (err) {
 			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);

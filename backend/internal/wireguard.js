@@ -426,6 +426,8 @@ function buildLinkRecord(ifaceName, peer, index, metadata = {}) {
 		remoteManagementMode: REMOTE_MANAGEMENT_MODES.has(metadata.remoteManagementMode)
 			? metadata.remoteManagementMode
 			: "none",
+		platform: metadata.platform || null,
+		fullTunnel: Boolean(metadata.fullTunnel),
 		planIntent: metadata.planIntent || type,
 		planState: metadata.planState || null,
 		notes: metadata.notes || [],
@@ -632,11 +634,11 @@ function enrichLinkRecord(link, routeAnalysis) {
 		warnings.push("return-path-mode-undefined");
 		nextActions.push("define-return-path-mode");
 	}
-	if (["none", "unknown"].includes(link.remoteManagementMode)) {
+	if (["none", "unknown"].includes(link.remoteManagementMode) && link.type !== "client") {
 		warnings.push("remote-management-mode-undefined");
 		nextActions.push("define-remote-management-mode");
 	}
-	if (!link.active && (link.importedNetworks.length || link.exportedNetworks.length)) {
+	if (!link.active && (link.importedNetworks.length || link.exportedNetworks.length) && link.type !== "client") {
 		warnings.push("link-not-currently-active");
 		nextActions.push("verify-live-tunnel-state");
 	}
@@ -1348,6 +1350,17 @@ async function updatePeer(linkId, changes = {}) {
 	const link = status.links.find((l) => l.id === linkId);
 	if (!link) throw new Error(`Link not found: ${linkId}`);
 
+	// ── AllowedIPs conflict check for importedNetworks changes ──
+	if (changes.importedNetworks !== undefined) {
+		const newNets = sanitizeStringArray(changes.importedNetworks);
+		const otherLinks = status.links.filter((l) => l.id !== linkId);
+		const conflicts = checkAllowedIPsConflicts(newNets, otherLinks);
+		if (conflicts.length > 0) {
+			const details = conflicts.map((c) => `${c.subnet} already claimed by ${c.peer}`).join("; ");
+			throw new Error(`AllowedIPs conflict: ${details}`);
+		}
+	}
+
 	// ── Backup metadata ──
 	await backupMetadataStore();
 
@@ -1563,6 +1576,25 @@ async function getBandwidth() {
 	return result;
 }
 
+/**
+ * Check if any of the proposed subnets conflict with existing links' AllowedIPs.
+ * Returns an array of { subnet, peer } for each conflict found.
+ */
+function checkAllowedIPsConflicts(proposedNets, existingLinks) {
+	if (!proposedNets?.length) return [];
+	const conflicts = [];
+	for (const net of proposedNets) {
+		if (isHostRoute(net)) continue;
+		for (const link of existingLinks) {
+			const linkNets = (link.allowedIps || []).filter((ip) => !isHostRoute(ip));
+			if (linkNets.includes(net)) {
+				conflicts.push({ subnet: net, peer: link.name || link.id });
+			}
+		}
+	}
+	return conflicts;
+}
+
 export {
 	buildLinkRecord,
 	buildRouteAnalysis,
@@ -1655,6 +1687,7 @@ async function createInterface({ name, address, listenPort, role } = {}) {
 		`Address = ${address.trim()}`,
 		`ListenPort = ${listenPort}`,
 		`PrivateKey = ${privateKey}`,
+		"Table = off",
 		`PostUp = iptables -A FORWARD -i ${name} -j ACCEPT; iptables -A FORWARD -o ${name} -j ACCEPT`,
 		`PostDown = iptables -D FORWARD -i ${name} -j ACCEPT; iptables -D FORWARD -o ${name} -j ACCEPT`,
 		"",
@@ -1796,6 +1829,13 @@ async function createPeer({ name, type, dns, fullTunnel, platform, importedNetwo
 	const hubAllowedIPs = [peerAllowedIP];
 	const importedNets = (importedNetworks || []).filter(Boolean);
 	if (importedNets.length) hubAllowedIPs.push(...importedNets);
+
+	// ── AllowedIPs conflict check ──
+	const conflicts = checkAllowedIPsConflicts(importedNets, status.links);
+	if (conflicts.length > 0) {
+		const details = conflicts.map((c) => `${c.subnet} already claimed by ${c.peer}`).join("; ");
+		throw new Error(`AllowedIPs conflict: ${details}`);
+	}
 
 	// ── Write config file FIRST (safe to fail without side effects) ──
 	const confPath = path.join(getWireGuardConfDir(), `${ifaceName}.conf`);

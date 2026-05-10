@@ -271,7 +271,7 @@ router
 	.all(requireAdmin())
 	.post(async (req, res, next) => {
 		try {
-			const { linkId } = req.body || {};
+			const linkId = req.body?.linkId || req.body?.link_id;
 			if (!linkId?.trim()) {
 				next(new error.ValidationError("linkId is required"));
 				return;
@@ -297,7 +297,8 @@ router
 	.all(requireAdmin())
 	.post(async (req, res, next) => {
 		try {
-			const { linkId, ...changes } = req.body || {};
+			const { linkId: lid1, link_id: lid2, ...changes } = req.body || {};
+			const linkId = lid1 || lid2;
 			if (!linkId?.trim()) {
 				next(new error.ValidationError("linkId is required"));
 				return;

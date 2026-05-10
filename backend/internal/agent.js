@@ -24,7 +24,7 @@ const hashConfig = (text) => {
 	return createHash("sha256").update(text).digest("hex");
 };
 
-const AGENT_SCRIPT_VERSION = "1.3.4";
+const AGENT_SCRIPT_VERSION = "1.3.7";
 
 /**
  * Compute HMAC-SHA256 of the script using the agent_token as key.
@@ -117,6 +117,78 @@ const fetchTitle = (url) =>
 			resolve({ title: m ? m[1].trim() : null, finalUrl });
 		});
 	});
+
+/**
+ * Build hub-managed PostUp/PostDown rules from the config's tunnel subnet.
+ * %i is replaced by wg-quick with the interface name at runtime.
+ */
+function buildHubPostUp(tunnelSubnet) {
+	return `sysctl -w net.ipv4.ip_forward=1; iptables -A FORWARD -i %i -j ACCEPT; iptables -A FORWARD -o %i -j ACCEPT; iptables -t nat -A POSTROUTING ! -o %i -s ${tunnelSubnet} -j MASQUERADE`;
+}
+function buildHubPostDown(tunnelSubnet) {
+	return `iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -j ACCEPT; iptables -t nat -D POSTROUTING ! -o %i -s ${tunnelSubnet} -j MASQUERADE`;
+}
+
+/**
+ * Extract the tunnel subnet from an Address line (e.g. "10.10.0.5/24" -> "10.10.0.0/24").
+ * Falls back to "10.10.0.0/24" if not parseable.
+ */
+function deriveTunnelSubnet(configText) {
+	const m = (configText || "").match(/^\s*Address\s*=\s*([\d.]+)\/([\d]+)/im);
+	if (!m) return "10.10.0.0/24";
+	const parts = m[1].split(".");
+	const mask = Number.parseInt(m[2], 10);
+	if (mask <= 8) return `${parts[0]}.0.0.0/${mask}`;
+	if (mask <= 16) return `${parts[0]}.${parts[1]}.0.0/${mask}`;
+	if (mask <= 24) return `${parts[0]}.${parts[1]}.${parts[2]}.0/${mask}`;
+	return `${m[1]}/${mask}`;
+}
+
+function normalizeAgentConfig(configText) {
+	if (!configText) return configText;
+	const lines = configText.split(/\r?\n/);
+	const out = [];
+	let inInterface = false;
+	let hasTable = false;
+
+	// Single pass: detect Table, mask PrivateKey, strip PostUp/PostDown
+	for (const raw of lines) {
+		const t = raw.trim();
+		if (t === "[Interface]") inInterface = true;
+		else if (t.startsWith("[")) inInterface = false;
+
+		if (inInterface && t.startsWith("Table")) {
+			hasTable = true;
+		}
+
+		// Mask PrivateKey for DB storage
+		if (inInterface && t.startsWith("PrivateKey") && !t.includes("(hidden)")) {
+			out.push("PrivateKey = (hidden)");
+			continue;
+		}
+
+		// Strip all PostUp/PostDown — hub regenerates them
+		if (t.startsWith("PostUp") || t.startsWith("PostDown")) continue;
+
+		out.push(raw);
+	}
+
+	// Derive tunnel subnet from Address field
+	const tunnelSubnet = deriveTunnelSubnet(configText);
+
+	// Insert Table = off + hub-managed PostUp/PostDown before first [Peer]
+	const peerIdx = out.findIndex((l) => l.trim() === "[Peer]");
+	const insertAt = peerIdx > 0 ? peerIdx : out.length;
+
+	const toInsert = [];
+	if (!hasTable) toInsert.push("Table = off");
+	toInsert.push(`PostUp = ${buildHubPostUp(tunnelSubnet)}`);
+	toInsert.push(`PostDown = ${buildHubPostDown(tunnelSubnet)}`);
+
+	out.splice(insertAt, 0, ...toInsert);
+
+	return out.join("\n");
+}
 
 /**
  * Extract the first Address IP from a wg-quick config string.
@@ -234,7 +306,38 @@ sync_routes() {
 apply_config() {
   local cfg="$1" iface="$2"
   printf '%s' "$cfg" > /tmp/fg_new_wg.conf
+  local old_conf="/etc/wireguard/$iface.conf"
+
+  # ── Preserve local PrivateKey when hub sends "(hidden)" ──
+  if grep -q 'PrivateKey = (hidden)' /tmp/fg_new_wg.conf && [ -f "$old_conf" ]; then
+    local real_key
+    real_key=$(grep '^PrivateKey' "$old_conf" | head -1 | sed 's/^PrivateKey *= *//')
+    if [ -n "$real_key" ] && [ "$real_key" != "(hidden)" ]; then
+      python3 -c "
+import sys
+key=sys.argv[1]
+with open('/tmp/fg_new_wg.conf','r') as f: c=f.read()
+with open('/tmp/fg_new_wg.conf','w') as f: f.write(c.replace('PrivateKey = (hidden)','PrivateKey = '+key,1))
+" "$real_key"
+    fi
+  fi
+
   if ip link show "$iface" > /dev/null 2>&1; then
+    # ── Apply PostUp/PostDown changes from hub ──
+    local old_postup="" old_postdown="" new_postup="" new_postdown=""
+    [ -f "$old_conf" ] && old_postup=$(grep '^PostUp' "$old_conf" | sed 's/^PostUp *= *//' || true)
+    [ -f "$old_conf" ] && old_postdown=$(grep '^PostDown' "$old_conf" | sed 's/^PostDown *= *//' || true)
+    new_postup=$(grep '^PostUp' /tmp/fg_new_wg.conf | sed 's/^PostUp *= *//' || true)
+    if [ "$old_postup" != "$new_postup" ]; then
+      if [ -n "$old_postdown" ]; then
+        log "Running old PostDown before applying new rules..."
+        eval "$old_postdown" 2>/dev/null || true
+      fi
+      if [ -n "$new_postup" ]; then
+        log "Applying new PostUp rules from hub..."
+        eval "$new_postup" 2>/dev/null || true
+      fi
+    fi
     wg syncconf "$iface" <(wg-quick strip /tmp/fg_new_wg.conf 2>/dev/null || grep -vE "^(Address|PostUp|PostDown|DNS|MTU|Table|PreUp|PreDown)=" /tmp/fg_new_wg.conf)
     cp /tmp/fg_new_wg.conf "/etc/wireguard/$iface.conf"
     sync_routes "$iface"
@@ -479,16 +582,9 @@ while true; do
 
       [ -n "$NEW_TOKEN" ] && [ "$NEW_TOKEN" != "$FGTOKEN" ] && rotate_token "$NEW_TOKEN"
 
-      if [ -n "$NEW_HASH" ] && [ "$NEW_HASH" != "$CURRENT_HASH" ]; then
-        CFG=$(python3 -c "import sys,json; print(json.loads(sys.argv[1]).get('config_text') or '')" "$RESPONSE" 2>/dev/null || echo "")
-        IFACE=$(python3 -c "import sys,json; print(json.loads(sys.argv[1]).get('wg_interface','wg0'))" "$RESPONSE" 2>/dev/null || echo "wg0")
-        if [ -n "$CFG" ]; then
-          ${applyCall}
-          echo "$NEW_HASH" > "$HASH_FILE"
-        fi
-      fi
-
-      # ── Script self-update (with HMAC-SHA256 signature verification) ────────────
+      # ── Script self-update FIRST (before config apply) ─────────────────────────
+      # Must run before config apply so agents get bug fixes (like PrivateKey
+      # preservation) before attempting to apply a new config.
       SCRIPT_VERSION_SERVER=$(python3 -c "import sys,json; print(json.loads(sys.argv[1]).get('script_version') or '')" "$RESPONSE" 2>/dev/null || echo "")
       if [ -n "$SCRIPT_VERSION_SERVER" ] && [ "$SCRIPT_VERSION_SERVER" != "$SCRIPT_VERSION" ]; then
         log "Script update available ($SCRIPT_VERSION → $SCRIPT_VERSION_SERVER), downloading..."
@@ -499,7 +595,6 @@ while true; do
         SERVER_SIG=$(grep -i '^X-Script-Signature:' "$HEADERS_FILE" 2>/dev/null | sed 's/^[^:]*: *//' | tr -d '\\r\\n' || echo "")
         rm -f "$HEADERS_FILE"
         if [ -n "$NEW_SCRIPT" ] && echo "$NEW_SCRIPT" | head -1 | grep -q '^#!'; then
-          # Verify HMAC-SHA256 signature using agent token as key
           LOCAL_SIG=$(printf '%s' "$NEW_SCRIPT" | openssl dgst -sha256 -hmac "$FGTOKEN" 2>/dev/null | awk '{print $NF}')
           if [ -n "$SERVER_SIG" ] && [ "$LOCAL_SIG" = "$SERVER_SIG" ]; then
             printf '%s\\n' "$NEW_SCRIPT" > /tmp/fg_loop_update
@@ -513,6 +608,35 @@ while true; do
           fi
         else
           log "Script update download failed or invalid, skipping"
+        fi
+      fi
+
+      if [ -n "$NEW_HASH" ] && [ "$NEW_HASH" != "$CURRENT_HASH" ]; then
+        CFG=$(python3 -c "import sys,json; print(json.loads(sys.argv[1]).get('config_text') or '')" "$RESPONSE" 2>/dev/null || echo "")
+        IFACE=$(python3 -c "import sys,json; print(json.loads(sys.argv[1]).get('wg_interface','wg0'))" "$RESPONSE" 2>/dev/null || echo "wg0")
+        if [ -n "$CFG" ]; then
+          ${applyCall}
+          echo "$NEW_HASH" > "$HASH_FILE"
+        fi
+      fi
+
+      # ── Upload local config if server has none ──────────────────────────────────
+      if [ -z "$NEW_HASH" ]; then
+        IFACE=$(python3 -c "import sys,json; print(json.loads(sys.argv[1]).get('wg_interface','wg0'))" "$RESPONSE" 2>/dev/null || echo "wg0")
+        CONF_FILE="/etc/wireguard/$IFACE.conf"
+        if [ -f "$CONF_FILE" ]; then
+          LOCAL_CFG=$(cat "$CONF_FILE" 2>/dev/null | sed 's/PrivateKey = .*/PrivateKey = (hidden)/')
+          if [ -n "$LOCAL_CFG" ]; then
+            UPLOAD=$(python3 -c "import sys,json; print(json.dumps({'config_text': sys.argv[1]}))" "$LOCAL_CFG" 2>/dev/null || echo "")
+            if [ -n "$UPLOAD" ]; then
+              curl -sf --max-time 10 -X POST \\
+                -H "Authorization: Bearer $FGTOKEN" \\
+                -H "Content-Type: application/json" \\
+                -d "$UPLOAD" \\
+                "$SERVER/api/agent/upload-config" > /dev/null 2>&1 && \\
+                log "Uploaded local $IFACE config to hub" || true
+            fi
+          fi
         fi
       fi
 
@@ -561,6 +685,8 @@ const internalAgent = {
 				"last_seen",
 				"status",
 				"agent_version",
+				"allowed_sites",
+				"allowed_networks",
 				"created_on",
 				"modified_on",
 			)
@@ -591,6 +717,9 @@ const internalAgent = {
 				"reg_token",
 				"last_seen",
 				"status",
+				"agent_version",
+				"allowed_sites",
+				"allowed_networks",
 				"created_on",
 				"modified_on",
 			)
@@ -691,6 +820,12 @@ const internalAgent = {
 		if (typeof data.unifi_user !== "undefined") patch.unifi_user = data.unifi_user;
 		if (typeof data.unifi_pass !== "undefined") patch.unifi_pass = data.unifi_pass;
 		if (typeof data.unifi_site !== "undefined") patch.unifi_site = data.unifi_site;
+		if (typeof data.allowed_sites !== "undefined") {
+			patch.allowed_sites = Array.isArray(data.allowed_sites) ? JSON.stringify(data.allowed_sites) : null;
+		}
+		if (typeof data.allowed_networks !== "undefined") {
+			patch.allowed_networks = Array.isArray(data.allowed_networks) ? JSON.stringify(data.allowed_networks) : null;
+		}
 
 		await Agent.query().patchAndFetchById(id, patch);
 
@@ -994,6 +1129,41 @@ echo "[floppyguard-agent]   journalctl -u floppyguard-agent -f"
 	},
 
 	/**
+	 * Accepts a config_text upload from an agent. Only stores it if the server
+	 * has no config_text for this agent yet (prevents agents from overwriting
+	 * server-managed configs).
+	 *
+	 * @param {string} agentToken
+	 * @param {Object} data  — { config_text: string }
+	 * @returns {Promise<{ ok: boolean, stored: boolean }>}
+	 */
+	async uploadConfig(agentToken, data) {
+		const agent = await Agent.query().where("agent_token", agentToken).where("is_deleted", 0).first();
+
+		if (!agent) {
+			throw new error.AuthError("Invalid agent token", "error.auth");
+		}
+
+		if (agent.config_text) {
+			return { ok: true, stored: false, reason: "config-already-exists" };
+		}
+
+		if (!data?.config_text?.trim()) {
+			return { ok: true, stored: false, reason: "empty-config" };
+		}
+
+		const normalized = normalizeAgentConfig(data.config_text);
+		const config_hash = hashConfig(normalized);
+		await Agent.query().patchAndFetchById(agent.id, {
+			config_text: normalized,
+			config_hash,
+		});
+
+		logger.info(`Agent ${agent.name} (id=${agent.id}) uploaded initial config (normalized)`);
+		return { ok: true, stored: true };
+	},
+
+	/**
 	 * Syncs the hub-peer AllowedIPs in each agent's config_text from WireGuard metadata.
 	 *
 	 * For every agent that has a wg_link_name:
@@ -1046,8 +1216,31 @@ echo "[floppyguard-agent]   journalctl -u floppyguard-agent -f"
 			// Networks belonging to THIS agent's own site (don't route these through hub)
 			const ownNets = new Set(linkMeta.importedNetworks || []);
 
-			// Site networks of all OTHER links → what this agent should route through hub
-			const otherSiteNets = [...allSiteNets].filter((n) => !ownNets.has(n));
+			// ── Network access control (deny-by-default when configured) ──
+			// Priority: allowed_networks > allowed_sites > full-mesh
+			// 1. allowed_networks: explicit list of CIDRs this agent may route
+			//    (most granular, e.g. ["192.168.10.0/24"] — only that subnet)
+			// 2. allowed_sites: whitelist of link names whose networks are allowed
+			//    (site-level, e.g. ["Floppy Home"] — all of that link's networks)
+			// 3. Neither set: full-mesh (all other links' networks)
+			const allowedNetworks = _parseAllowedSites(agent.allowed_networks);
+			const allowedSites = _parseAllowedSites(agent.allowed_sites);
+
+			let otherSiteNets;
+			if (allowedNetworks) {
+				// Explicit network list — use directly, skip own networks
+				otherSiteNets = [...allowedNetworks].filter((n) => !ownNets.has(n));
+			} else {
+				// Site-level or full-mesh filtering
+				otherSiteNets = [...allSiteNets].filter((n) => {
+					if (ownNets.has(n)) return false;
+					if (!allowedSites) return true; // no whitelist = full mesh
+					for (const [, lm] of linksByName) {
+						if (allowedSites.has(lm.name) && (lm.importedNetworks || []).includes(n)) return true;
+					}
+					return false;
+				});
+			}
 
 			// Parse current AllowedIPs from the hub peer in config_text
 			const currentAllowedIPs = _parseHubPeerAllowedIPs(agent.config_text);
@@ -1065,7 +1258,8 @@ echo "[floppyguard-agent]   journalctl -u floppyguard-agent -f"
 				continue;
 			}
 
-			const newConfigText = _rewriteHubPeerAllowedIPs(agent.config_text, newAllowedIPs);
+			const rewritten = _rewriteHubPeerAllowedIPs(agent.config_text, newAllowedIPs);
+			const newConfigText = normalizeAgentConfig(rewritten);
 			await Agent.query().patchAndFetchById(agent.id, {
 				config_text: newConfigText,
 				config_hash: hashConfig(newConfigText),
@@ -1130,6 +1324,21 @@ function _rewriteHubPeerAllowedIPs(configText, newAllowedIPs) {
 			return raw;
 		})
 		.join("\n");
+}
+
+/**
+ * Parses the allowed_sites JSON column. Returns a Set of link names,
+ * or null if the field is empty/unset (meaning full-mesh, all sites allowed).
+ */
+function _parseAllowedSites(raw) {
+	if (!raw) return null;
+	try {
+		const parsed = JSON.parse(raw);
+		if (!Array.isArray(parsed) || parsed.length === 0) return null;
+		return new Set(parsed.map((s) => String(s).trim()).filter(Boolean));
+	} catch {
+		return null;
+	}
 }
 
 export default internalAgent;

@@ -7,6 +7,7 @@ import type {
 	WireGuardInterface,
 	WireGuardInterfaceRole,
 	WireGuardLink,
+	WireGuardLinkType,
 	WireGuardManagementMode,
 	WireGuardMetadataPatch,
 	WireGuardPlanPreviewResponse,
@@ -856,6 +857,8 @@ function LinkCard({ link, missingReturnRoutes, natCandidates, planningInterfaces
 	const [draftReturn, setDraftReturn] = useState<WireGuardReturnPathMode>("auto");
 	const [draftDns, setDraftDns] = useState("");
 	const [draftFullTunnel, setDraftFullTunnel] = useState(false);
+	const [draftType, setDraftType] = useState<WireGuardLinkType>("client");
+	const [draftPlatform, setDraftPlatform] = useState<"desktop" | "mobile">("desktop");
 	// Planner state
 	const [planExported, setPlanExported] = useState("");
 	const [planImported, setPlanImported] = useState("");
@@ -890,6 +893,8 @@ function LinkCard({ link, missingReturnRoutes, natCandidates, planningInterfaces
 		setDraftReturn(link.returnPathMode || "auto");
 		setDraftDns((link.dns || []).join(", "));
 		setDraftFullTunnel(Boolean(link.fullTunnel));
+		setDraftType(link.type);
+		setDraftPlatform(link.platform || "desktop");
 		setEditorOpen(true);
 		setPlannerOpen(false);
 	};
@@ -923,6 +928,8 @@ function LinkCard({ link, missingReturnRoutes, natCandidates, planningInterfaces
 	const draftDnsArr = splitCsv(draftDns);
 	if (draftDnsArr.join(",") !== (link.dns || []).join(",")) editorLinkPatch.dns = draftDnsArr;
 	if (draftFullTunnel !== Boolean(link.fullTunnel)) editorLinkPatch.fullTunnel = draftFullTunnel;
+	if (draftType !== link.type) editorLinkPatch.type = draftType;
+	if (draftPlatform !== (link.platform || "desktop")) editorLinkPatch.platform = draftPlatform;
 
 	const editorPatch: WireGuardMetadataPatch = {
 		links: { [link.id]: editorLinkPatch },
@@ -961,6 +968,11 @@ function LinkCard({ link, missingReturnRoutes, natCandidates, planningInterfaces
 							: intl.formatMessage({ id: "wireguard.link.inactive" })}
 					</span>
 					<span className={`badge ${pb.cls}`}>{pb.label}</span>
+					{link.platform && (
+						<span className="badge bg-azure-lt text-azure">
+							{link.platform === "mobile" ? "Mobile" : "Desktop"}
+						</span>
+					)}
 					{missingReturn && (
 						<span className="badge bg-red-lt text-red">
 							{intl.formatMessage({ id: "wireguard.link.missing-return" })}
@@ -1212,7 +1224,21 @@ function LinkCard({ link, missingReturnRoutes, natCandidates, planningInterfaces
 								</div>
 							</label>
 						</div>
-						<div className="col-md-6">
+						<div className="col-md-4">
+							<label className="form-label">
+								{intl.formatMessage({ id: "wireguard.create.type" })}
+								<select
+									className="form-select"
+									value={draftType}
+									onChange={(e) => setDraftType(e.target.value as WireGuardLinkType)}
+								>
+									<option value="client">Client</option>
+									<option value="site-to-site">Site-to-Site</option>
+									<option value="hub-link">Hub-Link</option>
+								</select>
+							</label>
+						</div>
+						<div className="col-md-4">
 							<label className="form-label">
 								{intl.formatMessage({ id: "wireguard.link.remote-management" })}
 								<select
@@ -1228,7 +1254,7 @@ function LinkCard({ link, missingReturnRoutes, natCandidates, planningInterfaces
 								</select>
 							</label>
 						</div>
-						<div className="col-md-6">
+						<div className="col-md-4">
 							<label className="form-label">
 								{intl.formatMessage({ id: "wireguard.link.return-mode" })}
 								<select
@@ -1254,17 +1280,34 @@ function LinkCard({ link, missingReturnRoutes, natCandidates, planningInterfaces
 								/>
 							</label>
 						</div>
-						<div className="col-md-4 d-flex align-items-end pb-1">
-							<label className="form-check form-switch">
-								<input
-									type="checkbox"
-									className="form-check-input"
-									checked={draftFullTunnel}
-									onChange={(e) => setDraftFullTunnel(e.target.checked)}
-								/>
-								<span className="form-check-label">{intl.formatMessage({ id: "wireguard.field.full-tunnel" })}</span>
-							</label>
-						</div>
+						{draftType === "client" && (
+							<div className="col-md-4">
+								<label className="form-label">
+									{intl.formatMessage({ id: "wireguard.create.platform" })}
+									<select
+										className="form-select"
+										value={draftPlatform}
+										onChange={(e) => setDraftPlatform(e.target.value as "desktop" | "mobile")}
+									>
+										<option value="desktop">{intl.formatMessage({ id: "wireguard.create.platform-desktop" })}</option>
+										<option value="mobile">{intl.formatMessage({ id: "wireguard.create.platform-mobile" })}</option>
+									</select>
+								</label>
+							</div>
+						)}
+						{draftType === "client" && (
+							<div className="col-md-4 d-flex align-items-end pb-1">
+								<label className="form-check form-switch">
+									<input
+										type="checkbox"
+										className="form-check-input"
+										checked={draftFullTunnel}
+										onChange={(e) => setDraftFullTunnel(e.target.checked)}
+									/>
+									<span className="form-check-label">{intl.formatMessage({ id: "wireguard.field.full-tunnel" })}</span>
+								</label>
+							</div>
+						)}
 					</div>
 					<div className="d-flex gap-2 mt-3">
 						<button
@@ -2167,34 +2210,90 @@ const WireGuard = () => {
 										placeholder="10.10.0.1, 1.1.1.1"
 									/>
 								</div>
-								<div className="col-md-3">
-									<label className="form-label mb-1">{intl.formatMessage({ id: "wireguard.create.platform" })}</label>
-									<select
-										className="form-select"
-										value={newPlatform}
-										onChange={(e) => setNewPlatform(e.target.value as "desktop" | "mobile")}
-									>
-										<option value="desktop">{intl.formatMessage({ id: "wireguard.create.platform-desktop" })}</option>
-										<option value="mobile">{intl.formatMessage({ id: "wireguard.create.platform-mobile" })}</option>
-									</select>
-								</div>
-								<div className="col-md-3 d-flex align-items-center" style={{ paddingTop: "0.25rem" }}>
-									<label className="form-check form-switch mb-0">
-										<input
-											type="checkbox"
-											className="form-check-input"
-											checked={newFullTunnel}
-											onChange={(e) => setNewFullTunnel(e.target.checked)}
-										/>
-										<span className="form-check-label">{intl.formatMessage({ id: "wireguard.create.full-tunnel" })}</span>
-									</label>
-								</div>
+								{newType === "client" && (
+									<div className="col-md-3">
+										<label className="form-label mb-1">{intl.formatMessage({ id: "wireguard.create.platform" })}</label>
+										<select
+											className="form-select"
+											value={newPlatform}
+											onChange={(e) => setNewPlatform(e.target.value as "desktop" | "mobile")}
+										>
+											<option value="desktop">{intl.formatMessage({ id: "wireguard.create.platform-desktop" })}</option>
+											<option value="mobile">{intl.formatMessage({ id: "wireguard.create.platform-mobile" })}</option>
+										</select>
+									</div>
+								)}
+								{newType === "client" && (
+									<div className="col-md-3 d-flex align-items-center" style={{ paddingTop: "0.25rem" }}>
+										<label className="form-check form-switch mb-0">
+											<input
+												type="checkbox"
+												className="form-check-input"
+												checked={newFullTunnel}
+												onChange={(e) => setNewFullTunnel(e.target.checked)}
+											/>
+											<span className="form-check-label">{intl.formatMessage({ id: "wireguard.create.full-tunnel" })}</span>
+										</label>
+									</div>
+								)}
 								{!newFullTunnel && (
-									<div className="col-md-6">
+									<div className="col-12">
 										<label className="form-label mb-1">{intl.formatMessage({ id: "wireguard.create.allowed-ips" })}</label>
+										<div className="row g-2 mb-1">
+											{(() => {
+												const selectedNets = new Set(splitCsv(newImported));
+												const toggleNet = (net: string) => {
+													const nets = new Set(splitCsv(newImported));
+													if (nets.has(net)) nets.delete(net);
+													else nets.add(net);
+													setNewImported([...nets].join(", "));
+												};
+												const toggleSite = (siteNets: string[]) => {
+													const nets = new Set(splitCsv(newImported));
+													const allSelected = siteNets.every((n) => nets.has(n));
+													for (const n of siteNets) {
+														if (allSelected) nets.delete(n);
+														else nets.add(n);
+													}
+													setNewImported([...nets].join(", "));
+												};
+												// Group networks by site (exclude clients — they consume networks, not provide them)
+												const sites = links
+													.filter((l) => l.type !== "client" && l.importedNetworks.length > 0)
+													.map((l) => ({ name: l.name, nets: l.importedNetworks }));
+												return sites.map((site) => (
+													<div key={site.name} className="col-md-4">
+														<div className="card card-sm">
+															<div className="card-body py-2 px-3">
+																<label className="form-check mb-1">
+																	<input
+																		type="checkbox"
+																		className="form-check-input"
+																		checked={site.nets.every((n) => selectedNets.has(n))}
+																		onChange={() => toggleSite(site.nets)}
+																	/>
+																	<span className="form-check-label fw-bold small">{site.name}</span>
+																</label>
+																{site.nets.map((net) => (
+																	<label key={net} className="form-check ms-3">
+																		<input
+																			type="checkbox"
+																			className="form-check-input"
+																			checked={selectedNets.has(net)}
+																			onChange={() => toggleNet(net)}
+																		/>
+																		<span className="form-check-label small text-secondary">{net}</span>
+																	</label>
+																))}
+															</div>
+														</div>
+													</div>
+												));
+											})()}
+										</div>
 										<input
 											type="text"
-											className="form-control"
+											className="form-control form-control-sm mt-1"
 											value={newImported}
 											onChange={(e) => setNewImported(e.target.value)}
 											placeholder="10.10.0.0/24, 192.168.10.0/24"
