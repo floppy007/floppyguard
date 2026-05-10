@@ -264,11 +264,12 @@ export interface WireGuardLink {
 	hasMetadata: boolean;
 	returnPathMode: WireGuardReturnPathMode;
 	remoteManagementMode: WireGuardRemoteManagementMode;
+	platform?: "desktop" | "mobile" | null;
+	fullTunnel?: boolean;
 	planIntent?: string | null;
 	planState?: string | null;
 	notes?: string[];
 	dns?: string[];
-	fullTunnel?: boolean;
 	warnings: string[];
 	nextActions: string[];
 }

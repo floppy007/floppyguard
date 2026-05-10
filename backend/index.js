@@ -12,7 +12,11 @@ const IP_RANGES_FETCH_ENABLED = process.env.IP_RANGES_FETCH_ENABLED !== "false";
 // Preview and staging environments must be able to avoid the upstream-fixed 3000 port.
 const PORT = Number.parseInt(process.env.PORT || "3000", 10);
 
+const MAX_RETRIES = 30;
+let startAttempt = 0;
+
 async function appStart() {
+	startAttempt++;
 	return migrateUp()
 		.then(setup)
 		.then(getCompiledSchema)
@@ -27,6 +31,7 @@ async function appStart() {
 			});
 		})
 		.then(() => {
+			startAttempt = 0;
 			internalCertificate.initTimer();
 			internalIpRanges.initTimer();
 
@@ -43,8 +48,21 @@ async function appStart() {
 			});
 		})
 		.catch((err) => {
-			logger.error(`Startup Error: ${err.message}`, err);
-			setTimeout(appStart, 1000);
+			const isDbError = /ECONNREFUSED|ENOTFOUND|ETIMEDOUT|ER_ACCESS_DENIED/.test(err.message);
+			if (isDbError) {
+				logger.error(`Database unreachable (attempt ${startAttempt}/${MAX_RETRIES}): ${err.message}`);
+				logger.error("Check that your database server is running: systemctl status mariadb");
+			} else {
+				logger.error(`Startup Error (attempt ${startAttempt}/${MAX_RETRIES}): ${err.message}`, err);
+			}
+
+			if (startAttempt >= MAX_RETRIES) {
+				logger.fatal(`Giving up after ${MAX_RETRIES} failed attempts. Fix the issue and restart: systemctl restart floppyguard-backend`);
+				process.exit(1);
+			}
+
+			const delay = Math.min(1000 * startAttempt, 15000);
+			setTimeout(appStart, delay);
 		});
 }
 

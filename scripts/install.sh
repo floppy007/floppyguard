@@ -201,12 +201,29 @@ EOF
 
 install_systemd() {
     local unit_file="/etc/systemd/system/${SERVICE_NAME}.service"
+
+    # Detect MariaDB/MySQL — add service dependency and ensure /run/mysqld
+    # exists at boot.  LXC containers often break systemd-tmpfiles UID checks,
+    # so the standard mariadb.conf tmpfiles rule silently fails and MariaDB
+    # cannot start (missing socket directory).
+    local db_after="network.target"
+    local db_wants=""
+    if systemctl list-unit-files mariadb.service >/dev/null 2>&1; then
+        db_after="network.target mariadb.service"
+        db_wants="Wants=mariadb.service"
+        ensure_mysql_rundir
+    elif systemctl list-unit-files mysql.service >/dev/null 2>&1; then
+        db_after="network.target mysql.service"
+        db_wants="Wants=mysql.service"
+    fi
+
     if [ ! -f "${unit_file}" ]; then
         info "Installing systemd unit..."
         cat > "${unit_file}" <<EOF
 [Unit]
 Description=FloppyGuard Backend
-After=network.target
+After=${db_after}
+${db_wants}
 
 [Service]
 Type=simple
@@ -229,6 +246,34 @@ EOF
     systemctl enable "${SERVICE_NAME}" -q
     systemctl restart "${SERVICE_NAME}"
     ok "Backend started (systemd: ${SERVICE_NAME})"
+}
+
+ensure_mysql_rundir() {
+    # In LXC/container environments systemd-tmpfiles often cannot create
+    # /run/mysqld due to UID-mapping conflicts.  Install a tiny oneshot
+    # service that creates the directory before MariaDB starts.
+    local rundir_unit="/etc/systemd/system/mariadb-rundir.service"
+    if [ -f "${rundir_unit}" ]; then return; fi
+
+    info "Installing mariadb-rundir helper (LXC safety net)..."
+    cat > "${rundir_unit}" <<EOF
+[Unit]
+Description=Create /run/mysqld directory for MariaDB
+Before=mariadb.service
+ConditionPathIsDirectory=!/run/mysqld
+
+[Service]
+Type=oneshot
+ExecStart=/bin/mkdir -p /run/mysqld
+ExecStartPost=/bin/chown mysql:mysql /run/mysqld
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    systemctl daemon-reload
+    systemctl enable mariadb-rundir.service -q
+    ok "mariadb-rundir.service installed"
 }
 
 install_nginx() {
