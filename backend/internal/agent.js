@@ -24,7 +24,7 @@ const hashConfig = (text) => {
 	return createHash("sha256").update(text).digest("hex");
 };
 
-const AGENT_SCRIPT_VERSION = "1.3.7";
+const AGENT_SCRIPT_VERSION = "1.3.8";
 
 /**
  * Compute HMAC-SHA256 of the script using the agent_token as key.
@@ -119,14 +119,41 @@ const fetchTitle = (url) =>
 	});
 
 /**
+ * Strict CIDR validation — prevents shell injection via malicious network values.
+ * Only allows valid IPv4 CIDR notation (e.g. "192.168.1.0/24").
+ */
+const CIDR_RE = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\/\d{1,2}$/;
+function assertCIDR(value) {
+	if (!CIDR_RE.test(value)) {
+		throw new Error(`Invalid CIDR: ${value}`);
+	}
+}
+
+/**
  * Build hub-managed PostUp/PostDown rules from the config's tunnel subnet.
  * %i is replaced by wg-quick with the interface name at runtime.
+ *
+ * @param {string} tunnelSubnet  e.g. "10.10.0.0/24"
+ * @param {string[]} remoteSiteNets  networks from other sites that need MASQUERADE
+ *   when exiting through the local LAN (e.g. ["192.168.111.0/24", "192.168.112.0/24"])
  */
-function buildHubPostUp(tunnelSubnet) {
-	return `sysctl -w net.ipv4.ip_forward=1; iptables -A FORWARD -i %i -j ACCEPT; iptables -A FORWARD -o %i -j ACCEPT; iptables -t nat -A POSTROUTING ! -o %i -s ${tunnelSubnet} -j MASQUERADE`;
+function buildHubPostUp(tunnelSubnet, remoteSiteNets = []) {
+	assertCIDR(tunnelSubnet);
+	let rules = `sysctl -w net.ipv4.ip_forward=1; iptables -A FORWARD -i %i -j ACCEPT; iptables -A FORWARD -o %i -j ACCEPT; iptables -t nat -A POSTROUTING ! -o %i -s ${tunnelSubnet} -j MASQUERADE`;
+	for (const net of remoteSiteNets) {
+		assertCIDR(net);
+		rules += `; iptables -t nat -A POSTROUTING ! -o %i -s ${net} -j MASQUERADE`;
+	}
+	return rules;
 }
-function buildHubPostDown(tunnelSubnet) {
-	return `iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -j ACCEPT; iptables -t nat -D POSTROUTING ! -o %i -s ${tunnelSubnet} -j MASQUERADE`;
+function buildHubPostDown(tunnelSubnet, remoteSiteNets = []) {
+	assertCIDR(tunnelSubnet);
+	let rules = `iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -j ACCEPT; iptables -t nat -D POSTROUTING ! -o %i -s ${tunnelSubnet} -j MASQUERADE`;
+	for (const net of remoteSiteNets) {
+		assertCIDR(net);
+		rules += `; iptables -t nat -D POSTROUTING ! -o %i -s ${net} -j MASQUERADE`;
+	}
+	return rules;
 }
 
 /**
@@ -140,11 +167,16 @@ function deriveTunnelSubnet(configText) {
 	const mask = Number.parseInt(m[2], 10);
 	if (mask <= 8) return `${parts[0]}.0.0.0/${mask}`;
 	if (mask <= 16) return `${parts[0]}.${parts[1]}.0.0/${mask}`;
-	if (mask <= 24) return `${parts[0]}.${parts[1]}.${parts[2]}.0/${mask}`;
-	return `${m[1]}/${mask}`;
+	// For /32 host addresses, derive the enclosing /24 (the tunnel subnet)
+	if (mask > 24) return `${parts[0]}.${parts[1]}.${parts[2]}.0/24`;
+	return `${parts[0]}.${parts[1]}.${parts[2]}.0/${mask}`;
 }
 
-function normalizeAgentConfig(configText) {
+/**
+ * @param {string} configText  raw wg-quick config
+ * @param {string[]} remoteSiteNets  networks from other sites needing LAN MASQUERADE
+ */
+function normalizeAgentConfig(configText, remoteSiteNets = []) {
 	if (!configText) return configText;
 	const lines = configText.split(/\r?\n/);
 	const out = [];
@@ -182,8 +214,8 @@ function normalizeAgentConfig(configText) {
 
 	const toInsert = [];
 	if (!hasTable) toInsert.push("Table = off");
-	toInsert.push(`PostUp = ${buildHubPostUp(tunnelSubnet)}`);
-	toInsert.push(`PostDown = ${buildHubPostDown(tunnelSubnet)}`);
+	toInsert.push(`PostUp = ${buildHubPostUp(tunnelSubnet, remoteSiteNets)}`);
+	toInsert.push(`PostDown = ${buildHubPostDown(tunnelSubnet, remoteSiteNets)}`);
 
 	out.splice(insertAt, 0, ...toInsert);
 
@@ -1245,27 +1277,45 @@ echo "[floppyguard-agent]   journalctl -u floppyguard-agent -f"
 			// Parse current AllowedIPs from the hub peer in config_text
 			const currentAllowedIPs = _parseHubPeerAllowedIPs(agent.config_text);
 
-			// Preserve WG-specific entries (tunnel IPs etc.) not covered by any link's metadata
-			const wgSpecific = currentAllowedIPs.filter((ip) => !allSiteNets.has(ip));
+			// The tunnel subnet (derived from this agent's Address) must ALWAYS remain
+			// in AllowedIPs — without it the agent can't communicate with the hub or
+			// other peers and the tunnel collapses.
+			const agentTunnelSubnet = deriveTunnelSubnet(agent.config_text);
 
-			const newAllowedIPs = [...new Set([...wgSpecific, ...otherSiteNets])];
+			// Preserve WG-specific entries not covered by any link's metadata or the tunnel subnet
+			const wgSpecific = currentAllowedIPs.filter((ip) => !allSiteNets.has(ip) && ip !== agentTunnelSubnet);
+
+			const newAllowedIPs = [...new Set([agentTunnelSubnet, ...wgSpecific, ...otherSiteNets])];
 			newAllowedIPs.sort();
 			const newSorted = newAllowedIPs.join(",");
 			const currentSorted = [...currentAllowedIPs].sort().join(",");
 
-			if (newSorted === currentSorted) {
+			// Compute which remote networks need MASQUERADE on this agent's LAN.
+			// These are all networks routed TO this agent (i.e. from other sites)
+			// that arrive via wg and exit to the local LAN — without MASQUERADE the
+			// local devices can't reply (they don't know the route back).
+			const masqueradeNets = otherSiteNets.filter((n) => !ownNets.has(n));
+			masqueradeNets.sort();
+
+			// Re-normalize config even if AllowedIPs didn't change — PostUp rules
+			// (MASQUERADE for remote site networks) may have changed.
+			const rewritten = newSorted !== currentSorted
+				? _rewriteHubPeerAllowedIPs(agent.config_text, newAllowedIPs)
+				: agent.config_text;
+			const newConfigText = normalizeAgentConfig(rewritten, masqueradeNets);
+			const newHash = hashConfig(newConfigText);
+
+			if (newHash === agent.config_hash) {
 				results.push({ agentId: agent.id, name: agent.name, changed: false });
 				continue;
 			}
 
-			const rewritten = _rewriteHubPeerAllowedIPs(agent.config_text, newAllowedIPs);
-			const newConfigText = normalizeAgentConfig(rewritten);
 			await Agent.query().patchAndFetchById(agent.id, {
 				config_text: newConfigText,
-				config_hash: hashConfig(newConfigText),
+				config_hash: newHash,
 			});
 
-			results.push({ agentId: agent.id, name: agent.name, changed: true, newAllowedIPs });
+			results.push({ agentId: agent.id, name: agent.name, changed: true, newAllowedIPs, masqueradeNets });
 		}
 
 		return results;
@@ -1342,3 +1392,15 @@ function _parseAllowedSites(raw) {
 }
 
 export default internalAgent;
+
+// Exported for unit testing only
+export const _testExports = {
+	buildHubPostUp,
+	buildHubPostDown,
+	deriveTunnelSubnet,
+	normalizeAgentConfig,
+	_parseHubPeerAllowedIPs,
+	_rewriteHubPeerAllowedIPs,
+	_parseAllowedSites,
+	assertCIDR,
+};

@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:github.com)",
+      "Skill(health)",
+      "Skill(cso)",
+      "Skill(review)",
+      "Skill(design-review)",
+      "Skill(investigate)",
+      "Skill(context-save)",
+      "Skill(context-restore)",
+      "Skill(gstack-upgrade)",
+      "Skill(ship)",
+      "Skill(qa)",
+      "Skill(qa-only)",
+      "Skill(autoplan)",
+      "Skill(office-hours)",
+      "Skill(retro)",
+      "Skill(document-release)",
+      "Skill(learn)"
+    ]
+  }
+}

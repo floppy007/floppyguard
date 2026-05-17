@@ -1,19 +1,39 @@
 [Unit]
-Description=FloppyGuard Backend
-After=network-online.target
-Wants=network-online.target
+Description=FloppyGuard Backend (nginx-proxy-manager fork)
+Documentation=https://github.com/floppy007/floppyguard
+After=network.target mysql.service mariadb.service
+Wants=mysql.service mariadb.service
 
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/opt/floppyguard/backend
-ExecStart=/usr/bin/node index.js
-Restart=always
-RestartSec=10
+WorkingDirectory=/var/www/floppyguard/backend
+
+Environment=PORT=3300
+Environment=NODE_ENV=production
+
+# Database — adjust to your setup
+Environment=DB_MYSQL_HOST=localhost
+Environment=DB_MYSQL_PORT=3306
+Environment=DB_MYSQL_USER=npm
+Environment=DB_MYSQL_PASSWORD=changeme
+Environment=DB_MYSQL_NAME=npm
+
+# WireGuard — set to your public IP or domain
+Environment=WG_HUB_HOST=your-public-ip-or-domain
+
+# Certificate paths
+Environment=NPM_LETSENCRYPT_ROOT=/opt/npm/letsencrypt
+Environment=NPM_CUSTOM_SSL_ROOT=/opt/npm/data/custom_ssl
+
+ExecStart=/bin/node index.js
+
+Restart=on-failure
+RestartSec=5
+
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=floppyguard
-EnvironmentFile=-/opt/floppyguard/backend/.env
+SyslogIdentifier=floppyguard-backend
 
 [Install]
 WantedBy=multi-user.target

@@ -577,7 +577,7 @@ function AgentSection({ link, agents }: { link: WireGuardLink; agents: Agent[] }
 				{ onSuccess: setActiveAgent },
 			);
 		}
-	}, [existingAgent, activeAgent, link.interfaceName, link.name]); // eslint-disable-line react-hooks/exhaustive-deps
+	}, [existingAgent, activeAgent, link.interfaceName, link.name, createAgent.mutate]);
 
 	const handleCopy = (text: string) => {
 		navigator.clipboard.writeText(text).catch(() => {});

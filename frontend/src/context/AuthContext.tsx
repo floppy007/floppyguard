@@ -40,11 +40,11 @@ function AuthProvider({ children, tokenRefreshInterval = 5 * 60 * 1000 }: Props)
 	const [authenticated, setAuthenticated] = useState(AuthStore.hasActiveToken());
 	const [twoFactorChallenge, setTwoFactorChallenge] = useState<TwoFactorChallenge | null>(null);
 
-	const handleTokenUpdate = (response: TokenResponse) => {
+	const handleTokenUpdate = useCallback((response: TokenResponse) => {
 		AuthStore.set(response);
 		setAuthenticated(true);
 		setTwoFactorChallenge(null);
-	};
+	}, []);
 
 	const login = async (identity: string, secret: string) => {
 		const response = await getToken(identity, secret);
@@ -92,7 +92,7 @@ function AuthProvider({ children, tokenRefreshInterval = 5 * 60 * 1000 }: Props)
 	const refresh = useCallback(async () => {
 		const response = await refreshToken();
 		handleTokenUpdate(response);
-	}, []);
+	}, [handleTokenUpdate]);
 
 	useEffect(() => {
 		if (!authenticated) {

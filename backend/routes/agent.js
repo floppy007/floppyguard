@@ -203,7 +203,7 @@ router
 	.options((_, res) => {
 		res.sendStatus(204);
 	})
-	.post(async (req, res, next) => {
+	.post(agentLimiter, async (req, res, next) => {
 		try {
 			const { reg_token } = req.body || {};
 			if (!reg_token) {
