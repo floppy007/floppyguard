@@ -7,6 +7,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.3.8] – 2026-05-17
+
+### Added
+
+- **Auto-MASQUERADE fuer Cross-Site-Traffic** — Agent-Configs enthalten jetzt automatisch MASQUERADE-Regeln fuer alle Remote-Site-Netze die ueber den WG-Tunnel ans lokale LAN weitergeleitet werden. Keine manuellen iptables/nft-Regeln mehr noetig — alles wird ueber die App gesteuert und bei Plan-Apply an die Agents gepusht.
+
+### Fixed
+
+- **PBS-Erreichbarkeit von Remote-Sites** — Remote-Peers (z.B. Daniel Home) konnten lokale LAN-Geraete (z.B. PBS 192.168.10.19) nicht erreichen, weil MASQUERADE-Regeln auf dem Ziel-Gateway fehlten. Wird jetzt automatisch durch syncAgentConfigs generiert.
+
+---
+
 ## [1.3.7] – 2026-05-10
 
 ### Added

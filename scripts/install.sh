@@ -6,7 +6,7 @@ set -euo pipefail
 
 REPO="https://github.com/floppy007/floppyguard.git"
 BRANCH="develop"
-INSTALL_DIR="/opt/floppyguard"
+INSTALL_DIR="/var/www/floppyguard"
 DATA_DIR="/data"
 LE_DIR="/opt/npm/letsencrypt"
 SERVICE_NAME="floppyguard-backend"
