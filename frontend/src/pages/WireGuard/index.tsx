@@ -1616,149 +1616,177 @@ function InterfaceCard({ iface, allLinks }: { iface: EnhancedInterface; allLinks
 
 			{editorOpen && (
 				<div className={styles.inlineSection}>
-					<div className="fw-medium mb-3 small text-uppercase text-secondary">
-						{intl.formatMessage({ id: "wireguard.iface.editor-title" })} — {iface.name}
+					<div className={styles.editorHeader}>
+						<span className={styles.editorTitle}>
+							{intl.formatMessage({ id: "wireguard.iface.editor-title" })} — {iface.name}
+						</span>
+						<div className="d-flex gap-2">
+							<button
+								className="btn btn-sm btn-outline-primary"
+								type="button"
+								disabled={previewPlan.isPending}
+								onClick={() => {
+									previewPlan.mutate(patch, {
+										onSuccess: (result) => {
+											setPreview(result);
+											setPreviewKey(patchKey);
+										},
+									});
+								}}
+							>
+								{previewPlan.isPending
+									? intl.formatMessage({ id: "wireguard.iface.preview-loading" })
+									: intl.formatMessage({ id: "wireguard.iface.preview" })}
+							</button>
+							<button
+								className="btn btn-sm btn-primary"
+								type="button"
+								disabled={
+									applyMetadata.isPending || !preview?.valid || !preview.apply.canApply || !previewCurrent
+								}
+								onClick={() => {
+									applyMetadata.mutate(patch, {
+										onSuccess: () => {
+											setEditorOpen(false);
+											setPreview(null);
+										},
+									});
+								}}
+							>
+								{applyMetadata.isPending
+									? intl.formatMessage({ id: "wireguard.iface.saving" })
+									: intl.formatMessage({ id: "save" })}
+							</button>
+							<button
+								className="btn btn-sm btn-ghost-secondary"
+								type="button"
+								onClick={() => setEditorOpen(false)}
+							>
+								{intl.formatMessage({ id: "cancel" })}
+							</button>
+						</div>
 					</div>
-					<div className="row g-3">
-						<div className="col-md-3">
-							<label className="form-label">
-								{intl.formatMessage({ id: "wireguard.iface.role" })}
-								<select
-									className="form-select"
-									value={draftRole}
-									onChange={(e) => setDraftRole(parseIfaceRole(e.target.value))}
-								>
-									{(["client-hub", "site-to-site", "hub-link", "auxiliary", "unknown"] as const).map(
-										(o) => (
+
+					<div className={styles.editorGrid}>
+						<div className={styles.editorGroupWide}>
+							<div className={styles.editorGroupLabel}>
+								{intl.formatMessage({ id: "wireguard.iface.role" })} &amp; {intl.formatMessage({ id: "wireguard.link.management" })}
+							</div>
+							<div className="d-flex gap-3">
+								<div style={{ flex: 1 }}>
+									<label className="form-label small text-secondary mb-1">
+										{intl.formatMessage({ id: "wireguard.iface.role" })}
+									</label>
+									<select
+										className="form-select form-select-sm"
+										value={draftRole}
+										onChange={(e) => setDraftRole(parseIfaceRole(e.target.value))}
+									>
+										{(["client-hub", "site-to-site", "hub-link", "auxiliary", "unknown"] as const).map(
+											(o) => (
+												<option key={o} value={o}>
+													{o}
+												</option>
+											),
+										)}
+									</select>
+								</div>
+								<div style={{ flex: 1 }}>
+									<label className="form-label small text-secondary mb-1">
+										{intl.formatMessage({ id: "wireguard.link.management" })}
+									</label>
+									<select
+										className="form-select form-select-sm"
+										value={draftMgmt}
+										onChange={(e) => setDraftMgmt(parseIfaceMgmt(e.target.value))}
+									>
+										{(["local", "imported", "unknown"] as const).map((o) => (
 											<option key={o} value={o}>
 												{o}
 											</option>
-										),
-									)}
-								</select>
-							</label>
+										))}
+									</select>
+								</div>
+							</div>
 						</div>
-						<div className="col-md-3">
-							<label className="form-label">
-								{intl.formatMessage({ id: "wireguard.link.management" })}
-								<select
-									className="form-select"
-									value={draftMgmt}
-									onChange={(e) => setDraftMgmt(parseIfaceMgmt(e.target.value))}
-								>
-									{(["local", "imported", "unknown"] as const).map((o) => (
-										<option key={o} value={o}>
-											{o}
-										</option>
-									))}
-								</select>
-							</label>
+
+						<div className={styles.editorGroupWide}>
+							<div className={styles.editorGroupLabel}>
+								{intl.formatMessage({ id: "wireguard.link.exported-networks" })} / {intl.formatMessage({ id: "wireguard.link.imported-networks" })}
+							</div>
+							<div className="d-flex gap-3">
+								<div style={{ flex: 1 }}>
+									<label className="form-label small text-secondary mb-1">
+										{intl.formatMessage({ id: "wireguard.link.export" })}
+									</label>
+									<textarea
+										className="form-control form-control-sm font-monospace"
+										rows={4}
+										value={draftExported}
+										onChange={(e) => setDraftExported(e.target.value)}
+										placeholder="192.168.10.0/24, ..."
+									/>
+								</div>
+								<div style={{ flex: 1 }}>
+									<label className="form-label small text-secondary mb-1">
+										{intl.formatMessage({ id: "wireguard.link.import" })}
+									</label>
+									<textarea
+										className="form-control form-control-sm font-monospace"
+										rows={4}
+										value={draftImported}
+										onChange={(e) => setDraftImported(e.target.value)}
+										placeholder="10.10.10.0/24, ..."
+									/>
+								</div>
+							</div>
 						</div>
-						<div className="col-md-3">
-							<label className="form-label">
-								{intl.formatMessage({ id: "wireguard.link.exported-networks" })}
-								<textarea
-									className="form-control"
-									rows={3}
-									value={draftExported}
-									onChange={(e) => setDraftExported(e.target.value)}
-								/>
-							</label>
+
+						<div className={styles.editorGroupWide}>
+							<div className={styles.editorGroupLabel}>
+								{intl.formatMessage({ id: "wireguard.iface.route-targets" })} &amp; DNS
+							</div>
+							<div className="d-flex gap-3">
+								<div style={{ flex: 2 }}>
+									<label className="form-label small text-secondary mb-1">
+										{intl.formatMessage({ id: "wireguard.iface.route-targets" })}
+									</label>
+									<textarea
+										className="form-control form-control-sm font-monospace"
+										rows={2}
+										value={draftRouteTargets}
+										onChange={(e) => setDraftRouteTargets(e.target.value)}
+										placeholder={intl.formatMessage({ id: "wireguard.iface.placeholder-routes" })}
+									/>
+								</div>
+								<div style={{ flex: 1 }}>
+									<label className="form-label small text-secondary mb-1">DNS</label>
+									<textarea
+										className="form-control form-control-sm font-monospace"
+										rows={2}
+										value={draftDns}
+										onChange={(e) => setDraftDns(e.target.value)}
+										placeholder="10.10.0.1, 1.1.1.1"
+									/>
+								</div>
+							</div>
 						</div>
-						<div className="col-md-3">
-							<label className="form-label">
-								{intl.formatMessage({ id: "wireguard.link.imported-networks" })}
-								<textarea
-									className="form-control"
-									rows={3}
-									value={draftImported}
-									onChange={(e) => setDraftImported(e.target.value)}
-								/>
-							</label>
-						</div>
-						<div className="col-md-6">
-							<label className="form-label">
-								{intl.formatMessage({ id: "wireguard.iface.route-targets" })}
-								<textarea
-									className="form-control"
-									rows={2}
-									value={draftRouteTargets}
-									onChange={(e) => setDraftRouteTargets(e.target.value)}
-									placeholder={intl.formatMessage({ id: "wireguard.iface.placeholder-routes" })}
-								/>
-							</label>
-						</div>
-						<div className="col-md-3">
-							<label className="form-label">
-								DNS
-								<textarea
-									className="form-control"
-									rows={2}
-									value={draftDns}
-									onChange={(e) => setDraftDns(e.target.value)}
-									placeholder="10.10.0.1, 1.1.1.1"
-								/>
-							</label>
-						</div>
-						<div className="col-md-3">
-							<label className="form-label">
+
+						<div className={styles.editorGroupWide}>
+							<div className={styles.editorGroupLabel}>
 								{intl.formatMessage({ id: "wireguard.iface.notes" })}
-								<textarea
-									className="form-control"
-									rows={2}
-									value={draftNotes}
-									onChange={(e) => setDraftNotes(e.target.value)}
-									placeholder={intl.formatMessage({ id: "wireguard.iface.placeholder-notes" })}
-								/>
-							</label>
+							</div>
+							<textarea
+								className="form-control form-control-sm"
+								rows={2}
+								value={draftNotes}
+								onChange={(e) => setDraftNotes(e.target.value)}
+								placeholder={intl.formatMessage({ id: "wireguard.iface.placeholder-notes" })}
+							/>
 						</div>
 					</div>
+
 					{preview && <PreviewResult preview={preview} current={previewCurrent} />}
-					<div className="d-flex gap-2 mt-3">
-						<button
-							className="btn btn-sm btn-outline-primary"
-							type="button"
-							disabled={previewPlan.isPending}
-							onClick={() => {
-								previewPlan.mutate(patch, {
-									onSuccess: (result) => {
-										setPreview(result);
-										setPreviewKey(patchKey);
-									},
-								});
-							}}
-						>
-							{previewPlan.isPending
-								? intl.formatMessage({ id: "wireguard.iface.preview-loading" })
-								: intl.formatMessage({ id: "wireguard.iface.preview" })}
-						</button>
-						<button
-							className="btn btn-sm btn-primary"
-							type="button"
-							disabled={
-								applyMetadata.isPending || !preview?.valid || !preview.apply.canApply || !previewCurrent
-							}
-							onClick={() => {
-								applyMetadata.mutate(patch, {
-									onSuccess: () => {
-										setEditorOpen(false);
-										setPreview(null);
-									},
-								});
-							}}
-						>
-							{applyMetadata.isPending
-								? intl.formatMessage({ id: "wireguard.iface.saving" })
-								: intl.formatMessage({ id: "save" })}
-						</button>
-						<button
-							className="btn btn-sm btn-ghost-secondary"
-							type="button"
-							onClick={() => setEditorOpen(false)}
-						>
-							{intl.formatMessage({ id: "cancel" })}
-						</button>
-					</div>
 					{applyMetadata.isSuccess && applyMetadata.data && <ApplySyncResult data={applyMetadata.data} />}
 					{applyMetadata.isError && (
 						<div className="alert alert-danger mt-2 mb-0 py-2 small">

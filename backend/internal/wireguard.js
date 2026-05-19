@@ -1088,6 +1088,19 @@ function _buildPeerUpdates(peerMap, linksMeta, ifaceName) {
 		const meta = linksMeta[`${ifaceName}:${pubkey}`];
 		if (!meta) continue; // unmanaged peer — leave unchanged
 		const hostRoutes = currentCIDRs.filter((c) => c.endsWith("/32") || c.endsWith("/128"));
+
+		// Client peers only get their tunnel IP on the hub side.
+		// Their importedNetworks define what the CLIENT can reach (goes into the
+		// downloaded client config), not what the hub routes toward them.
+		const linkType = normalizeLinkType(meta.type) || classifyLinkType(currentCIDRs, ifaceName);
+		if (linkType === "client") {
+			const newIPs = [...new Set(hostRoutes)];
+			if ([...newIPs].sort().join(",") !== [...currentCIDRs].sort().join(",")) {
+				updates.set(pubkey, newIPs);
+			}
+			continue;
+		}
+
 		const imported = (meta.importedNetworks || []).filter((c) => !c.endsWith("/32") && !c.endsWith("/128"));
 		// If metadata has no importedNetworks, preserve existing non-host CIDRs from conf
 		// to avoid stripping AllowedIPs that were set manually or by a previous sync.
@@ -1392,7 +1405,16 @@ async function updatePeer(linkId, changes = {}) {
 	// ── Sync hub conf (rewrites AllowedIPs in conf + live wg set + routes) ──
 	const hubSync = await syncHubConf(store, ifaceName);
 
-	return { updated: true, linkId, hubSync };
+	// ── Sync agent configs (push updated AllowedIPs to remote agents) ──
+	let agentSync;
+	try {
+		const { default: internalAgent } = await import("./agent.js");
+		agentSync = await internalAgent.syncAgentConfigs(store);
+	} catch (err) {
+		logger.debug(`Agent config sync after updatePeer skipped: ${err.message}`);
+	}
+
+	return { updated: true, linkId, hubSync, agentSync };
 }
 
 async function syncHubConf(metadata, ifaceName = "wg0") {
@@ -1826,9 +1848,12 @@ async function createPeer({ name, type, dns, fullTunnel, platform, importedNetwo
 	const publicKey = derivePublicKey(privateKey);
 
 	// ── Compute AllowedIPs for hub side ──
+	// Client peers only get their tunnel IP on the hub side — importedNetworks
+	// define what the client can reach (downloaded config), not hub routing.
 	const hubAllowedIPs = [peerAllowedIP];
 	const importedNets = (importedNetworks || []).filter(Boolean);
-	if (importedNets.length) hubAllowedIPs.push(...importedNets);
+	const isClientType = (type || "client") === "client";
+	if (importedNets.length && !isClientType) hubAllowedIPs.push(...importedNets);
 
 	// ── AllowedIPs conflict check ──
 	const conflicts = checkAllowedIPsConflicts(importedNets, status.links);
