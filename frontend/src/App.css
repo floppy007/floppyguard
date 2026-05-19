@@ -190,12 +190,13 @@ body:not(.auth) {
 }
 
 .modal .form-label {
-	margin-bottom: 0.45rem;
-	font-size: 0.8rem;
-	font-weight: 700;
+	margin-bottom: 0.35rem;
+	font-size: 0.7rem;
+	font-weight: 600;
 	letter-spacing: 0.03em;
 	text-transform: uppercase;
 	color: color-mix(in srgb, var(--tblr-secondary) 86%, var(--tblr-body-color));
+	white-space: nowrap;
 }
 
 .modal .form-control,
@@ -239,6 +240,10 @@ body:not(.auth) {
 
 [data-bs-theme="dark"] .modal-content {
 	--tblr-modal-box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
+}
+
+.platform-solid-modal {
+	max-width: 680px;
 }
 
 .platform-solid-modal .modal-content {
