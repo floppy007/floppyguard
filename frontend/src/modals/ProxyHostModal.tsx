@@ -166,8 +166,8 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 										<div className="tab-content">
 											<div className="tab-pane active show" id="tab-details" role="tabpanel">
 												<DomainNamesField isWildcardPermitted dnsProviderWildcardSupported />
-												<div className="row">
-													<div className="col-md-3">
+												<div className="row g-3 mt-1">
+													<div className="col-sm-2">
 														<Field name="forwardScheme">
 															{({ field, form }: any) => (
 																<div className="mb-3">
@@ -179,7 +179,7 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 																	</label>
 																	<select
 																		id="forwardScheme"
-																		className={`form-control ${form.errors.forwardScheme && form.touched.forwardScheme ? "is-invalid" : ""}`}
+																		className={`form-select ${form.errors.forwardScheme && form.touched.forwardScheme ? "is-invalid" : ""}`}
 																		required
 																		{...field}
 																	>
@@ -198,7 +198,7 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 															)}
 														</Field>
 													</div>
-													<div className="col-md-6">
+													<div className="col-sm-7">
 														<Field name="forwardHost" validate={validateString(1, 255)}>
 															{({ field, form }: any) => (
 																<div className="mb-3">
@@ -225,7 +225,7 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 															)}
 														</Field>
 													</div>
-													<div className="col-md-3">
+													<div className="col-sm-3">
 														<Field name="forwardPort" validate={validateNumber(1, 65535)}>
 															{({ field, form }: any) => (
 																<div className="mb-3">

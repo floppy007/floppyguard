@@ -605,7 +605,7 @@ describe("WireGuard page", () => {
 		// Open the interface editor
 		fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]);
 		// Edit the notes
-		fireEvent.change(screen.getAllByLabelText("Notes")[0], { target: { value: "reviewed interface" } });
+		fireEvent.change(screen.getByPlaceholderText("Hub role, check later, ..."), { target: { value: "reviewed interface" } });
 		// Preview the change
 		fireEvent.click(screen.getAllByRole("button", { name: "Preview" })[0]);
 		// PreviewResult shows valid badge

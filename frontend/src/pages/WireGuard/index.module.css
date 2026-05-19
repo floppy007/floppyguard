@@ -86,6 +86,56 @@
 	padding: 1.25rem 1.5rem;
 }
 
+.editorHeader {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: 1rem;
+	padding-bottom: 0.75rem;
+	border-bottom: 1px solid var(--tblr-border-color);
+}
+
+.editorTitle {
+	font-weight: 600;
+	font-size: 0.8125rem;
+	text-transform: uppercase;
+	letter-spacing: 0.03em;
+	color: var(--tblr-secondary);
+}
+
+.editorGrid {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 1rem;
+}
+
+@media (max-width: 768px) {
+	.editorGrid {
+		grid-template-columns: 1fr;
+	}
+}
+
+.editorGroup {
+	padding: 0.875rem;
+	background: var(--tblr-bg-surface);
+	border: 1px solid var(--tblr-border-color);
+	border-radius: var(--tblr-border-radius);
+}
+
+.editorGroupWide {
+	composes: editorGroup;
+	grid-column: 1 / -1;
+}
+
+.editorGroupLabel {
+	font-size: 0.6875rem;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: var(--tblr-secondary);
+	margin-bottom: 0.625rem;
+}
+
 /* Interface cards */
 .ifaceGrid {
 	display: grid;
