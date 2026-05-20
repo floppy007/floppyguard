@@ -137,21 +137,29 @@ function assertCIDR(value) {
  * @param {string[]} remoteSiteNets  networks from other sites that need MASQUERADE
  *   when exiting through the local LAN (e.g. ["192.168.111.0/24", "192.168.112.0/24"])
  */
-function buildHubPostUp(tunnelSubnet, remoteSiteNets = []) {
+function buildHubPostUp(tunnelSubnet, remoteSiteNets = [], peerNets = []) {
 	assertCIDR(tunnelSubnet);
 	let rules = `sysctl -w net.ipv4.ip_forward=1; iptables -A FORWARD -i %i -j ACCEPT; iptables -A FORWARD -o %i -j ACCEPT; iptables -t nat -A POSTROUTING ! -o %i -s ${tunnelSubnet} -j MASQUERADE`;
 	for (const net of remoteSiteNets) {
 		assertCIDR(net);
 		rules += `; iptables -t nat -A POSTROUTING ! -o %i -s ${net} -j MASQUERADE`;
 	}
+	for (const net of peerNets) {
+		assertCIDR(net);
+		rules += `; ip route add ${net} dev %i 2>/dev/null || true`;
+	}
 	return rules;
 }
-function buildHubPostDown(tunnelSubnet, remoteSiteNets = []) {
+function buildHubPostDown(tunnelSubnet, remoteSiteNets = [], peerNets = []) {
 	assertCIDR(tunnelSubnet);
 	let rules = `iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -j ACCEPT; iptables -t nat -D POSTROUTING ! -o %i -s ${tunnelSubnet} -j MASQUERADE`;
 	for (const net of remoteSiteNets) {
 		assertCIDR(net);
 		rules += `; iptables -t nat -D POSTROUTING ! -o %i -s ${net} -j MASQUERADE`;
+	}
+	for (const net of peerNets) {
+		assertCIDR(net);
+		rules += `; ip route del ${net} dev %i 2>/dev/null || true`;
 	}
 	return rules;
 }
@@ -214,8 +222,11 @@ function normalizeAgentConfig(configText, remoteSiteNets = []) {
 
 	const toInsert = [];
 	if (!hasTable) toInsert.push("Table = off");
-	toInsert.push(`PostUp = ${buildHubPostUp(tunnelSubnet, remoteSiteNets)}`);
-	toInsert.push(`PostDown = ${buildHubPostDown(tunnelSubnet, remoteSiteNets)}`);
+	const peerNets = _parseHubPeerAllowedIPs(configText).filter(
+		(c) => !c.endsWith("/32") && !c.endsWith("/128"),
+	);
+	toInsert.push(`PostUp = ${buildHubPostUp(tunnelSubnet, remoteSiteNets, peerNets)}`);
+	toInsert.push(`PostDown = ${buildHubPostDown(tunnelSubnet, remoteSiteNets, peerNets)}`);
 
 	out.splice(insertAt, 0, ...toInsert);
 

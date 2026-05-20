@@ -7,6 +7,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.3.10] – 2026-05-20
+
+### Fixed
+
+- **WireGuard Routen nach Agent-Neustart** — Agent-Configs mit `Table = off` verloren nach einem CT/VM-Neustart alle Routen, weil `PostUp` nur iptables-Regeln enthielt aber keine `ip route add`-Befehle. `buildHubPostUp`/`buildHubPostDown` generieren jetzt automatisch `ip route add/del`-Eintraege fuer alle AllowedIPs aus dem `[Peer]`-Block. Alle bestehenden Agents wurden via `syncAgentConfigs` aktualisiert.
+
+---
+
 ## [1.3.8] – 2026-05-17
 
 ### Added
