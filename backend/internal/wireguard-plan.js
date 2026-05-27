@@ -270,6 +270,26 @@ function buildPlanPreview(status, patch = {}) {
 		}
 	}
 
+	// Validate AllowedIPs conflicts — two non-client peers claiming the same subnet
+	// causes WireGuard to silently assign it to only one peer, breaking routing.
+	{
+		const subnetToPeers = new Map(); // subnet → [{id, name}]
+		for (const link of projectedLinksBase) {
+			if (link.type === "client") continue;
+			for (const net of link.importedNetworks || []) {
+				if (net.endsWith("/32") || net.endsWith("/128")) continue;
+				if (!subnetToPeers.has(net)) subnetToPeers.set(net, []);
+				subnetToPeers.get(net).push({ id: link.id, name: link.name });
+			}
+		}
+		for (const [subnet, claimants] of subnetToPeers) {
+			if (claimants.length > 1) {
+				const names = claimants.map((c) => c.name || c.id).join(", ");
+				errors.push(`Subnet ${subnet} claimed by multiple peers: ${names} — only one peer can route a subnet`);
+			}
+		}
+	}
+
 	const topology = buildTopology(projectedInterfacesBase, projectedLinksBase);
 	const routeAnalysis = buildRouteAnalysis(
 		{
@@ -341,14 +361,19 @@ async function applyMetadata(patch = {}) {
 	const backupPath = await internalWireGuard.backupMetadataStore(currentMetadata);
 	const metadata = await internalWireGuard.applyMetadataPatch(preview.patch);
 
-	// Sync hub wg0.conf AllowedIPs and ip routes from the new metadata.
+	// Sync ALL WG interfaces' conf files from the new metadata.
 	// Also sync agent config_text so remote gateways pick up routing changes on next poll.
 	// This ensures the live WireGuard config never drifts from what is defined in the UI.
 	let hubSync = null;
 	let agentSync = null;
 	if (preview.apply.changeScope === "metadata-with-config-intent") {
 		try {
-			hubSync = await syncHubConf(metadata, "wg0");
+			const status = await internalWireGuard.getStatus();
+			const confNames = (status.interfaces || []).map((i) => i.name);
+			hubSync = {};
+			for (const ifName of confNames) {
+				hubSync[ifName] = await syncHubConf(metadata, ifName);
+			}
 		} catch (err) {
 			hubSync = { synced: false, reason: err.message };
 		}

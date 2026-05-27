@@ -44,14 +44,73 @@ router
 	.put(async (req, res, next) => {
 		try {
 			const { interfaces = {}, links = {} } = req.body || {};
+
+			// ── Pre-save conflict check ──────────────────────────────────
+			// Project the metadata after applying the patch, then check for
+			// subnet conflicts between non-client peers.
+			const preStatus = await internalWireGuard.getStatus();
+			const currentMeta = preStatus.metadata || { interfaces: {}, links: {} };
+			const projectedLinks = { ...currentMeta.links };
+			for (const [id, patch] of Object.entries(links)) {
+				projectedLinks[id] = { ...(projectedLinks[id] || {}), ...patch };
+			}
+			const subnetToPeers = new Map();
+			for (const [id, meta] of Object.entries(projectedLinks)) {
+				if (meta.type === "client") continue;
+				for (const net of meta.importedNetworks || []) {
+					if (net.endsWith("/32") || net.endsWith("/128")) continue;
+					if (!subnetToPeers.has(net)) subnetToPeers.set(net, []);
+					subnetToPeers.get(net).push({ id, name: meta.name || id });
+				}
+			}
+			const conflicts = [];
+			for (const [subnet, claimants] of subnetToPeers) {
+				if (claimants.length > 1) {
+					conflicts.push(`${subnet} claimed by ${claimants.map((c) => c.name).join(", ")}`);
+				}
+			}
+			if (conflicts.length > 0) {
+				return next(new error.ValidationError(`AllowedIPs conflict: ${conflicts.join("; ")}`));
+			}
+
 			for (const [name, patch] of Object.entries(interfaces)) {
 				await internalWireGuard.updateInterfaceMetadata(name, patch);
 			}
 			for (const [id, patch] of Object.entries(links)) {
 				await internalWireGuard.updateLinkMetadata(id, patch);
 			}
+
+			// ── Post-save sync: apply changes to live WG config + agents ──
+			const metadata = (await internalWireGuard.readMetadataStore());
+			let hubSync = null;
+			let agentSync = null;
+			const hasConfigChange = Object.values(links).some(
+				(p) => p.importedNetworks || p.exportedNetworks || p.type,
+			) || Object.values(interfaces).some(
+				(p) => p.importedNetworks || p.exportedNetworks || p.routeTargets,
+			);
+			if (hasConfigChange) {
+				try {
+					// Sync all WG interfaces that have conf files
+					const confNames = (preStatus.interfaces || []).map((i) => i.name);
+					for (const ifName of confNames) {
+						const result = await internalWireGuard.syncHubConf(metadata, ifName);
+						if (!hubSync) hubSync = {};
+						hubSync[ifName] = result;
+					}
+				} catch (err) {
+					hubSync = { error: err.message };
+				}
+				try {
+					const { default: internalAgent } = await import("../internal/agent.js");
+					agentSync = await internalAgent.syncAgentConfigs(metadata);
+				} catch (err) {
+					agentSync = { error: err.message };
+				}
+			}
+
 			const status = await internalWireGuard.getStatus();
-			res.status(200).send({ saved: true, metadata: status.metadata || { interfaces: {}, links: {} } });
+			res.status(200).send({ saved: true, hubSync, agentSync, metadata: status.metadata || { interfaces: {}, links: {} } });
 		} catch (err) {
 			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
 			next(err);
