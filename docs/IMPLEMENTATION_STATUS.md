@@ -1,6 +1,6 @@
 # FloppyGuard Implementation Status
 
-Stand: 2026-05-09
+Stand: 2026-05-27
 
 ## Production Infrastructure — DONE
 
@@ -96,7 +96,8 @@ Agents self-update automatically when the server script version changes:
 - On version change: downloads new script from `GET /api/agent/loop-script`, atomically replaces
   `/usr/local/sbin/floppyguard-agent`, then `exec`s it — zero-downtime, no systemd restart
 - `sync_routes()` bash function added to loop script: adds missing kernel ip routes after
-  `wg syncconf` (which updates WireGuard peer tables but never touches the kernel routing table)
+  `wg syncconf` (which updates WireGuard peer tables but never touches the kernel routing table);
+  also removes stale routes no longer in AllowedIPs and skips physically-connected networks
 
 **Rule:** Any edit to `buildLoopScript()` in `agent.js` that affects the generated bash script
 **requires a `AGENT_SCRIPT_VERSION` bump** — otherwise running agents never pick up the change.
@@ -164,6 +165,13 @@ Full security audit performed and all findings remediated:
 
 ## WireGuard — Completed
 
+- Stale route cleanup ✔ v1.3.12 — `sync_routes()` entfernt veraltete wg0-Routen und ueberspringt physisch angeschlossene Netze
+- AllowedIPs conflict blocking ✔ v1.3.12 — `applyMetadata` und `PUT /wireguard/metadata` pruefen auf doppelte Subnet-Zuweisungen
+- Metadata live-sync ✔ v1.3.12 — `PUT /wireguard/metadata` loest sofort `syncHubConf` + `syncAgentConfigs` aus
+- Multi-interface sync ✔ v1.3.12 — `syncHubConf` synct alle WG-Interfaces, nicht nur wg0
+- Hub-LAN MASQUERADE ✔ v1.3.11 — zwei MASQUERADE-Regeln pro physischem Interface (lokal + Tunnel-Subnet)
+- Agent PostUp route generation ✔ v1.3.10 — `buildHubPostUp` generiert `ip route add` fuer alle Peer-AllowedIPs
+- Client-peer route clash fix ✔ v1.3.9 — Client-Peers bekommen keine importedNetworks als Hub-AllowedIPs
 - AllowedIPs conflict detection ✔ v1.3.3 — warns when multiple peers claim the same subnet; shown as alert in UI
 - Auto-MASQUERADE ✔ v1.3.3 — `syncHubConf` discovers non-WG interfaces and adds NAT rules for cross-interface routing
 - Peer CRUD ✔ v1.3.1 — `createPeer`, `deletePeer`, `updatePeer` with live `wg set`, conf rewrite, metadata cleanup

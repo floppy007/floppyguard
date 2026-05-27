@@ -24,7 +24,7 @@ const hashConfig = (text) => {
 	return createHash("sha256").update(text).digest("hex");
 };
 
-const AGENT_SCRIPT_VERSION = "1.3.8";
+const AGENT_SCRIPT_VERSION = "1.3.12";
 
 /**
  * Compute HMAC-SHA256 of the script using the agent_token as key.

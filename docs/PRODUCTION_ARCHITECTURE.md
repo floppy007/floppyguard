@@ -1,6 +1,6 @@
 # FloppyGuard Production Architecture
 
-Stand: 2026-05-04
+Stand: 2026-05-27
 
 ## Overview
 
@@ -19,7 +19,7 @@ MySQL   → npm database @ localhost:3306
 **Unit file:** `/etc/systemd/system/floppyguard-backend.service`
 
 Key settings:
-- `WorkingDirectory`: `/var/www/nginx-proxy-manager-fork-base/backend`
+- `WorkingDirectory`: `/var/www/floppyguard/backend`
 - `ExecStart`: `/bin/node index.js`
 - `PORT=3300`, `NODE_ENV=production`
 - `DB_MYSQL_HOST=localhost`, `DB_MYSQL_USER=npm`, `DB_MYSQL_PASSWORD=npm`, `DB_MYSQL_NAME=npm`
@@ -92,7 +92,7 @@ The backend calls `. /opt/certbot/bin/activate && pip install ...` on startup to
 | 443 | nginx | HTTPS proxy hosts |
 | 3300 | floppyguard-backend | API (localhost only) |
 | 3306 | mysqld | Database |
-| 8080 | nginx | wg-gui (legacy, pending removal) |
+| ~~8080~~ | ~~nginx~~ | ~~wg-gui~~ (entfernt seit v1.3.7) |
 
 ## Startup Order
 

@@ -1,6 +1,6 @@
 # FloppyGuard Technical Roadmap
 
-Stand: 2026-05-17
+Stand: 2026-05-27
 
 ## Was bereits fertig ist
 
@@ -27,6 +27,11 @@ Stand: 2026-05-17
 - **Network ACLs** (v1.3.6) — `allowed_networks` und `allowed_sites` pro Agent
 - **Netz-Auswahl UI** (v1.3.7) — Checkbox-Karten pro Site mit einzeln waehlbaren Subnetzen
 - **wg-gui abgeloest** — Port 8080 nicht mehr in Nutzung, WireGuard-UI komplett in FloppyGuard
+- **Client-Peer Route Clash Fix** (v1.3.9) — Client-Peers bekommen keine importedNetworks als Hub-AllowedIPs; updatePeer loest syncAgentConfigs aus
+- **PostUp Route Generation** (v1.3.10) — `buildHubPostUp`/`buildHubPostDown` generieren `ip route add/del` fuer alle Peer-AllowedIPs; Agents verlieren keine Routen nach Neustart
+- **Hub-LAN MASQUERADE** (v1.3.11) — Zwei MASQUERADE-Regeln pro physischem Interface (lokales Subnet + Tunnel-Subnet); MASQUERADE-Regex erkennt beide Reihenfolgen
+- **AllowedIPs Conflict Blocking** (v1.3.12) — Doppelte Subnet-Zuweisungen werden blockiert; Metadata-Aenderungen sofort live; syncHubConf synct alle Interfaces
+- **Stale Route Cleanup** (v1.3.12) — `sync_routes()` entfernt veraltete wg0-Routen und ueberspringt physisch angeschlossene Netze; Hub-Seite filtert ebenfalls
 
 ## Noch offen
 

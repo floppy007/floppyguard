@@ -3,7 +3,7 @@
 ## Running Locally
 
 ```
-cd nginxproxymanager/test
+cd floppyguard/test
 yarn install
 yarn run cypress
 ```
