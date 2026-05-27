@@ -1148,7 +1148,7 @@ function _rewriteHubConf(lines, ifaceName, peerUpdates, allRouteNets, masquerade
 			const iptVerb = isUp ? "-A" : "-D";
 			const value = rawLine.slice(rawLine.indexOf("=") + 1).trim();
 			const routeRe = new RegExp(`^ip route (?:add|del) \\S+ dev ${ifaceName}`);
-			const masqRe = /^iptables -t nat -[AD] POSTROUTING -o \S+ -s \S+ -j MASQUERADE$/;
+			const masqRe = /^iptables -t nat -[AD] POSTROUTING (?:-[os] \S+ ){2}-j MASQUERADE$/;
 			const nonRoute = value
 				.split(";")
 				.map((s) => s.trim())
@@ -1468,16 +1468,32 @@ async function syncHubConf(metadata, ifaceName = "wg0") {
 	// wg0 peers that route traffic to subnets reachable via eth1/ens* etc.
 	// need MASQUERADE so return packets find their way back through the tunnel.
 	const physicalIfaces = _getPrivatePhysicalInterfaces();
+	// Derive the WireGuard tunnel subnet from the Address line (e.g. 10.10.0.0/24)
+	const addrLine = lines.find((l) => /^\s*Address\s*=/i.test(l));
+	let tunnelSubnet = "10.10.0.0/24";
+	if (addrLine) {
+		const am = addrLine.match(/(\d+\.\d+\.\d+)\.\d+\/(\d+)/);
+		if (am) {
+			const mask = Number.parseInt(am[2], 10);
+			tunnelSubnet = `${am[1]}.0/${mask > 24 ? 24 : mask}`;
+		}
+	}
 	// Build a deduplicated list: one entry per (nicName, nicCidr) pair.
-	// The CIDR used is the interface's own subnet (covers all wg traffic
-	// destined for that physical network).
+	// For each physical interface we need TWO MASQUERADE rules:
+	//   1. -s <nic.cidr> -o <nic.name>  (traffic from the physical subnet itself)
+	//   2. -s <tunnelSubnet> -o <nic.name> (WG peers reaching hosts on that LAN)
 	const masqueradeIfaces = [];
 	const seenMasq = new Set();
 	for (const nic of physicalIfaces) {
-		const key = `${nic.name}:${nic.cidr}`;
-		if (!seenMasq.has(key)) {
-			seenMasq.add(key);
+		const key1 = `${nic.name}:${nic.cidr}`;
+		if (!seenMasq.has(key1)) {
+			seenMasq.add(key1);
 			masqueradeIfaces.push(nic);
+		}
+		const key2 = `${nic.name}:${tunnelSubnet}`;
+		if (!seenMasq.has(key2)) {
+			seenMasq.add(key2);
+			masqueradeIfaces.push({ name: nic.name, address: nic.address, cidr: tunnelSubnet });
 		}
 	}
 

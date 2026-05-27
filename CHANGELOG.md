@@ -7,6 +7,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.3.11] – 2026-05-27
+
+### Fixed
+
+- **WG-Peers konnten Hub-LAN nicht erreichen** — `syncHubConf` generierte MASQUERADE-Regeln nur fuer die Source-CIDR der physischen Schnittstelle (`-s 10.10.10.0/24 -o eth1`), aber nicht fuer Traffic aus dem WG-Tunnel-Subnet (`-s 10.10.0.0/24 -o eth1`). PVE-Hosts sahen Pakete mit unbekannter Source-IP und verwarfen die Antwort. Jetzt werden pro physischer Schnittstelle automatisch zwei MASQUERADE-Regeln generiert — eine fuer das lokale Subnet und eine fuer das Tunnel-Subnet.
+- **MASQUERADE-Regex erkannte Regel-Varianten nicht** — `masqRe` in `_rewriteHubConf` matchte nur `-o ... -s ...` Reihenfolge. Manuell oder von aelteren Versionen gesetzte Regeln mit `-s ... -o ...` wurden beim Sync nicht gestripped und fuehrten zu Duplikaten. Regex akzeptiert jetzt beide Reihenfolgen.
+
+---
+
 ## [1.3.10] – 2026-05-20
 
 ### Fixed
