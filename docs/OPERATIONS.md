@@ -1,6 +1,6 @@
 # FloppyGuard Operations Runbook
 
-Stand: 2026-05-04
+Stand: 2026-05-27
 
 ## Daily Commands
 
@@ -105,7 +105,8 @@ When you click Apply in the WireGuard planner (scope `metadata-with-config-inten
 2. **Agent sync** — every connected agent's peer AllowedIPs are updated via the config API;
    agents pick up the new AllowedIPs on their next 30s config poll and run `wg syncconf`
 3. **Kernel routes on agents** — after `wg syncconf`, the agent's `sync_routes()` function
-   adds any missing kernel ip routes (wg syncconf never touches the kernel routing table)
+   adds missing kernel ip routes, removes stale routes no longer in AllowedIPs, and skips
+   networks already routed via physical interfaces (prevents overriding local LAN routes)
 
 The apply result panel in the UI shows which peers were updated and which agents were synced.
 

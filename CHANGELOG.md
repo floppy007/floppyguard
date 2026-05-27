@@ -36,6 +36,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.3.9] – 2026-05-20
+
+### Fixed
+
+- **Client-Peers bekamen falsche Hub-AllowedIPs** — `_buildPeerUpdates` und `createPeer` schrieben `importedNetworks` als Hub-seitige AllowedIPs auch fuer Client-Type Links. Client-Peers erhalten jetzt nur ihre eigene `/32`-Adresse.
+- **updatePeer loeste keinen Agent-Sync aus** — Aenderungen an AllowedIPs ueber die GUI wurden nicht an Agents weitergegeben. `updatePeer` ruft jetzt `syncAgentConfigs` auf.
+
+### Changed
+
+- **Interface- und Proxy-Host-Editoren redesignt** — Grouped Card Layout, Full-Width Sections, Monospace CIDR-Felder, responsive unter 768px.
+- **CI: Node.js 20 → 22** — Node 20 EOL Juni 2026; `--test-force-exit` und `timeout-minutes: 10` verhindern haengende Tests.
+
+---
+
 ## [1.3.8] – 2026-05-17
 
 ### Added
