@@ -382,9 +382,18 @@ with open('/tmp/fg_new_wg.conf','w') as f: f.write(c.replace('PrivateKey = (hidd
       fi
     fi
     wg syncconf "$iface" <(wg-quick strip /tmp/fg_new_wg.conf 2>/dev/null || grep -vE "^(Address|PostUp|PostDown|DNS|MTU|Table|PreUp|PreDown)=" /tmp/fg_new_wg.conf)
+    # wg syncconf sometimes silently ignores AllowedIPs changes for existing peers.
+    # Force-set AllowedIPs per peer from the new config to ensure they match.
+    while IFS= read -r line; do
+      local pk ai
+      pk=$(echo "$line" | awk '{print $1}')
+      ai=$(echo "$line" | awk '{for(i=2;i<=NF;i++) printf "%s,", $i}' | sed 's/,$//')
+      [ -z "$pk" ] || [ -z "$ai" ] && continue
+      wg set "$iface" peer "$pk" allowed-ips "$ai" 2>/dev/null || true
+    done < <(wg-quick strip /tmp/fg_new_wg.conf 2>/dev/null | awk '/^\[Peer\]/{pk="";ai=""} /^PublicKey/{pk=$3} /^AllowedIPs/{ai=$3} pk && ai{print pk, ai; pk=""; ai=""}')
     cp /tmp/fg_new_wg.conf "/etc/wireguard/$iface.conf"
     sync_routes "$iface"
-    log "Applied config update to $iface (syncconf, no downtime)"
+    log "Applied config update to $iface (syncconf + AllowedIPs force-set, no downtime)"
   else
     cp /tmp/fg_new_wg.conf "/etc/wireguard/$iface.conf"
     wg-quick up "$iface" && log "Brought up $iface with new config"

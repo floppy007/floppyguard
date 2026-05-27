@@ -7,6 +7,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.3.12] – 2026-05-27
+
+### Fixed
+
+- **AllowedIPs-Konflikte werden jetzt blockiert** — `applyMetadata` und `PUT /wireguard/metadata` pruefen vor dem Speichern, ob zwei non-client Peers das gleiche Subnetz in `importedNetworks` beanspruchen. Doppelte Subnet-Zuweisungen fuehrten bisher dazu, dass WireGuard Traffic nur an einen der Peers routete und der andere die Verbindung verlor.
+- **Metadata-Aenderungen werden sofort live angewendet** — `PUT /wireguard/metadata` rief bisher weder `syncHubConf` noch `syncAgentConfigs` auf. Aenderungen an `importedNetworks` im Metadata-Editor wirkten erst beim naechsten `apply-metadata`. Jetzt werden Hub-Config und Agent-Configs automatisch nach jedem Metadata-Save gesynct.
+- **`syncHubConf` synct alle Interfaces** — `applyMetadata` rief `syncHubConf` nur fuer `wg0` auf. Aenderungen an Peers auf anderen Interfaces (wg1, wg2, ...) wurden nie in die conf-Datei uebernommen. Jetzt werden alle erkannten WG-Interfaces gesynct.
+- **Agent `wg syncconf` verschluckte AllowedIPs-Aenderungen** — Wenn sich nur die AllowedIPs eines bestehenden Peers aenderten (gleicher PublicKey), ignorierte `wg syncconf` die Aenderung manchmal. Der Agent-Loop setzt AllowedIPs jetzt zusaetzlich explizit per `wg set peer ... allowed-ips ...` nach jedem `syncconf`.
+
+---
+
 ## [1.3.11] – 2026-05-27
 
 ### Fixed

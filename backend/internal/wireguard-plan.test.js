@@ -310,6 +310,62 @@ PrivateKey = test-private-key
 	);
 });
 
+test("buildPlanPreview rejects duplicate subnet claims between non-client peers", () => {
+	const status = {
+		available: true,
+		mode: "metadata-write",
+		metadata: {
+			interfaces: {},
+			links: {
+				"wg0:peer-a": {
+					type: "site-to-site",
+					name: "Site-A",
+					importedNetworks: ["192.168.10.0/24"],
+				},
+				"wg0:peer-b": {
+					type: "site-to-site",
+					name: "Site-B",
+					importedNetworks: ["192.168.20.0/24"],
+				},
+			},
+		},
+		interfaces: [{
+			name: "wg0",
+			active: true,
+			configExists: true,
+			privateKeyPresent: true,
+			peerCount: 2,
+			activePeerCount: 2,
+			rxBytes: 0, txBytes: 0,
+			peerNetworks: ["192.168.10.0/24", "192.168.20.0/24"],
+			importedNetworks: ["192.168.10.0/24", "192.168.20.0/24"],
+			exportedNetworks: [], routeTargets: [], notes: [],
+		}],
+		links: [
+			{ id: "wg0:peer-a", interfaceName: "wg0", type: "site-to-site", name: "Site-A",
+			  allowedIps: ["192.168.10.0/24"], tunnelAddresses: [], importedNetworks: ["192.168.10.0/24"],
+			  exportedNetworks: [], active: true, hasMetadata: true, warnings: [], nextActions: [], notes: [] },
+			{ id: "wg0:peer-b", interfaceName: "wg0", type: "site-to-site", name: "Site-B",
+			  allowedIps: ["192.168.20.0/24"], tunnelAddresses: [], importedNetworks: ["192.168.20.0/24"],
+			  exportedNetworks: [], active: true, hasMetadata: true, warnings: [], nextActions: [], notes: [] },
+		],
+		routes: { all: [], wireguard: [], privateRoutes: [] },
+	};
+
+	// No conflict: different subnets — preview is valid
+	const ok = buildPlanPreview(status, {
+		links: { "wg0:peer-a": { importedNetworks: ["192.168.10.0/24", "192.168.30.0/24"] } },
+	});
+	assert.equal(ok.valid, true, "non-conflicting subnets should be valid");
+
+	// Conflict: peer-b tries to claim peer-a's subnet
+	const bad = buildPlanPreview(status, {
+		links: { "wg0:peer-b": { importedNetworks: ["192.168.20.0/24", "192.168.10.0/24"] } },
+	});
+	assert.equal(bad.valid, false, "conflicting subnets should be invalid");
+	assert.ok(bad.errors.some((e) => e.includes("192.168.10.0/24")), "error should mention the conflicting subnet");
+});
+
 test("restoreMetadataBackup restores a known backup and records restore audit", async () => {
 	const tempRoot = await mkdtemp(path.join(os.tmpdir(), "wg-plan-restore-"));
 	const confDir = path.join(tempRoot, "conf");
