@@ -333,15 +333,39 @@ function buildLoopScript(mode) {
 # Ensure kernel ip routes exist for all non-host AllowedIPs on a WireGuard interface.
 # wg syncconf updates WireGuard peer tables but does NOT touch the kernel routing table.
 # This must be called after syncconf and also once on startup to recover from missed syncs.
+# Also removes stale wg routes for networks no longer in AllowedIPs.
 sync_routes() {
   local iface="$1"
   ip link show "$iface" > /dev/null 2>&1 || return 0
   local wg_nets
   wg_nets=$(wg show "$iface" allowed-ips 2>/dev/null | awk '{for(i=2;i<=NF;i++) print $i}' || echo "")
+
+  # Collect networks that are directly connected on physical interfaces — never override these
+  local phys_nets
+  phys_nets=$(ip -4 route show type unicast 2>/dev/null | grep -v "dev $iface" | grep ' dev ' | awk '{print $1}' | grep '/' || echo "")
+
+  # Remove stale wg routes: routes pointing at our wg interface that are no longer in AllowedIPs
+  local current_wg_routes
+  current_wg_routes=$(ip -4 route show dev "$iface" 2>/dev/null | awk '{print $1}' | grep '/' || echo "")
+  if [ -n "$current_wg_routes" ]; then
+    while IFS= read -r existing; do
+      [ -z "$existing" ] && continue
+      case "$existing" in */32|*/128) continue ;; esac
+      if ! echo "$wg_nets" | grep -qxF "$existing"; then
+        ip route del "$existing" dev "$iface" 2>/dev/null && log "Removed stale route $existing dev $iface" || true
+      fi
+    done <<< "$current_wg_routes"
+  fi
+
   [ -z "$wg_nets" ] && return 0
   while IFS= read -r net; do
     [ -z "$net" ] && continue
     case "$net" in */32|*/128|0.0.0.0/0|::/0) continue ;; esac
+    # Skip networks already routed via a physical interface (locally connected)
+    if echo "$phys_nets" | grep -qxF "$net"; then
+      log "Skipping route $net dev $iface — already on physical interface"
+      continue
+    fi
     ip route add "$net" dev "$iface" 2>/dev/null && log "Added route $net dev $iface" || true
   done <<< "$wg_nets"
 }

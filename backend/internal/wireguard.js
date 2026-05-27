@@ -1464,6 +1464,15 @@ async function syncHubConf(metadata, ifaceName = "wg0") {
 		}
 	}
 
+	// Exclude networks already directly connected on physical interfaces —
+	// adding a wg0 route for these would override the local LAN route.
+	const physNetsForExclusion = _getPrivatePhysicalInterfaces();
+	for (const nic of physNetsForExclusion) {
+		if (allRouteNets.has(nic.cidr)) {
+			allRouteNets.delete(nic.cidr);
+		}
+	}
+
 	// Discover physical interfaces with private IPs for auto-MASQUERADE.
 	// wg0 peers that route traffic to subnets reachable via eth1/ens* etc.
 	// need MASQUERADE so return packets find their way back through the tunnel.
