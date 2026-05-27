@@ -15,6 +15,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Metadata-Aenderungen werden sofort live angewendet** — `PUT /wireguard/metadata` rief bisher weder `syncHubConf` noch `syncAgentConfigs` auf. Aenderungen an `importedNetworks` im Metadata-Editor wirkten erst beim naechsten `apply-metadata`. Jetzt werden Hub-Config und Agent-Configs automatisch nach jedem Metadata-Save gesynct.
 - **`syncHubConf` synct alle Interfaces** — `applyMetadata` rief `syncHubConf` nur fuer `wg0` auf. Aenderungen an Peers auf anderen Interfaces (wg1, wg2, ...) wurden nie in die conf-Datei uebernommen. Jetzt werden alle erkannten WG-Interfaces gesynct.
 - **Agent `wg syncconf` verschluckte AllowedIPs-Aenderungen** — Wenn sich nur die AllowedIPs eines bestehenden Peers aenderten (gleicher PublicKey), ignorierte `wg syncconf` die Aenderung manchmal. Der Agent-Loop setzt AllowedIPs jetzt zusaetzlich explizit per `wg set peer ... allowed-ips ...` nach jedem `syncconf`.
+- **Stale wg0-Routen blockierten lokale Netze** — `sync_routes()` im Agent fugte Kernel-Routen fuer AllowedIPs hinzu, raeumte aber nie veraltete Routen auf. Wenn ein Subnetz aus den AllowedIPs entfernt wurde, blieb die alte `ip route ... dev wg0` bestehen und ueberschrieb die lokale LAN-Route. Border-Router konnten dadurch eigene VLANs (z.B. 192.168.11.0/24) nicht mehr erreichen. `sync_routes()` entfernt jetzt stale Routen und ueberspringt Netze die bereits auf physischen Interfaces liegen. Gleiches Filtering auch auf der Hub-Seite in `syncHubConf`.
 
 ---
 
