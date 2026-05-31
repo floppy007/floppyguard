@@ -33,6 +33,7 @@
 - Platform dashboard — proxy stats, WireGuard summary, gateway overview, fail2ban status in one view
 - Fail2Ban UI — view jails and banned IPs, unban with one click
 - nftables firewall hardening (strict INPUT policy, only required ports open)
+- Strict CIDR/IP validation on all WireGuard network inputs — network values flow into root-executed routing rules, so anything that is not a clean address/CIDR is rejected
 - Multilanguage UI — English, German, French
 - Dark mode with compact glassmorphism header and theme toggle
 
@@ -184,7 +185,7 @@ npx vitest run  # unit tests
 ## Project structure
 
 ```
-backend/          Express.js API (Node 20+, ES modules)
+backend/          Express.js API (Node 22+, ES modules)
 frontend/         React 19 + TypeScript + Vite
 scripts/          Operational scripts (install, start, stop, check)
 docs/             VitePress documentation + architecture notes
