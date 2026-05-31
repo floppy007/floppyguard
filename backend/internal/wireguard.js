@@ -141,15 +141,42 @@ function sanitizeStringArray(value) {
 	return Array.from(new Set(value.map((item) => String(item || "").trim()).filter(Boolean)));
 }
 
+// Network values (importedNetworks / exportedNetworks / routeTargets) flow into
+// `ip route add <net> dev wgN` shell strings that are written to wg-quick
+// PostUp/PostDown lines and executed as root. A value like "10.0.0.0/24; <cmd>"
+// would be command injection. Validate every entry as a clean IPv4/IPv6 address
+// or CIDR and drop anything else — the character set alone (digits, hex, ":", ".",
+// "/") makes shell metacharacters impossible.
+const IPV4_NET_RE = /^(?:\d{1,3}\.){3}\d{1,3}(?:\/(?:\d|[12]\d|3[0-2]))?$/;
+const IPV6_NET_RE = /^[0-9a-fA-F:]+(?:\/(?:\d|[1-9]\d|1[01]\d|12[0-8]))?$/;
+
+function isValidNetwork(value) {
+	const v = String(value || "").trim();
+	if (!v) return false;
+	if (IPV4_NET_RE.test(v)) {
+		return v
+			.split("/")[0]
+			.split(".")
+			.every((octet) => Number(octet) <= 255);
+	}
+	// IPv6 must contain a colon and only hex/colon characters (plus optional prefix).
+	return v.includes(":") && IPV6_NET_RE.test(v);
+}
+
+function sanitizeNetworkArray(value) {
+	if (!Array.isArray(value)) return [];
+	return Array.from(new Set(value.map((item) => String(item || "").trim()).filter(isValidNetwork)));
+}
+
 function sanitizeInterfaceMetadata(input = {}) {
 	const role = input.role ? String(input.role) : undefined;
 	const managementMode = input.managementMode ? String(input.managementMode) : undefined;
 	return {
 		role: normalizeInterfaceRole(role),
 		managementMode: MANAGEMENT_MODES.has(managementMode) ? managementMode : undefined,
-		exportedNetworks: sanitizeStringArray(input.exportedNetworks),
-		importedNetworks: sanitizeStringArray(input.importedNetworks),
-		routeTargets: sanitizeStringArray(input.routeTargets),
+		exportedNetworks: sanitizeNetworkArray(input.exportedNetworks),
+		importedNetworks: sanitizeNetworkArray(input.importedNetworks),
+		routeTargets: sanitizeNetworkArray(input.routeTargets),
 		notes: sanitizeStringArray(input.notes),
 	};
 }
@@ -163,10 +190,10 @@ function sanitizeInterfaceMetadataPatch(input = {}) {
 			? String(input.managementMode)
 			: undefined;
 	if (Object.hasOwn(input, "exportedNetworks"))
-		sanitized.exportedNetworks = sanitizeStringArray(input.exportedNetworks);
+		sanitized.exportedNetworks = sanitizeNetworkArray(input.exportedNetworks);
 	if (Object.hasOwn(input, "importedNetworks"))
-		sanitized.importedNetworks = sanitizeStringArray(input.importedNetworks);
-	if (Object.hasOwn(input, "routeTargets")) sanitized.routeTargets = sanitizeStringArray(input.routeTargets);
+		sanitized.importedNetworks = sanitizeNetworkArray(input.importedNetworks);
+	if (Object.hasOwn(input, "routeTargets")) sanitized.routeTargets = sanitizeNetworkArray(input.routeTargets);
 	if (Object.hasOwn(input, "notes")) sanitized.notes = sanitizeStringArray(input.notes);
 	if (Object.hasOwn(input, "dns")) sanitized.dns = sanitizeStringArray(input.dns);
 	return sanitized;
@@ -179,8 +206,8 @@ function sanitizeLinkMetadata(input = {}) {
 	return {
 		name: input.name ? String(input.name) : undefined,
 		type: normalizeLinkType(type),
-		exportedNetworks: sanitizeStringArray(input.exportedNetworks),
-		importedNetworks: sanitizeStringArray(input.importedNetworks),
+		exportedNetworks: sanitizeNetworkArray(input.exportedNetworks),
+		importedNetworks: sanitizeNetworkArray(input.importedNetworks),
 		returnPathMode: RETURN_PATH_MODES.has(returnPathMode) ? returnPathMode : undefined,
 		remoteManagementMode: REMOTE_MANAGEMENT_MODES.has(remoteManagementMode) ? remoteManagementMode : undefined,
 		planIntent: input.planIntent ? String(input.planIntent) : undefined,
@@ -194,9 +221,9 @@ function sanitizeLinkMetadataPatch(input = {}) {
 	if (Object.hasOwn(input, "name")) sanitized.name = input.name ? String(input.name) : undefined;
 	if (Object.hasOwn(input, "type")) sanitized.type = normalizeLinkType(input.type ? String(input.type) : undefined);
 	if (Object.hasOwn(input, "exportedNetworks"))
-		sanitized.exportedNetworks = sanitizeStringArray(input.exportedNetworks);
+		sanitized.exportedNetworks = sanitizeNetworkArray(input.exportedNetworks);
 	if (Object.hasOwn(input, "importedNetworks"))
-		sanitized.importedNetworks = sanitizeStringArray(input.importedNetworks);
+		sanitized.importedNetworks = sanitizeNetworkArray(input.importedNetworks);
 	if (Object.hasOwn(input, "returnPathMode"))
 		sanitized.returnPathMode = RETURN_PATH_MODES.has(
 			input.returnPathMode ? String(input.returnPathMode) : undefined,
@@ -1383,7 +1410,7 @@ async function updatePeer(linkId, changes = {}) {
 
 	// ── AllowedIPs conflict check for importedNetworks changes ──
 	if (changes.importedNetworks !== undefined) {
-		const newNets = sanitizeStringArray(changes.importedNetworks);
+		const newNets = sanitizeNetworkArray(changes.importedNetworks);
 		const otherLinks = status.links.filter((l) => l.id !== linkId);
 		const conflicts = checkAllowedIPsConflicts(newNets, otherLinks);
 		if (conflicts.length > 0) {
@@ -1398,7 +1425,7 @@ async function updatePeer(linkId, changes = {}) {
 	// ── Update metadata with new values ──
 	const metadataPatch = {};
 	if (changes.importedNetworks !== undefined) {
-		metadataPatch.importedNetworks = sanitizeStringArray(changes.importedNetworks);
+		metadataPatch.importedNetworks = sanitizeNetworkArray(changes.importedNetworks);
 	}
 	if (changes.name !== undefined) {
 		metadataPatch.name = changes.name ? String(changes.name) : undefined;
@@ -1478,7 +1505,10 @@ async function syncHubConf(metadata, ifaceName = "wg0") {
 	for (const [pubkey, currentCIDRs] of peerMap) {
 		const effective = peerUpdates.has(pubkey) ? peerUpdates.get(pubkey) : currentCIDRs;
 		for (const cidr of effective) {
-			if (!cidr.endsWith("/32") && !cidr.endsWith("/128")) allRouteNets.add(cidr);
+			// Sink-side guard: these values are interpolated into `ip route add <net>`
+			// shell strings executed as root. Drop anything that isn't a clean
+			// IPv4/IPv6 CIDR, even if it was already persisted in an existing conf.
+			if (!cidr.endsWith("/32") && !cidr.endsWith("/128") && isValidNetwork(cidr)) allRouteNets.add(cidr);
 		}
 	}
 
@@ -1894,7 +1924,7 @@ async function createPeer({ name, type, dns, fullTunnel, platform, importedNetwo
 	// Client peers only get their tunnel IP on the hub side — importedNetworks
 	// define what the client can reach (downloaded config), not hub routing.
 	const hubAllowedIPs = [peerAllowedIP];
-	const importedNets = (importedNetworks || []).filter(Boolean);
+	const importedNets = sanitizeNetworkArray(importedNetworks);
 	const isClientType = (type || "client") === "client";
 	if (importedNets.length && !isClientType) hubAllowedIPs.push(...importedNets);
 

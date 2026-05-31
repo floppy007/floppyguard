@@ -7,6 +7,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.3.14] – 2026-05-31
+
+### Security
+
+- **Command-Injection in WireGuard-Netzwerkfeldern geschlossen** — `importedNetworks`, `exportedNetworks` und `routeTargets` wurden bisher nur als Strings getrimmt/dedupliziert, aber nicht als CIDR validiert. Diese Werte fliessen in `ip route add <net> dev wgN`-Befehle, die als `PostUp`/`PostDown` in die wg-quick-Config geschrieben und als root ausgefuehrt werden. Ein Wert wie `10.0.0.0/24; <befehl>` haette beim Anwenden der Config beliebigen Code als root ausgefuehrt. Alle Netzwerkfelder werden jetzt am Eingang (`createPeer`, `updatePeer`, Metadata-Sanitizer) und an der Sink-Seite (`syncHubConf`) strikt als IPv4/IPv6-Adresse oder -CIDR validiert; alles andere wird verworfen. Neuer Regressionstest in `wireguard.test.js`.
+- **Rate-Limit auf `GET /api/agent/install`** — Der Endpoint akzeptierte ein `reg_token` ohne Rate-Limit, waehrend das gleichwertige `POST /api/agent/register` bereits limitiert war. Jetzt gilt fuer beide dasselbe Limit (10 Requests / 15 min).
+
+---
+
+## [1.3.13] – 2026-05-31
+
+### Fixed
+
+- **Road-Warrior-Peers erhalten jetzt alle exportierten Netze** — Laptop-/Mobile-Peers erben automatisch alle `exportedNetworks` der anderen Peers in den AllowedIPs, statt nur das Tunnel-Subnet zu bekommen.
+- **Endpoint nutzt die konfigurierte Domain** — Peer- und Agent-Configs verwenden `WG_HUB_HOST` statt eines Platzhalters; neue `resolveHubHost()` mit OS-Hostname-Fallback. `install.sh` schreibt `WG_HUB_HOST` aus der beim Setup eingegebenen Domain.
+- **Key-Rotation verliert keine Metadaten mehr** — Die Metadata-Migration nach einer Key-Rotation laeuft nur noch bei tatsaechlich erfolgreicher Rotation, sodass DNS, fullTunnel und platform bei fehlgeschlagener Rotation nicht verloren gehen.
+- **DNS-Feld in API-Responses** — Link- und Interface-Responses enthalten jetzt das DNS-Feld, sodass die Web-UI gespeicherte DNS-Server beim Bearbeiten eines Peers anzeigt.
+
+---
+
 ## [1.3.12] – 2026-05-27
 
 ### Fixed
