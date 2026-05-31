@@ -486,7 +486,7 @@ function TopologyMap({ links, interfaces }: { links: WireGuardLink[]; interfaces
 					>
 						<span style={{ color: typeColorMap["site-to-site"] }}>■</span>&nbsp;
 						{intl.formatMessage({ id: "wireguard.topo.legend-exported" })}&nbsp;&nbsp;
-						<span style={{ color: typeColorMap["unclassified"] }}>■</span>&nbsp;
+						<span style={{ color: typeColorMap.unclassified }}>■</span>&nbsp;
 						{intl.formatMessage({ id: "wireguard.topo.legend-imported" })}
 					</div>
 				</div>

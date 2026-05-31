@@ -24,7 +24,7 @@ const hashConfig = (text) => {
 	return createHash("sha256").update(text).digest("hex");
 };
 
-const AGENT_SCRIPT_VERSION = "1.3.12";
+const AGENT_SCRIPT_VERSION = "1.3.14";
 
 /**
  * Compute HMAC-SHA256 of the script using the agent_token as key.
@@ -414,7 +414,7 @@ with open('/tmp/fg_new_wg.conf','w') as f: f.write(c.replace('PrivateKey = (hidd
       ai=$(echo "$line" | awk '{for(i=2;i<=NF;i++) printf "%s,", $i}' | sed 's/,$//')
       [ -z "$pk" ] || [ -z "$ai" ] && continue
       wg set "$iface" peer "$pk" allowed-ips "$ai" 2>/dev/null || true
-    done < <(wg-quick strip /tmp/fg_new_wg.conf 2>/dev/null | awk '/^\[Peer\]/{pk="";ai=""} /^PublicKey/{pk=$3} /^AllowedIPs/{ai=$3} pk && ai{print pk, ai; pk=""; ai=""}')
+    done < <(wg-quick strip /tmp/fg_new_wg.conf 2>/dev/null | awk '/^[Peer]/{pk="";ai=""} /^PublicKey/{pk=$3} /^AllowedIPs/{ai=$3} pk && ai{print pk, ai; pk=""; ai=""}')
     cp /tmp/fg_new_wg.conf "/etc/wireguard/$iface.conf"
     sync_routes "$iface"
     log "Applied config update to $iface (syncconf + AllowedIPs force-set, no downtime)"

@@ -153,7 +153,7 @@ router
 	.options((_, res) => {
 		res.sendStatus(204);
 	})
-	.get(async (req, res, next) => {
+	.get(agentLimiter, async (req, res, next) => {
 		try {
 			const { reg_token, public_url, tunnel_url } = req.query;
 			if (!reg_token) {

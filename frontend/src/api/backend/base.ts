@@ -79,7 +79,7 @@ async function processResponse(response: Response) {
 			queryClient.clear();
 			window.location.reload();
 		}
-		throw new Error("HTTP " + response.status + " " + response.statusText);
+		throw new Error(`HTTP ${response.status} ${response.statusText}`);
 	}
 	if (!response.ok) {
 		if (response.status === 401) {
@@ -116,7 +116,7 @@ export async function get(args: GetArgs, abortController?: AbortController) {
 export async function download({ url, params }: GetArgs, filename = "download.file") {
 	const headers = buildAuthHeader();
 	const res = await fetch(buildUrl({ url, params }), { headers });
-	if (!res.ok) throw new Error("Download failed: HTTP " + res.status);
+	if (!res.ok) throw new Error(`Download failed: HTTP ${res.status}`);
 	const bl = await res.blob();
 	const u = window.URL.createObjectURL(bl);
 	const a = document.createElement("a");
