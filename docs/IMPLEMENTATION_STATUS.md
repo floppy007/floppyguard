@@ -165,6 +165,7 @@ Full security audit performed and all findings remediated:
 
 ## WireGuard — Completed
 
+- Road warrior AllowedIPs ✔ v1.3.13 — `generatePeerConfig` und `createPeer` sammeln automatisch alle exportedNetworks anderer Peers fuer Road Warriors; `resolveHubHost()` nutzt Domain statt IP; Key-Rotation Metadata-Migration nur bei tatsaechlichem Erfolg
 - Stale route cleanup ✔ v1.3.12 — `sync_routes()` entfernt veraltete wg0-Routen und ueberspringt physisch angeschlossene Netze
 - AllowedIPs conflict blocking ✔ v1.3.12 — `applyMetadata` und `PUT /wireguard/metadata` pruefen auf doppelte Subnet-Zuweisungen
 - Metadata live-sync ✔ v1.3.12 — `PUT /wireguard/metadata` loest sofort `syncHubConf` + `syncAgentConfigs` aus

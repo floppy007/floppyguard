@@ -193,7 +193,7 @@ PORT=${BACKEND_PORT}
 WG_CONF_DIR=/etc/wireguard
 
 # --- WireGuard peer config defaults ---
-# WG_HUB_HOST=your-server-ip-or-hostname
+WG_HUB_HOST=${DOMAIN:-$(hostname -f)}
 # WG_DNS=10.10.0.1,1.1.1.1
 EOF
     ok ".env written"

@@ -7,7 +7,7 @@
 > Nginx reverse proxy manager with integrated WireGuard VPN management, a visual topology map, remote agent support and a hardened host-based runtime.
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.3.12-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.3.13-blue.svg)](CHANGELOG.md)
 [![CI](https://github.com/floppy007/floppyguard/actions/workflows/ci.yml/badge.svg)](https://github.com/floppy007/floppyguard/actions/workflows/ci.yml)
 
 ---
@@ -25,6 +25,7 @@
 - WireGuard peer CRUD — create, update and delete peers live from the UI
 - Peer config export with QR code for mobile enrollment
 - DNS/nameserver auto-config per interface or link, with platform-aware AllowedIPs
+- Road warrior peers auto-inherit all remote site networks in AllowedIPs
 - Planning layer: links go through discover → shape → validate → ready stages
 - Remote agent system — push WireGuard configs to remote hosts (native Linux + UniFi-compatible mode)
 - Auto-MASQUERADE — cross-site LAN traffic gets NAT rules auto-generated and pushed to agents
@@ -121,7 +122,7 @@ Set these in the systemd unit file (`/etc/systemd/system/floppyguard-backend.ser
 | `DB_MYSQL_NAME` | — | MySQL database name |
 | `DB_SQLITE_FILE` | — | SQLite file path (alternative to MySQL, for dev/testing) |
 | `WG_CONF_DIR` | `/etc/wireguard` | WireGuard config directory |
-| `WG_HUB_HOST` | — | Public IP/hostname for WireGuard endpoint in peer configs |
+| `WG_HUB_HOST` | OS hostname | Public domain/IP for WireGuard endpoint in peer and agent configs |
 | `WG_DNS` | — | Default DNS for peer configs (comma-separated) |
 | `PORT` | `3300` | Backend listen port |
 
