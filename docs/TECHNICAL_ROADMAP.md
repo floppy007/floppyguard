@@ -32,6 +32,7 @@ Stand: 2026-05-27
 - **Hub-LAN MASQUERADE** (v1.3.11) — Zwei MASQUERADE-Regeln pro physischem Interface (lokales Subnet + Tunnel-Subnet); MASQUERADE-Regex erkennt beide Reihenfolgen
 - **AllowedIPs Conflict Blocking** (v1.3.12) — Doppelte Subnet-Zuweisungen werden blockiert; Metadata-Aenderungen sofort live; syncHubConf synct alle Interfaces
 - **Stale Route Cleanup** (v1.3.12) — `sync_routes()` entfernt veraltete wg0-Routen und ueberspringt physisch angeschlossene Netze; Hub-Seite filtert ebenfalls
+- **Road Warrior AllowedIPs** (v1.3.13) — Config-Export fuer Road Warriors (Laptop/Mobile) sammelt automatisch alle exportedNetworks anderer Peers; Endpoint nutzt Domain statt IP; Key-Rotation verliert keine Metadata mehr
 
 ## Noch offen
 

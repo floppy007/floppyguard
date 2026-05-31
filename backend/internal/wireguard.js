@@ -1,6 +1,6 @@
 import { execFile, execFileSync } from "node:child_process";
 import { promises as fs } from "node:fs";
-import { networkInterfaces } from "node:os";
+import { hostname, networkInterfaces } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { wireguard as logger } from "../logger.js";
@@ -39,6 +39,11 @@ const RETURN_PATH_MODES = new Set(["auto", "routed", "static-route", "nat", "unk
 const getWireGuardConfDir = () => process.env.WG_CONF_DIR || "/etc/wireguard";
 const getWireGuardBin = () => process.env.WG_BIN || "wg";
 const getIpBin = () => process.env.IP_BIN || "ip";
+
+/** Resolve hub hostname for peer/agent configs: WG_HUB_HOST env > OS hostname */
+function resolveHubHost() {
+	return process.env.WG_HUB_HOST || hostname() || "<server-ip>";
+}
 const getMetadataFile = () =>
 	process.env.WG_METADATA_FILE || path.resolve(process.cwd(), ".local-data", "wireguard-metadata.json");
 
@@ -427,6 +432,7 @@ function buildLinkRecord(ifaceName, peer, index, metadata = {}) {
 			? metadata.remoteManagementMode
 			: "none",
 		platform: metadata.platform || null,
+		dns: metadata.dns || [],
 		fullTunnel: Boolean(metadata.fullTunnel),
 		planIntent: metadata.planIntent || type,
 		planState: metadata.planState || null,
@@ -507,6 +513,7 @@ async function getInterfaceStatus(name, dumpByInterface, metadataStore) {
 		peerNetworks: configPeerNetworks,
 		importedNetworks,
 		exportedNetworks: metadata.exportedNetworks || [],
+		dns: metadata.dns || [],
 		routeTargets,
 		health: active ? "healthy" : "inactive",
 		notes: metadata.notes?.length
@@ -790,7 +797,17 @@ async function generatePeerConfig(linkId) {
 
 	const tunnelAddress = link.tunnelAddresses[0] ?? null;
 
-	const allowedIps = link.importedNetworks.length > 0 ? link.importedNetworks : (iface?.addresses ?? []);
+	// Build AllowedIPs: for road warriors (no importedNetworks), collect all
+	// exportedNetworks from OTHER peers so the client can reach remote sites.
+	let allowedIps;
+	if (link.importedNetworks.length > 0) {
+		allowedIps = link.importedNetworks;
+	} else {
+		const otherLinks = (status.links || []).filter((l) => l.id !== linkId && l.interfaceName === link.interfaceName);
+		const otherNets = otherLinks.flatMap((l) => l.exportedNetworks || []);
+		const tunnelSubnets = iface?.addresses ?? [];
+		allowedIps = [...new Set([...tunnelSubnets, ...otherNets])];
+	}
 
 	// Generate a fresh WireGuard keypair for this peer
 	// Note: wg pubkey hangs when piped via Node.js child_process stdin on this system;
@@ -802,8 +819,9 @@ async function generatePeerConfig(linkId) {
 
 	// Rotate the peer's public key on the hub
 	const oldPubKey = link.peerPublicKey;
+	let rotated = false;
 	if (oldPubKey && oldPubKey !== newPubKey) {
-		const rotated = await _rotatePeerPublicKey(link.interfaceName, oldPubKey, newPubKey, link.allowedIps || []);
+		rotated = await _rotatePeerPublicKey(link.interfaceName, oldPubKey, newPubKey, link.allowedIps || []);
 		if (rotated) {
 			// Rename the link in the metadata store (ID is based on pubkey)
 			const store = await readMetadataStore();
@@ -832,8 +850,8 @@ async function generatePeerConfig(linkId) {
 	}
 
 	// DNS: link-level > interface-level > env fallback
-	// After key rotation the link ID changes; use the new ID to find metadata
-	const effectiveLinkId = (oldPubKey && oldPubKey !== newPubKey) ? `${link.interfaceName}:${newPubKey}` : linkId;
+	// Use the new link ID only if key rotation actually succeeded
+	const effectiveLinkId = rotated ? `${link.interfaceName}:${newPubKey}` : linkId;
 	const store = await readMetadataStore();
 	const ifaceMeta = store.interfaces[link.interfaceName] || {};
 	const linkMeta = store.links[effectiveLinkId] || store.links[linkId] || {};
@@ -862,7 +880,7 @@ async function generatePeerConfig(linkId) {
 		lines.push(`PublicKey = ${hubPublicKey}`);
 	}
 
-	const hubHost = process.env.WG_HUB_HOST || "<server-ip>";
+	const hubHost = resolveHubHost();
 	lines.push(
 		`Endpoint = ${hubHost}:${hubListenPort}`,
 		`AllowedIPs = ${finalAllowedIps.join(", ") || "0.0.0.0/0"}`,
@@ -1927,7 +1945,7 @@ async function createPeer({ name, type, dns, fullTunnel, platform, importedNetwo
 	// ── Build client config ──
 	const hubPublicKey = iface.publicKey;
 	const hubListenPort = iface.listenPort || 51820;
-	const hubHost = process.env.WG_HUB_HOST || "<server-ip>";
+	const hubHost = resolveHubHost();
 
 	// DNS: link > interface > env
 	const dnsServers = (dns || []).length
@@ -1941,7 +1959,16 @@ async function createPeer({ name, type, dns, fullTunnel, platform, importedNetwo
 	const isFullTunnel = Boolean(fullTunnel);
 	const isMobilePlatform = platform === "mobile";
 	const fullTunnelIPs = isMobilePlatform ? ["0.0.0.0/0", "::/0"] : ["0.0.0.0/1", "128.0.0.0/1", "::/1", "8000::/1"];
-	const clientAllowedIPs = isFullTunnel ? fullTunnelIPs : importedNets.length ? importedNets : iface.addresses || [];
+	// For road warriors (no importedNetworks), include all networks exported by other peers
+	let clientBaseIPs;
+	if (importedNets.length) {
+		clientBaseIPs = importedNets;
+	} else {
+		const otherLinks = (status.links || []).filter((l) => l.interfaceName === ifaceName);
+		const otherNets = otherLinks.flatMap((l) => l.exportedNetworks || []);
+		clientBaseIPs = [...new Set([...(iface.addresses || []), ...otherNets])];
+	}
+	const clientAllowedIPs = isFullTunnel ? fullTunnelIPs : clientBaseIPs;
 
 	const configLines = [
 		`# WireGuard peer config — ${name || linkId}`,
