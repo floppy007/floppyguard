@@ -10,6 +10,10 @@ const {
 	_parseHubPeerAllowedIPs,
 	_rewriteHubPeerAllowedIPs,
 	_parseAllowedSites,
+	sanitizeHubUrl,
+	buildLoopScript,
+	sanitizeAclNetworks,
+	sanitizeAclSites,
 } = _testExports;
 
 // ─── deriveTunnelSubnet ──────────────────────────────────────────────────────
@@ -173,4 +177,127 @@ test("_parseAllowedSites returns Set of site names from JSON array", () => {
 
 test("_parseAllowedSites returns null for invalid JSON", () => {
 	assert.equal(_parseAllowedSites("not json"), null);
+});
+
+// ─── sanitizeHubUrl ──────────────────────────────────────────────────────────
+
+test("sanitizeHubUrl accepts http and https URLs", () => {
+	assert.equal(sanitizeHubUrl("https://proxy.comnic.de"), "https://proxy.comnic.de");
+	assert.equal(sanitizeHubUrl("http://10.10.0.1:3300"), "http://10.10.0.1:3300");
+});
+
+test("sanitizeHubUrl strips trailing slashes", () => {
+	assert.equal(sanitizeHubUrl("https://proxy.comnic.de/"), "https://proxy.comnic.de");
+	assert.equal(sanitizeHubUrl("http://10.10.0.1:3300///"), "http://10.10.0.1:3300");
+});
+
+test("sanitizeHubUrl rejects empty, null and non-string", () => {
+	assert.equal(sanitizeHubUrl(""), null);
+	assert.equal(sanitizeHubUrl("   "), null);
+	assert.equal(sanitizeHubUrl(null), null);
+	assert.equal(sanitizeHubUrl(undefined), null);
+	assert.equal(sanitizeHubUrl(123), null);
+});
+
+test("sanitizeHubUrl rejects non-http(s) protocols", () => {
+	assert.equal(sanitizeHubUrl("ftp://host/x"), null);
+	assert.equal(sanitizeHubUrl("file:///etc/passwd"), null);
+	assert.equal(sanitizeHubUrl("javascript:alert(1)"), null);
+});
+
+test("sanitizeHubUrl rejects shell/sed metacharacters (config.env injection guard)", () => {
+	assert.equal(sanitizeHubUrl("http://h/$(id)"), null);
+	assert.equal(sanitizeHubUrl("http://h;reboot"), null);
+	assert.equal(sanitizeHubUrl("http://h|cat"), null);
+	assert.equal(sanitizeHubUrl('http://h"x'), null);
+	assert.equal(sanitizeHubUrl("http://h x"), null);
+});
+
+// ─── buildLoopScript: hub-URL propagation + register-retry ───────────────────
+
+test("buildLoopScript adopts server-advertised hub URLs", () => {
+	const script = buildLoopScript("native");
+	assert.match(script, /update_server_urls\(\)/);
+	assert.match(script, /get\('primary_url'\)/);
+	assert.match(script, /get\('fallback_url'\)/);
+	assert.match(script, /update_server_urls "\$NEW_PRIMARY" "\$NEW_FALLBACK"/);
+	// Never overwrites a working URL with an empty one
+	assert.match(script, /\[ -n "\$new_primary" \] && \[ "\$new_primary" != "\$PRIMARY_URL" \]/);
+});
+
+test("buildLoopScript retries registration when /config rejects a reg_token", () => {
+	const script = buildLoopScript("native");
+	assert.match(script, /api\/agent\/register/);
+	assert.match(script, /reg_token/);
+	assert.match(script, /Recovered registration on poll/);
+});
+
+// ─── sanitizeAclNetworks / sanitizeAclSites (CSO finding #1) ──────────────────
+
+test("sanitizeAclNetworks accepts, trims and dedupes valid CIDRs", () => {
+	assert.deepEqual(sanitizeAclNetworks(["192.168.11.0/24", " 10.0.0.0/8 ", "192.168.11.0/24"]), [
+		"192.168.11.0/24",
+		"10.0.0.0/8",
+	]);
+});
+
+test("sanitizeAclNetworks returns null for null/undefined", () => {
+	assert.equal(sanitizeAclNetworks(null), null);
+	assert.equal(sanitizeAclNetworks(undefined), null);
+});
+
+test("sanitizeAclNetworks rejects a non-array", () => {
+	assert.throws(() => sanitizeAclNetworks("192.168.11.0/24"), /must be an array/);
+});
+
+test("sanitizeAclNetworks rejects shell-injection / non-CIDR entries (root ip route sink)", () => {
+	assert.throws(() => sanitizeAclNetworks(["10.0.0.0/24", "1.2.3.0/24; reboot"]), /invalid CIDR/);
+	assert.throws(() => sanitizeAclNetworks(["$(id)"]), /invalid CIDR/);
+	assert.throws(() => sanitizeAclNetworks(["notacidr"]), /invalid CIDR/);
+});
+
+test("sanitizeAclNetworks rejects out-of-range octets/prefix that pass the shape regex", () => {
+	// CIDR_RE shape-matches these but `ip route add` would reject them → tunnel down
+	assert.throws(() => sanitizeAclNetworks(["999.0.0.0/99"]), /invalid CIDR/);
+	assert.throws(() => sanitizeAclNetworks(["10.0.0.256/24"]), /invalid CIDR/);
+	assert.throws(() => sanitizeAclNetworks(["10.0.0.0/33"]), /invalid CIDR/);
+});
+
+test("sanitizeAclNetworks rejects any /0 route incl. aliases (default-route hijack)", () => {
+	assert.throws(() => sanitizeAclNetworks(["0.0.0.0/0"]), /default route/);
+	assert.throws(() => sanitizeAclNetworks(["0.0.0.0/00"]), /default route/);
+	assert.throws(() => sanitizeAclNetworks(["10.0.0.0/0"]), /default route/);
+});
+
+test("sanitizeAclNetworks treats empty array as null (no restriction = full mesh)", () => {
+	assert.equal(sanitizeAclNetworks([]), null);
+	assert.equal(sanitizeAclNetworks(["", "   "]), null);
+});
+
+test("buildLoopScript rate-limits the register-retry (no per-poll /register hammering)", () => {
+	const script = buildLoopScript("native");
+	assert.match(script, /LAST_REG_ATTEMPT=/);
+	assert.match(script, /REGISTER_RETRY_INTERVAL=/);
+	assert.match(script, /NOW - LAST_REG_ATTEMPT.*-ge.*REGISTER_RETRY_INTERVAL/);
+});
+
+test("buildLoopScript verifies a hub URL is reachable before adopting it, and upserts", () => {
+	const script = buildLoopScript("native");
+	// reach-check guards adoption so a typo'd hub URL can't brick the agent
+	assert.match(script, /\[ "\$new_primary" != "\$PRIMARY_URL" \] && reach "\$new_primary"/);
+	assert.match(script, /reach "\$new_fallback"/);
+	// upsert appends the line if missing instead of silently no-op'ing
+	assert.match(script, /upsert_env\(\)/);
+	assert.match(script, /printf '%s="%s"/);
+});
+
+test("sanitizeAclSites coerces to trimmed non-empty strings, no CIDR check", () => {
+	assert.deepEqual(sanitizeAclSites(["Floppy Home", "  ", " Hinderlich Office "]), [
+		"Floppy Home",
+		"Hinderlich Office",
+	]);
+	assert.equal(sanitizeAclSites(null), null);
+	assert.equal(sanitizeAclSites("nope"), null);
+	assert.equal(sanitizeAclSites([]), null);
+	assert.equal(sanitizeAclSites(["", " "]), null);
 });

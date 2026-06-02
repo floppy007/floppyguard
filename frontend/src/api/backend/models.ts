@@ -505,6 +505,10 @@ export interface Agent {
 	wgLinkName: string | null;
 	agentVersion: string | null;
 	services: Array<{ name: string; url: string }>;
+	/** Per-agent network ACL — explicit CIDRs this agent may route (null = no restriction) */
+	allowedNetworks: string[] | null;
+	/** Per-agent site ACL — link names whose networks are allowed (null = no restriction) */
+	allowedSites: string[] | null;
 	// UniFi mode fields
 	unifiUrl: string | null;
 	unifiUser: string | null;
@@ -531,6 +535,10 @@ export interface AgentUpdateData {
 	wgInterface?: string;
 	configText?: string;
 	mgmtUrl?: string;
+	/** Per-agent network ACL — explicit CIDRs this agent may route */
+	allowedNetworks?: string[];
+	/** Per-agent site ACL — link names whose networks are allowed */
+	allowedSites?: string[];
 	// UniFi mode
 	unifiUrl?: string;
 	unifiUser?: string;
