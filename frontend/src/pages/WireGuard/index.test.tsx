@@ -33,6 +33,8 @@ vi.mock("src/hooks", () => ({
 	useCreateAgent: () => createAgentMock(),
 	useUpdateAgent: () => updateAgentMock(),
 	useCreateWireGuardPeer: () => createPeerMock(),
+	useSetting: () => ({ data: { value: "https://proxy.comnic.de", meta: { primary: "http://10.10.0.1:3300" } } }),
+	useSetSetting: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 const buildStatus = () => ({

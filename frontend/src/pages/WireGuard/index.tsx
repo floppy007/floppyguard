@@ -552,9 +552,6 @@ function AgentSection({ link, agents }: { link: WireGuardLink; agents: Agent[] }
 		);
 	const createAgent = useCreateAgent();
 	const updateAgent = useUpdateAgent();
-	const hubSetting = useSetting("agent-hub-url");
-	const setSetting = useSetSetting();
-	const [hubUrlEdit, setHubUrlEdit] = useState<{ primary: string; fallback: string } | null>(null);
 
 	const [publicUrl, setPublicUrl] = useState(() => window.location.origin);
 	const [tunnelUrl, setTunnelUrl] = useState(() => {
@@ -632,101 +629,12 @@ function AgentSection({ link, agents }: { link: WireGuardLink; agents: Agent[] }
 		);
 	};
 
-	// Mirror backend sanitizeHubUrl: http(s) only, no shell/sed metacharacters.
-	// Empty is allowed (clears that URL). Blocks Save on junk the backend would
-	// silently reject, so the admin gets feedback instead of a no-op.
-	const isValidHubUrl = (v: string) => {
-		const t = v.trim();
-		if (!t) return true;
-		return /^https?:\/\/[^\s"'$`\\;|&(){}<>!#]+$/.test(t);
-	};
-	const hubUrlInvalid =
-		hubUrlEdit !== null && (!isValidHubUrl(hubUrlEdit.primary) || !isValidHubUrl(hubUrlEdit.fallback));
-
-	const handleSaveHubUrl = () => {
-		if (hubUrlEdit === null || hubUrlInvalid) return;
-		setSetting.mutate(
-			{
-				id: "agent-hub-url",
-				value: hubUrlEdit.fallback.trim(),
-				meta: { primary: hubUrlEdit.primary.trim() },
-			},
-			{ onSuccess: () => setHubUrlEdit(null) },
-		);
-	};
-
 	// Use the resolved agent (either pre-existing or just created)
 	const agent = activeAgent ?? existingAgent ?? null;
 
 	return (
 		<div className={styles.inlineSection}>
 			<div className="fw-medium mb-3 small text-uppercase text-secondary">Agent — {link.name}</div>
-
-			{/* Hub address — GLOBAL setting propagated to every agent on next poll */}
-			<div className="mb-3 p-2 rounded" style={{ background: "rgba(128,128,128,0.06)" }}>
-				{hubUrlEdit === null ? (
-					<div className="d-flex align-items-center gap-2 flex-wrap small">
-						<span className="text-secondary">{intl.formatMessage({ id: "wireguard.agent.hub-url" })}</span>
-						<code>{hubSetting.data?.meta?.primary || "—"}</code>
-						<span className="text-secondary">/</span>
-						<code>{hubSetting.data?.value || "—"}</code>
-						<button
-							type="button"
-							className="btn btn-sm btn-link p-0 small"
-							onClick={() =>
-								setHubUrlEdit({
-									primary: hubSetting.data?.meta?.primary ?? "",
-									fallback: hubSetting.data?.value ?? "",
-								})
-							}
-						>
-							{intl.formatMessage({ id: "wireguard.agent.change" })}
-						</button>
-					</div>
-				) : (
-					<div className="d-flex flex-column gap-2">
-						<input
-							type="url"
-							className="form-control form-control-sm"
-							style={{ maxWidth: 360 }}
-							value={hubUrlEdit.primary}
-							onChange={(e) => setHubUrlEdit({ ...hubUrlEdit, primary: e.target.value })}
-							placeholder="http://10.10.0.1:3300"
-						/>
-						<input
-							type="url"
-							className="form-control form-control-sm"
-							style={{ maxWidth: 360 }}
-							value={hubUrlEdit.fallback}
-							onChange={(e) => setHubUrlEdit({ ...hubUrlEdit, fallback: e.target.value })}
-							placeholder="https://proxy.comnic.de"
-						/>
-						<div className="d-flex gap-2 align-items-center">
-							<button
-								type="button"
-								className="btn btn-sm btn-primary"
-								disabled={setSetting.isPending || hubUrlInvalid}
-								onClick={handleSaveHubUrl}
-							>
-								{intl.formatMessage({ id: "save" })}
-							</button>
-							<button
-								type="button"
-								className="btn btn-sm btn-outline-secondary"
-								onClick={() => setHubUrlEdit(null)}
-							>
-								{intl.formatMessage({ id: "cancel" })}
-							</button>
-							{hubUrlInvalid && (
-								<span className="small text-danger">
-									{intl.formatMessage({ id: "wireguard.agent.hub-url-invalid" })}
-								</span>
-							)}
-						</div>
-					</div>
-				)}
-				<div className="form-text small">{intl.formatMessage({ id: "wireguard.agent.hub-url-hint" })}</div>
-			</div>
 
 			{!agent && (
 				<div className="text-secondary small">
@@ -2165,6 +2073,97 @@ function RoutingMatrix({ links }: { links: WireGuardLink[] }) {
 
 type Tab = "overview" | "links" | "interfaces" | "routing";
 
+// Global hub-address editor — the agent-hub-url setting applies to every agent,
+// so it lives once at the page level (not per link). Agents adopt these URLs on
+// their next poll (reach-verified) when the hub domain moves.
+function HubUrlEditor() {
+	const hubSetting = useSetting("agent-hub-url");
+	const setSetting = useSetSetting();
+	const [edit, setEdit] = useState<{ primary: string; fallback: string } | null>(null);
+
+	const isValidHubUrl = (v: string) => {
+		const t = v.trim();
+		if (!t) return true;
+		return /^https?:\/\/[^\s"'$`\\;|&(){}<>!#]+$/.test(t);
+	};
+	const invalid = edit !== null && (!isValidHubUrl(edit.primary) || !isValidHubUrl(edit.fallback));
+
+	const save = () => {
+		if (edit === null || invalid) return;
+		setSetting.mutate(
+			{ id: "agent-hub-url", value: edit.fallback.trim(), meta: { primary: edit.primary.trim() } },
+			{ onSuccess: () => setEdit(null) },
+		);
+	};
+
+	return (
+		<div className="card platform-elevated-card mb-4">
+			<div className="card-body py-2 px-3">
+				{edit === null ? (
+					<div className="d-flex align-items-center gap-2 flex-wrap small">
+						<span className="text-secondary text-uppercase fw-medium">
+							{intl.formatMessage({ id: "wireguard.agent.hub-url" })}
+						</span>
+						<code>{hubSetting.data?.meta?.primary || "—"}</code>
+						<span className="text-secondary">/</span>
+						<code>{hubSetting.data?.value || "—"}</code>
+						<button
+							type="button"
+							className="btn btn-sm btn-link p-0 small"
+							onClick={() =>
+								setEdit({
+									primary: hubSetting.data?.meta?.primary ?? "",
+									fallback: hubSetting.data?.value ?? "",
+								})
+							}
+						>
+							{intl.formatMessage({ id: "wireguard.agent.change" })}
+						</button>
+					</div>
+				) : (
+					<div className="d-flex flex-column gap-2">
+						<input
+							type="url"
+							className="form-control form-control-sm"
+							style={{ maxWidth: 360 }}
+							value={edit.primary}
+							onChange={(e) => setEdit({ ...edit, primary: e.target.value })}
+							placeholder="http://10.10.0.1:3300"
+						/>
+						<input
+							type="url"
+							className="form-control form-control-sm"
+							style={{ maxWidth: 360 }}
+							value={edit.fallback}
+							onChange={(e) => setEdit({ ...edit, fallback: e.target.value })}
+							placeholder="https://proxy.comnic.de"
+						/>
+						<div className="d-flex gap-2 align-items-center">
+							<button
+								type="button"
+								className="btn btn-sm btn-primary"
+								disabled={setSetting.isPending || invalid}
+								onClick={save}
+							>
+								{intl.formatMessage({ id: "save" })}
+							</button>
+							<button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => setEdit(null)}>
+								{intl.formatMessage({ id: "cancel" })}
+							</button>
+							{invalid && (
+								<span className="small text-danger">
+									{intl.formatMessage({ id: "wireguard.agent.hub-url-invalid" })}
+								</span>
+							)}
+						</div>
+					</div>
+				)}
+				<div className="form-text small mt-1">{intl.formatMessage({ id: "wireguard.agent.hub-url-hint" })}</div>
+			</div>
+		</div>
+	);
+}
+
 const WireGuard = () => {
 	const { data, isLoading, isError, error } = useWireGuardStatus();
 	const applyState = useWireGuardApplyState();
@@ -2647,6 +2646,7 @@ const WireGuard = () => {
 			{/* ── Overview ── */}
 			{activeTab === "overview" && (
 				<div>
+					<HubUrlEditor />
 					<div className="card mb-4">
 						<div className="card-header">
 							<h3 className="card-title">
