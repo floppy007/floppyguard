@@ -31,6 +31,8 @@ import {
 	useCreateWireGuardPeer,
 	usePreviewWireGuardPlan,
 	useRestoreWireGuardMetadata,
+	useSetSetting,
+	useSetting,
 	useUpdateAgent,
 	useWireGuardApplyState,
 	useWireGuardStatus,
@@ -550,6 +552,9 @@ function AgentSection({ link, agents }: { link: WireGuardLink; agents: Agent[] }
 		);
 	const createAgent = useCreateAgent();
 	const updateAgent = useUpdateAgent();
+	const hubSetting = useSetting("agent-hub-url");
+	const setSetting = useSetSetting();
+	const [hubUrlEdit, setHubUrlEdit] = useState<{ primary: string; fallback: string } | null>(null);
 
 	const [publicUrl, setPublicUrl] = useState(() => window.location.origin);
 	const [tunnelUrl, setTunnelUrl] = useState(() => {
@@ -559,6 +564,7 @@ function AgentSection({ link, agents }: { link: WireGuardLink; agents: Agent[] }
 	const [copied, setCopied] = useState(false);
 	const [activeAgent, setActiveAgent] = useState<Agent | null>(existingAgent ?? null);
 	const [mgmtUrlEdit, setMgmtUrlEdit] = useState<string | null>(null);
+	const [aclEdit, setAclEdit] = useState<string | null>(null);
 	const [showReinstall, setShowReinstall] = useState(false);
 	const [resetLoading, setResetLoading] = useState(false);
 	const agentCreateAttempted = useRef(false);
@@ -612,12 +618,115 @@ function AgentSection({ link, agents }: { link: WireGuardLink; agents: Agent[] }
 		);
 	};
 
+	const handleSaveAcl = (agentId: number) => {
+		if (aclEdit === null) return;
+		const networks = splitCsv(aclEdit);
+		updateAgent.mutate(
+			{ id: agentId, data: { allowedNetworks: networks } },
+			{
+				onSuccess: (updated) => {
+					setActiveAgent(updated);
+					setAclEdit(null);
+				},
+			},
+		);
+	};
+
+	// Mirror backend sanitizeHubUrl: http(s) only, no shell/sed metacharacters.
+	// Empty is allowed (clears that URL). Blocks Save on junk the backend would
+	// silently reject, so the admin gets feedback instead of a no-op.
+	const isValidHubUrl = (v: string) => {
+		const t = v.trim();
+		if (!t) return true;
+		return /^https?:\/\/[^\s"'$`\\;|&(){}<>!#]+$/.test(t);
+	};
+	const hubUrlInvalid =
+		hubUrlEdit !== null && (!isValidHubUrl(hubUrlEdit.primary) || !isValidHubUrl(hubUrlEdit.fallback));
+
+	const handleSaveHubUrl = () => {
+		if (hubUrlEdit === null || hubUrlInvalid) return;
+		setSetting.mutate(
+			{
+				id: "agent-hub-url",
+				value: hubUrlEdit.fallback.trim(),
+				meta: { primary: hubUrlEdit.primary.trim() },
+			},
+			{ onSuccess: () => setHubUrlEdit(null) },
+		);
+	};
+
 	// Use the resolved agent (either pre-existing or just created)
 	const agent = activeAgent ?? existingAgent ?? null;
 
 	return (
 		<div className={styles.inlineSection}>
 			<div className="fw-medium mb-3 small text-uppercase text-secondary">Agent — {link.name}</div>
+
+			{/* Hub address — GLOBAL setting propagated to every agent on next poll */}
+			<div className="mb-3 p-2 rounded" style={{ background: "rgba(128,128,128,0.06)" }}>
+				{hubUrlEdit === null ? (
+					<div className="d-flex align-items-center gap-2 flex-wrap small">
+						<span className="text-secondary">{intl.formatMessage({ id: "wireguard.agent.hub-url" })}</span>
+						<code>{hubSetting.data?.meta?.primary || "—"}</code>
+						<span className="text-secondary">/</span>
+						<code>{hubSetting.data?.value || "—"}</code>
+						<button
+							type="button"
+							className="btn btn-sm btn-link p-0 small"
+							onClick={() =>
+								setHubUrlEdit({
+									primary: hubSetting.data?.meta?.primary ?? "",
+									fallback: hubSetting.data?.value ?? "",
+								})
+							}
+						>
+							{intl.formatMessage({ id: "wireguard.agent.change" })}
+						</button>
+					</div>
+				) : (
+					<div className="d-flex flex-column gap-2">
+						<input
+							type="url"
+							className="form-control form-control-sm"
+							style={{ maxWidth: 360 }}
+							value={hubUrlEdit.primary}
+							onChange={(e) => setHubUrlEdit({ ...hubUrlEdit, primary: e.target.value })}
+							placeholder="http://10.10.0.1:3300"
+						/>
+						<input
+							type="url"
+							className="form-control form-control-sm"
+							style={{ maxWidth: 360 }}
+							value={hubUrlEdit.fallback}
+							onChange={(e) => setHubUrlEdit({ ...hubUrlEdit, fallback: e.target.value })}
+							placeholder="https://proxy.comnic.de"
+						/>
+						<div className="d-flex gap-2 align-items-center">
+							<button
+								type="button"
+								className="btn btn-sm btn-primary"
+								disabled={setSetting.isPending || hubUrlInvalid}
+								onClick={handleSaveHubUrl}
+							>
+								{intl.formatMessage({ id: "save" })}
+							</button>
+							<button
+								type="button"
+								className="btn btn-sm btn-outline-secondary"
+								onClick={() => setHubUrlEdit(null)}
+							>
+								{intl.formatMessage({ id: "cancel" })}
+							</button>
+							{hubUrlInvalid && (
+								<span className="small text-danger">
+									{intl.formatMessage({ id: "wireguard.agent.hub-url-invalid" })}
+								</span>
+							)}
+						</div>
+					</div>
+				)}
+				<div className="form-text small">{intl.formatMessage({ id: "wireguard.agent.hub-url-hint" })}</div>
+			</div>
 
 			{!agent && (
 				<div className="text-secondary small">
@@ -733,6 +842,60 @@ function AgentSection({ link, agents }: { link: WireGuardLink; agents: Agent[] }
 									</button>
 								</div>
 							)}
+						</div>
+					)}
+
+					{/* Network ACL — which remote subnets this agent may reach via the hub */}
+					{agent.status === "active" && (
+						<div className="mb-3">
+							{aclEdit === null ? (
+								<div className="d-flex align-items-center gap-2 flex-wrap">
+									<span className="small text-secondary">
+										{intl.formatMessage({ id: "wireguard.agent.allowed-networks" })}
+									</span>
+									<span className="small">
+										{agent.allowedNetworks && agent.allowedNetworks.length > 0
+											? agent.allowedNetworks.join(", ")
+											: intl.formatMessage({ id: "wireguard.agent.allowed-networks-all" })}
+									</span>
+									<button
+										type="button"
+										className="btn btn-sm btn-link p-0 small"
+										onClick={() => setAclEdit((agent.allowedNetworks ?? []).join(", "))}
+									>
+										{intl.formatMessage({ id: "wireguard.agent.change" })}
+									</button>
+								</div>
+							) : (
+								<div className="d-flex align-items-start gap-2 flex-wrap">
+									<input
+										type="text"
+										className="form-control form-control-sm"
+										style={{ maxWidth: 360 }}
+										value={aclEdit}
+										onChange={(e) => setAclEdit(e.target.value)}
+										placeholder="192.168.10.0/24, 192.168.11.0/24"
+									/>
+									<button
+										type="button"
+										className="btn btn-sm btn-primary"
+										disabled={updateAgent.isPending}
+										onClick={() => handleSaveAcl(agent.id)}
+									>
+										{intl.formatMessage({ id: "save" })}
+									</button>
+									<button
+										type="button"
+										className="btn btn-sm btn-outline-secondary"
+										onClick={() => setAclEdit(null)}
+									>
+										{intl.formatMessage({ id: "cancel" })}
+									</button>
+								</div>
+							)}
+							<div className="form-text small">
+								{intl.formatMessage({ id: "wireguard.agent.allowed-networks-hint" })}
+							</div>
 						</div>
 					)}
 

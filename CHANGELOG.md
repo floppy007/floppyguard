@@ -7,6 +7,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.3.15] – 2026-06-02
+
+### Added
+
+- **Hub-URL-Propagation** — Die Hub-Adresse (Primary + Fallback) lebte bisher nur einmalig pro Agent in `/etc/floppyguard-agent/config.env`, eingebrannt beim Install aus der Browser-Origin des Admins. Ein Domain-Wechsel erreichte keinen laufenden Agent. Jetzt liefert `GET /api/agent/config` die URLs aus dem neuen Setting `agent-hub-url` mit; der Agent-Loop uebernimmt sie in seine `config.env` (analog zur Token-Rotation), aber erst nachdem er die neue URL als erreichbar verifiziert hat (`reach`) — so brickt ein Typo keinen Agent. Editierbar in der Web-UI (Agent-Panel, „Hub (global)").
+- **Agent-Netzwerk-ACL in der UI** — `allowed_networks` (welche Remote-Subnetze ein Agent ueber den Hub routen darf) ist jetzt pro Agent im WireGuard-Tab editierbar. Aenderungen loesen automatisch `syncAgentConfigs` aus, der Agent zieht die neue `config_text` beim naechsten Poll (~30 s).
+
+### Fixed
+
+- **Register-Retry im Agent-Loop** — Schlug die einmalige Install-Registrierung fehl, blieb der Agent fuer immer stumm (`FGTOKEN` blieb der `reg_token`, `/config` lehnte ab, kein erneuter `/register`-Versuch). Der Loop versucht jetzt die Registrierung erneut, wenn der Hub erreichbar ist aber `/config` ablehnt — gedrosselt auf max. 1×/5 min, damit das geteilte IP-Rate-Limit von `/register` nicht ausgereizt wird.
+- **`config.env`-Upsert** — Fehlt einem aelteren Agent die `PRIMARY_URL=`/`FALLBACK_URL=`-Zeile, wird sie jetzt angehaengt statt vom `sed` still uebergangen.
+- **Latenter `logger`-Bug** — `uploadConfig` referenzierte ein nicht importiertes `logger`-Objekt (haette beim ersten Aufruf geworfen); Logger wird jetzt korrekt importiert.
+
+### Security
+
+- **ACL-Netzwerke werden am Eingang strikt CIDR-validiert** — `allowed_networks` flossen ungeprueft in `syncAgentConfigs` → `ip route add <net> dev wgN` (als root auf dem Agent). `update()` validiert jetzt jeden Eintrag streng (Oktett ≤255, Prefix ≤32) und lehnt jedes `/0` ab (`0.0.0.0/0` und Aliase wie `0.0.0.0/00` haetten die Default-Route des Agents gekapert). Ein leeres Array wird als „keine Einschraenkung" (null) gespeichert, nie als `"[]"`. Konsistent mit `[[project_wg_network_validation]]`.
+- **Hub-URL-Validierung** — `sanitizeHubUrl` erzwingt http(s) und verwirft sed-/Shell-Metazeichen, bevor eine URL an Agents propagiert und dort via `sed`/`curl` als root verwendet wird. Die UI sperrt das Speichern ungueltiger URLs.
+
+---
+
 ## [1.3.14] – 2026-05-31
 
 ### Security

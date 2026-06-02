@@ -2,7 +2,9 @@ import { execFile } from "node:child_process";
 import { createHash, createHmac, randomBytes } from "node:crypto";
 import { createConnection } from "node:net";
 import error from "../lib/error.js";
+import { wireguard as logger } from "../logger.js";
 import Agent from "../models/agent.js";
+import Setting from "../models/setting.js";
 import internalWireGuard from "./wireguard.js";
 
 /**
@@ -24,7 +26,59 @@ const hashConfig = (text) => {
 	return createHash("sha256").update(text).digest("hex");
 };
 
-const AGENT_SCRIPT_VERSION = "1.3.14";
+const AGENT_SCRIPT_VERSION = "1.3.15";
+
+/** Setting key holding the hub URLs propagated to agents. */
+const AGENT_HUB_URL_SETTING = "agent-hub-url";
+
+/**
+ * Validate that a URL is safe to write into config.env via sed and to use as a
+ * shell-interpolated curl target on the agent. Rejects anything that isn't a
+ * plain http(s) URL — same threat model as getInstallScript's URL guard.
+ *
+ * @param {string|null|undefined} url
+ * @returns {string|null}  the URL if valid, otherwise null
+ */
+function sanitizeHubUrl(url) {
+	if (!url || typeof url !== "string") return null;
+	const trimmed = url.trim().replace(/\/+$/, "");
+	if (!trimmed) return null;
+	try {
+		const parsed = new URL(trimmed);
+		if (!["http:", "https:"].includes(parsed.protocol)) return null;
+	} catch {
+		return null;
+	}
+	// config.env writes use sed with `|` delimiter and bash double quotes; curl
+	// interpolates the value unquoted-safe. Reject shell/sed metacharacters.
+	if (/[$`\\;|&(){}<>!#"'\s]/.test(trimmed)) return null;
+	return trimmed;
+}
+
+/**
+ * Resolve the hub URLs to advertise to agents. Source of truth: the
+ * `agent-hub-url` setting (value = public/fallback URL, meta.primary = internal
+ * primary URL), with env-var fallback. Returns null fields when unset so the
+ * agent keeps whatever it already has baked in (never overwrites with empty).
+ *
+ * @returns {Promise<{ primaryUrl: string|null, fallbackUrl: string|null }>}
+ */
+async function getAgentHubUrls() {
+	let primary = null;
+	let fallback = null;
+	try {
+		const row = await Setting.query().where("id", AGENT_HUB_URL_SETTING).first();
+		if (row) {
+			fallback = sanitizeHubUrl(row.value);
+			primary = sanitizeHubUrl(row.meta?.primary);
+		}
+	} catch {
+		// Setting table not available — fall through to env.
+	}
+	primary = primary || sanitizeHubUrl(process.env.AGENT_HUB_PRIMARY_URL);
+	fallback = fallback || sanitizeHubUrl(process.env.AGENT_HUB_FALLBACK_URL);
+	return { primaryUrl: primary, fallbackUrl: fallback };
+}
 
 /**
  * Compute HMAC-SHA256 of the script using the agent_token as key.
@@ -50,6 +104,17 @@ const parseAgentServices = (agent) => {
 			agent.services = JSON.parse(agent.services);
 		} catch {
 			agent.services = [];
+		}
+	}
+	// ACL columns are stored as JSON strings — hand them to the API as arrays
+	// (or null when unset) so the frontend can edit them without re-parsing.
+	for (const field of ["allowed_sites", "allowed_networks"]) {
+		if (typeof agent[field] === "string") {
+			try {
+				agent[field] = JSON.parse(agent[field]);
+			} catch {
+				agent[field] = null;
+			}
 		}
 	}
 	return agent;
@@ -127,6 +192,66 @@ function assertCIDR(value) {
 	if (!CIDR_RE.test(value)) {
 		throw new Error(`Invalid CIDR: ${value}`);
 	}
+}
+
+/**
+ * Validate an agent's allowed_networks ACL on input. Each entry flows into
+ * syncAgentConfigs → buildHubPostUp (`ip route add <net> dev wgN`, run as root
+ * on the agent), so a non-CIDR value must be rejected before storage — relying
+ * on the assertCIDR sink alone lets a poisoned value silently break config sync
+ * for every agent on the next metadata apply. See [[project_wg_network_validation]].
+ *
+ * @param {unknown} value  array of CIDR strings, or null/undefined
+ * @returns {string[]|null}  trimmed, deduped CIDR list, or null
+ * @throws {error.ValidationError} on a non-array or any invalid CIDR entry
+ */
+function sanitizeAclNetworks(value) {
+	if (value === null || typeof value === "undefined") return null;
+	if (!Array.isArray(value)) {
+		throw new error.ValidationError("allowed_networks must be an array of CIDRs or null");
+	}
+	const nets = Array.from(new Set(value.map((n) => String(n || "").trim()).filter(Boolean)));
+	// Empty after filtering = "no per-network restriction" (full mesh), same as
+	// null — the UI shows a cleared ACL as "All". Never store "[]", which
+	// syncAgentConfigs would read as an explicit "allow nothing" list.
+	if (nets.length === 0) return null;
+	for (const net of nets) {
+		// CIDR_RE is shape-only — it accepts garbage like 999.0.0.0/99 (which would
+		// break `ip route add` and take the agent's tunnel down). Validate octet and
+		// prefix ranges strictly here.
+		if (!CIDR_RE.test(net)) {
+			throw new error.ValidationError(`allowed_networks contains invalid CIDR: ${net}`);
+		}
+		const [addr, prefixStr] = net.split("/");
+		const prefix = Number(prefixStr);
+		if (prefix > 32 || addr.split(".").some((octet) => Number(octet) > 255)) {
+			throw new error.ValidationError(`allowed_networks contains invalid CIDR: ${net}`);
+		}
+		// A /0 prefix in a per-agent ACL becomes `ip route add <default>` on the
+		// agent (run as root), hijacking its routing and locking the box out. The
+		// hub routes specific subnets, never the whole internet. Reject ANY /0 —
+		// not just the literal "0.0.0.0/0" (0.0.0.0/00, 00.00.00.00/0 alias it).
+		if (prefix === 0) {
+			throw new error.ValidationError(`allowed_networks must not contain a /0 route (${net} would hijack the agent's default route)`);
+		}
+	}
+	return nets;
+}
+
+/**
+ * Coerce an agent's allowed_sites ACL (link-name whitelist) to trimmed,
+ * non-empty strings. Compared against link names only — never shell-interpolated
+ * — so no CIDR validation is required.
+ *
+ * @param {unknown} value  array of link names, or null/undefined
+ * @returns {string[]|null}
+ */
+function sanitizeAclSites(value) {
+	if (value === null || typeof value === "undefined") return null;
+	if (!Array.isArray(value)) return null;
+	const sites = value.map((s) => String(s || "").trim()).filter(Boolean);
+	// Empty = no restriction (full mesh), same as null — never store "[]".
+	return sites.length ? sites : null;
 }
 
 /**
@@ -592,6 +717,36 @@ rotate_token() {
   sed -i "s|^FGTOKEN=.*|FGTOKEN=\\"$new_token\\"|" /etc/floppyguard-agent/config.env
   log "Token rotated to permanent agent_token"
 }
+# Adopt hub URLs pushed by the server so a hub domain change reaches every agent
+# that can still reach the hub on at least one of its current URLs. Only updates
+# on a non-empty, changed value — never wipes a working URL with an empty one.
+# Replace KEY="..." in config.env, or append it if the line doesn't exist yet
+# (older agents may predate a given key — sed alone would silently no-op).
+upsert_env() {
+  local key="$1" val="$2"
+  if grep -q "^$key=" /etc/floppyguard-agent/config.env; then
+    sed -i "s|^$key=.*|$key=\\"$val\\"|" /etc/floppyguard-agent/config.env
+  else
+    printf '%s="%s"\\n' "$key" "$val" >> /etc/floppyguard-agent/config.env
+  fi
+}
+update_server_urls() {
+  local new_primary="$1" new_fallback="$2"
+  # Only adopt a server-advertised URL once it actually answers. A typo in the hub
+  # setting would otherwise brick every agent — it can't reach the hub to fetch a
+  # corrected URL. Verify reachability before persisting; keep the working one until
+  # the new one is live (eventually consistent across the domain move).
+  if [ -n "$new_primary" ] && [ "$new_primary" != "$PRIMARY_URL" ] && reach "$new_primary"; then
+    PRIMARY_URL="$new_primary"
+    upsert_env PRIMARY_URL "$new_primary"
+    log "Primary URL updated from hub to $new_primary"
+  fi
+  if [ -n "$new_fallback" ] && [ "$new_fallback" != "$FALLBACK_URL" ] && reach "$new_fallback"; then
+    FALLBACK_URL="$new_fallback"
+    upsert_env FALLBACK_URL "$new_fallback"
+    log "Fallback URL updated from hub to $new_fallback"
+  fi
+}
 
 ${applyFunction}
 
@@ -602,6 +757,12 @@ SCAN_PORTS="80:http:Web 443:https:Web 3000:http:Grafana 8080:http:UniFi Network 
 SERVICES_JSON="[]"
 SERVICES_SCAN_INTERVAL=86400  # scan once a day
 LAST_SCAN=0
+# Register-retry backoff: /api/agent/register is IP-rate-limited (10/15min) and
+# the limiter is shared across agents behind the same NAT, so retrying every poll
+# would exhaust the bucket and block legitimate registrations. Retry at most once
+# per REGISTER_RETRY_INTERVAL seconds.
+LAST_REG_ATTEMPT=0
+REGISTER_RETRY_INTERVAL=300
 
 scan_services() {
   # Use only LAN IP (default route src) — browser-clickable, not WireGuard IP
@@ -651,12 +812,37 @@ while true; do
       -H "Authorization: Bearer $FGTOKEN" \\
       "$SERVER/api/agent/config" 2>/dev/null) || true
 
+    # ── Register-retry: /config rejected us but the hub is reachable. The initial
+    # install registration may never have completed (FGTOKEN is still the
+    # reg_token). Try exchanging it; harmless no-op if FGTOKEN is already a valid
+    # agent_token (the hub rejects and returns no agent_token).
+    if [ -z "$RESPONSE" ] && [ $((NOW - LAST_REG_ATTEMPT)) -ge $REGISTER_RETRY_INTERVAL ]; then
+      LAST_REG_ATTEMPT=$NOW
+      REG=$(curl -sf --max-time 10 -X POST -H "Content-Type: application/json" \\
+        -d "{\\"reg_token\\":\\"$FGTOKEN\\"}" "$SERVER/api/agent/register" 2>/dev/null) || true
+      if [ -n "$REG" ]; then
+        RETRY_TOKEN=$(python3 -c "import sys,json; print(json.loads(sys.argv[1]).get('agent_token') or '')" "$REG" 2>/dev/null || echo "")
+        if [ -n "$RETRY_TOKEN" ]; then
+          rotate_token "$RETRY_TOKEN"
+          log "Recovered registration on poll"
+          RESPONSE=$(curl -sf --max-time 10 \\
+            -H "Authorization: Bearer $FGTOKEN" \\
+            "$SERVER/api/agent/config" 2>/dev/null) || true
+        fi
+      fi
+    fi
+
     if [ -n "$RESPONSE" ]; then
       NEW_HASH=$(python3 -c "import sys,json; print(json.loads(sys.argv[1]).get('config_hash') or '')" "$RESPONSE" 2>/dev/null || echo "")
       CURRENT_HASH=$(cat "$HASH_FILE" 2>/dev/null || echo "")
       NEW_TOKEN=$(python3 -c "import sys,json; print(json.loads(sys.argv[1]).get('agent_token') or '')" "$RESPONSE" 2>/dev/null || echo "")
 
       [ -n "$NEW_TOKEN" ] && [ "$NEW_TOKEN" != "$FGTOKEN" ] && rotate_token "$NEW_TOKEN"
+
+      # ── Hub-URL propagation: adopt server-advertised URLs ──────────────────────
+      NEW_PRIMARY=$(python3 -c "import sys,json; print(json.loads(sys.argv[1]).get('primary_url') or '')" "$RESPONSE" 2>/dev/null || echo "")
+      NEW_FALLBACK=$(python3 -c "import sys,json; print(json.loads(sys.argv[1]).get('fallback_url') or '')" "$RESPONSE" 2>/dev/null || echo "")
+      update_server_urls "$NEW_PRIMARY" "$NEW_FALLBACK"
 
       # ── Script self-update FIRST (before config apply) ─────────────────────────
       # Must run before config apply so agents get bug fixes (like PrivateKey
@@ -897,13 +1083,35 @@ const internalAgent = {
 		if (typeof data.unifi_pass !== "undefined") patch.unifi_pass = data.unifi_pass;
 		if (typeof data.unifi_site !== "undefined") patch.unifi_site = data.unifi_site;
 		if (typeof data.allowed_sites !== "undefined") {
-			patch.allowed_sites = Array.isArray(data.allowed_sites) ? JSON.stringify(data.allowed_sites) : null;
+			const sites = sanitizeAclSites(data.allowed_sites);
+			patch.allowed_sites = sites ? JSON.stringify(sites) : null;
 		}
 		if (typeof data.allowed_networks !== "undefined") {
-			patch.allowed_networks = Array.isArray(data.allowed_networks) ? JSON.stringify(data.allowed_networks) : null;
+			const nets = sanitizeAclNetworks(data.allowed_networks);
+			patch.allowed_networks = nets ? JSON.stringify(nets) : null;
 		}
 
+		// Detect ACL changes — they alter which sibling networks belong in this
+		// agent's hub-peer AllowedIPs, so the pushed config_text must be resynced.
+		const aclChanged =
+			(typeof patch.allowed_networks !== "undefined" && patch.allowed_networks !== existing.allowed_networks) ||
+			(typeof patch.allowed_sites !== "undefined" && patch.allowed_sites !== existing.allowed_sites);
+
 		await Agent.query().patchAndFetchById(id, patch);
+
+		// Propagate ACL changes into config_text so the agent picks them up on its
+		// next poll. Best-effort: never fail the update if the sync hiccups.
+		if (aclChanged) {
+			try {
+				const metadata = await internalWireGuard.readMetadataStore();
+				await this.syncAgentConfigs(metadata);
+			} catch (err) {
+				// Sync is best-effort; the next metadata apply will reconcile. Log it
+				// so a poisoned sibling ACL (which makes syncAgentConfigs throw) is
+				// visible instead of silently leaving config_text stale.
+				logger.error(`Agent ${id}: ACL updated but config sync failed — ${err.message}`);
+			}
+		}
 
 		return this.getById(id);
 	},
@@ -1139,12 +1347,19 @@ echo "[floppyguard-agent]   journalctl -u floppyguard-agent -f"
 			throw new error.AuthError("Invalid agent token", "error.auth");
 		}
 
+		const { primaryUrl, fallbackUrl } = await getAgentHubUrls();
+
 		return {
 			config_text: agent.config_text || null,
 			config_hash: agent.config_hash || null,
 			wg_interface: agent.wg_interface || "wg0",
 			poll_interval: 30,
 			script_version: AGENT_SCRIPT_VERSION,
+			// Hub-URL propagation: agents rewrite their config.env when these differ
+			// from what they have, so a hub domain change reaches every agent that
+			// can still reach the hub on at least one of its current URLs.
+			primary_url: primaryUrl,
+			fallback_url: fallbackUrl,
 		};
 	},
 
@@ -1447,4 +1662,9 @@ export const _testExports = {
 	_rewriteHubPeerAllowedIPs,
 	_parseAllowedSites,
 	assertCIDR,
+	sanitizeHubUrl,
+	buildLoopScript,
+	AGENT_SCRIPT_VERSION,
+	sanitizeAclNetworks,
+	sanitizeAclSites,
 };
