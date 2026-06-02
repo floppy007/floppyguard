@@ -7,6 +7,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.3.16] – 2026-06-02
+
+### Changed
+
+- **Zentrale Hub-URL-Einstellung statt pro Agent** — Der in v1.3.15 eingefuehrte Hub-URL-Editor (Primary + Fallback) lag im Panel jedes einzelnen Agents, obwohl `agent-hub-url` ein globales Setting ist — er erschien dadurch redundant einmal pro Agent und legte faelschlich nahe, die URL liesse sich je Agent unterschiedlich setzen. Der Editor ist jetzt ein einziges Steuerelement oben im WireGuard-Tab „Overview". Verhalten unveraendert: Er schreibt dasselbe `agent-hub-url`-Setting, das alle Agents beim naechsten Poll erreichbarkeitsgeprueft uebernehmen. Reine UI-Umstellung — das Agent-Loop-Skript ist unveraendert (`AGENT_SCRIPT_VERSION` bleibt 1.3.15, kein Flotten-Restart).
+
+---
+
 ## [1.3.15] – 2026-06-02
 
 ### Added
