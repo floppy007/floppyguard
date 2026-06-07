@@ -7,6 +7,38 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.3.21] – 2026-06-07
+
+Großes Härtungs-Release der gesamten Hub→Agent-WireGuard-Sync-Struktur (zwei vollständige Audit-Runden + Re-Audit an einem Tag, konsolidiert). Behebt eine ganze Familie von Fällen, in denen eine hub-seitige Änderung — vor allem REMOVE/DELETE/RENAME — nicht zuverlässig am Remote-Agent ankam, plus eine kritische RCE.
+
+### Security
+
+- **Root-Command-Injection im Install-Skript geschlossen** — `getInstallScript` validierte `public_url`/`tunnel_url` schwächer als `sanitizeHubUrl` und liess `"`/Whitespace durch; die URLs landen in der als **root** ge-`source`ten `config.env`. `https://a/x" <cmd>"` führte `<cmd>` als root aus (auch über den JWT-losen `/agent/install`). Beide Felder laufen jetzt durch `sanitizeHubUrl`.
+- **UniFi-Credentials validiert** — `unifi_url/user/pass/site` mit Quotes/Newline/`$`/Backtick werden abgelehnt (config.env-Injection-Schutz).
+
+### Changed
+
+- **Netz-Entfernen propagiert jetzt zuverlässig** — der Hub ist autoritativ für die Hub-Peer-AllowedIPs (`_computeHubPeerAllowedIPs`); Client-Reichweiten-Listen verschmutzen die Site-Netz-Menge nicht mehr (`_collectSiteNetworks` schliesst `type:"client"` aus); leeres `importedNetworks` droppt das Subnetz autoritativ (hub- und agent-seitig).
+- **Site-Netze strikt IPv4 + kanonisch** — `importedNetworks`/`exportedNetworks`/`allowed_networks` werden auf die Netzadresse maskiert (Host-Bits weg) und IPv6-CIDRs abgelehnt. IPv6-Routing in lokale LANs ist out-of-scope; die Hub/App-Erreichbarkeit über IPv6 ist davon unberührt (Proxy/Endpoint, kein geroutetes Site-Netz).
+- **Hintergrund-Timer** (Service-Scan + Config-Reconciler) starten explizit über `internalAgent.startBackgroundTasks()` (Server-Entrypoint), nicht beim Import → Testsuite läuft deterministisch ohne `--test-force-exit`.
+
+### Fixed
+
+- **deletePeer / deleteInterface / Link-Rename / createPeer / `wg_link_name`-Rebind triggern jetzt einen Agent-Resync** — vorher blieben gelöschte/umgezogene Site-Netze auf allen anderen Agents stehen (AllowedIPs + Route + MASQUERADE) bzw. neue Netze erreichten sie erst nach Minuten. Rename cascadet `wg_link_name`/`allowed_sites` (exakt-case) und lehnt Namens-Kollisionen ab.
+- **Periodischer Reconciler (5 Min)** als Defense-in-Depth — heilt jeden künftig vergessenen Resync-Trigger; läuft unter demselben `withWriteLock` wie alle Metadaten-Store-Mutationen → kein Lost-Write/Resurrect eines gelöschten Links mehr.
+- **Per-Agent-Fehlerisolierung** — ein vergifteter Link (z.B. eine CIDR, die `assertCIDR` wirft) bricht den Fleet-Sync nicht mehr ab; alle übrigen Agents werden trotzdem reconciled.
+- **Agent räumt MASQUERADE/FORWARD wieder korrekt ab** — `%i` wird vor dem `eval` durch `$iface` ersetzt (schlug vorher still fehl, MASQUERADE entfernter Netze blieb hängen); `sync_routes` nutzt echten CIDR-Overlap-Test (kein LAN-Hijack durch überlappende Remote-Subnetze).
+- **Hub-seitiger Stale-Route-Prune** (`syncHubConf`) räumt Routen entfernter Netze ab — auch ohne Peer-Delta und in `deletePeer` (sonst Reboot-Blackhole).
+- **`allowed_networks`-ACL** wird mit den real exportierten Netzen geschnitten (verwaiste/host-bits-Einträge blackholen nicht mehr).
+- **`wg syncconf`-Fallback + Force-set repariert** — Whitespace-Toleranz im Strip-Fallback; der Force-set nimmt jetzt alle CIDRs (statt nur der ersten) und matcht einen literalen `[Peer]`-Header.
+- **Upload-Config-Reinfektion** verhindert — ein Agent ohne `wg_link_name` kann keine längst entfernten Site-Netze mehr re-injizieren.
+- **UniFi-Apply** prunt verwaiste `FG-WG-*`-Firewall-Regeln und deaktiviert den VPN-Client bei leeren `allowed_ips`.
+- **Heartbeat** speichert die genutzte Hub-URL (`last_server_url`, neue Spalte) für Sichtbarkeit beim Domain/Endpoint-Move.
+
+`AGENT_SCRIPT_VERSION` → 1.3.21. 78 Backend-Tests (umfangreiche Regressionstests ergänzt). Offen (Backlog, latent): vollständige UniFi-Delete-Teardown-Orchestrierung (0 UniFi-Agenten produktiv), volles IPv6-Site-Routing (bewusst out-of-scope).
+
+---
+
 ## [1.3.16] – 2026-06-02
 
 ### Changed

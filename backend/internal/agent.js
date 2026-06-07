@@ -5,7 +5,7 @@ import error from "../lib/error.js";
 import { wireguard as logger } from "../logger.js";
 import Agent from "../models/agent.js";
 import Setting from "../models/setting.js";
-import internalWireGuard from "./wireguard.js";
+import internalWireGuard, { canonicalizeIpv4Network, withWriteLock } from "./wireguard.js";
 
 /**
  * Generate a random hex token of `byteLength` bytes (returns 2*byteLength hex chars).
@@ -26,7 +26,7 @@ const hashConfig = (text) => {
 	return createHash("sha256").update(text).digest("hex");
 };
 
-const AGENT_SCRIPT_VERSION = "1.3.15";
+const AGENT_SCRIPT_VERSION = "1.3.21";
 
 /** Setting key holding the hub URLs propagated to agents. */
 const AGENT_HUB_URL_SETTING = "agent-hub-url";
@@ -53,6 +53,37 @@ function sanitizeHubUrl(url) {
 	// interpolates the value unquoted-safe. Reject shell/sed metacharacters.
 	if (/[$`\\;|&(){}<>!#"'\s]/.test(trimmed)) return null;
 	return trimmed;
+}
+
+// UniFi credential fields are interpolated into config.env (UNIFI_PASS="...")
+// which is `source`d as ROOT on the agent. A value with a quote, newline,
+// backtick, $ or backslash can close the assignment and inject env/shell — at
+// minimum it corrupts the PRIMARY_URL/FALLBACK_URL lines below it and silently
+// blackholes the agent's hub connection. Validate before storage (mirrors how
+// sanitizeHubUrl / sanitizeAclNetworks guard their own sinks).
+const UNIFI_UNSAFE_RE = /["$`\\\r\n]/;
+function sanitizeUnifiFields(data, patch) {
+	if (typeof data.unifi_url !== "undefined") {
+		if (data.unifi_url === null || data.unifi_url === "") {
+			patch.unifi_url = null;
+		} else {
+			const u = sanitizeHubUrl(data.unifi_url);
+			if (!u) throw new error.ValidationError("unifi_url must be a valid http(s) URL without shell metacharacters");
+			patch.unifi_url = u;
+		}
+	}
+	for (const f of ["unifi_user", "unifi_pass", "unifi_site"]) {
+		if (typeof data[f] === "undefined") continue;
+		if (data[f] === null || data[f] === "") {
+			patch[f] = f === "unifi_site" ? "default" : null;
+			continue;
+		}
+		const s = String(data[f]);
+		if (UNIFI_UNSAFE_RE.test(s)) {
+			throw new error.ValidationError(`${f} contains characters not allowed in config.env (quotes, newline, backtick, $ or backslash)`);
+		}
+		patch[f] = s;
+	}
 }
 
 /**
@@ -235,7 +266,10 @@ function sanitizeAclNetworks(value) {
 			throw new error.ValidationError(`allowed_networks must not contain a /0 route (${net} would hijack the agent's default route)`);
 		}
 	}
-	return nets;
+	// Canonicalize to network address (mask host bits) so an ACL entry compares
+	// equal to the exported site nets in _computeOtherSiteNets — otherwise
+	// "192.168.10.0/24" vs a host-bits "192.168.10.1/24" would drop the net.
+	return Array.from(new Set(nets.map((n) => canonicalizeIpv4Network(n) || n)));
 }
 
 /**
@@ -438,11 +472,41 @@ const scanAllAgentServices = async () => {
 	}
 };
 
-// Run once on startup (after a short delay) then once a day
-setTimeout(() => {
-	scanAllAgentServices().catch(() => {});
-	setInterval(() => scanAllAgentServices().catch(() => {}), 24 * 60 * 60 * 1000);
-}, 5000);
+const RECONCILE_INTERVAL_MS = 5 * 60 * 1000;
+
+// Background timers (service scan + config reconciler) are started explicitly by
+// the server entrypoint via internalAgent.startBackgroundTasks(), NOT on module
+// import — so importing agent.js in tests/CLI scripts never schedules timers (which
+// otherwise made `node --test --test-force-exit` truncate non-deterministically).
+function startBackgroundTasks() {
+	// Service scan: once on startup (after a short delay) then once a day.
+	setTimeout(() => {
+		scanAllAgentServices().catch(() => {});
+		setInterval(() => scanAllAgentServices().catch(() => {}), 24 * 60 * 60 * 1000);
+	}, 5000);
+
+	// Defense-in-depth reconciler. getConfig serves the STORED config_text, so every
+	// agent depends on syncAgentConfigs having written it. If any mutation path ever
+	// forgets to trigger a resync (the class of bug that left deleted nets routed),
+	// the agent silently freezes on a stale config. Periodically recompute so a missed
+	// trigger self-heals — and warn so it stops being silent. Read + resync under the
+	// same write lock as every store mutation, so the reconciler can never read a
+	// pre-delete snapshot and write a stale config over a correct one.
+	setTimeout(() => {
+		const reconcile = () =>
+			withWriteLock(async () => {
+				const metadata = await internalWireGuard.readMetadataStore();
+				const res = await internalAgent.syncAgentConfigs(metadata);
+				const changed = Array.isArray(res) ? res.filter((r) => r.changed) : [];
+				if (changed.length) {
+					logger.warn(
+						`Agent reconciler: ${changed.length} stale agent config(s) resynced (a mutation path missed its trigger): ${changed.map((r) => r.name).join(", ")}`,
+					);
+				}
+			}).catch((err) => logger.debug(`Agent reconciler skipped: ${err.message}`));
+		setInterval(reconcile, RECONCILE_INTERVAL_MS);
+	}, 60 * 1000);
+}
 
 /**
  * Build the agent loop script (the bash daemon that runs on the remote machine).
@@ -459,6 +523,28 @@ function buildLoopScript(mode) {
 # wg syncconf updates WireGuard peer tables but does NOT touch the kernel routing table.
 # This must be called after syncconf and also once on startup to recover from missed syncs.
 # Also removes stale wg routes for networks no longer in AllowedIPs.
+
+# True (exit 0) if CIDR $1 overlaps any whitespace-separated CIDR in $2.
+# An exact string match misses a more-specific or supernet overlap, so a remote
+# 192.168.1.128/25 advertised over a locally-connected 192.168.1.0/24 would get a
+# wg route and hijack half the local LAN ("switch hijack"). Real containment test.
+_net_overlaps() {
+  python3 - "$1" "$2" <<'PYEOF' 2>/dev/null
+import sys, ipaddress
+try:
+    net = ipaddress.ip_network(sys.argv[1], strict=False)
+except Exception:
+    sys.exit(1)
+for p in sys.argv[2].split():
+    try:
+        if net.overlaps(ipaddress.ip_network(p, strict=False)):
+            sys.exit(0)
+    except Exception:
+        pass
+sys.exit(1)
+PYEOF
+}
+
 sync_routes() {
   local iface="$1"
   ip link show "$iface" > /dev/null 2>&1 || return 0
@@ -486,9 +572,11 @@ sync_routes() {
   while IFS= read -r net; do
     [ -z "$net" ] && continue
     case "$net" in */32|*/128|0.0.0.0/0|::/0) continue ;; esac
-    # Skip networks already routed via a physical interface (locally connected)
-    if echo "$phys_nets" | grep -qxF "$net"; then
-      log "Skipping route $net dev $iface — already on physical interface"
+    # Skip networks that overlap a locally-connected physical interface net — a
+    # more-specific wg route would hijack part of the local LAN. grep is a fast
+    # path for the exact case; _net_overlaps catches subnet/supernet overlaps too.
+    if echo "$phys_nets" | grep -qxF "$net" || _net_overlaps "$net" "$phys_nets"; then
+      log "Skipping route $net dev $iface — overlaps a physical interface net"
       continue
     fi
     ip route add "$net" dev "$iface" 2>/dev/null && log "Added route $net dev $iface" || true
@@ -521,16 +609,22 @@ with open('/tmp/fg_new_wg.conf','w') as f: f.write(c.replace('PrivateKey = (hidd
     [ -f "$old_conf" ] && old_postdown=$(grep '^PostDown' "$old_conf" | sed 's/^PostDown *= *//' || true)
     new_postup=$(grep '^PostUp' /tmp/fg_new_wg.conf | sed 's/^PostUp *= *//' || true)
     if [ "$old_postup" != "$new_postup" ]; then
+      # PostUp/PostDown carry the wg-quick placeholder %i. wg-quick substitutes it
+      # for the real interface, but here we eval the strings ourselves, so %i must
+      # be replaced with $iface first — otherwise every "iptables ... -o %i" /
+      # "ip ... dev %i" matches no interface and silently fails (2>/dev/null), and
+      # the agent never adds/removes MASQUERADE+FORWARD rules (only sync_routes,
+      # which uses $iface, kept routes correct — MASQUERADE leaked on every removal).
       if [ -n "$old_postdown" ]; then
         log "Running old PostDown before applying new rules..."
-        eval "$old_postdown" 2>/dev/null || true
+        eval "$(printf '%s' "$old_postdown" | sed "s/%i/$iface/g")" 2>/dev/null || true
       fi
       if [ -n "$new_postup" ]; then
         log "Applying new PostUp rules from hub..."
-        eval "$new_postup" 2>/dev/null || true
+        eval "$(printf '%s' "$new_postup" | sed "s/%i/$iface/g")" 2>/dev/null || true
       fi
     fi
-    wg syncconf "$iface" <(wg-quick strip /tmp/fg_new_wg.conf 2>/dev/null || grep -vE "^(Address|PostUp|PostDown|DNS|MTU|Table|PreUp|PreDown)=" /tmp/fg_new_wg.conf)
+    wg syncconf "$iface" <(wg-quick strip /tmp/fg_new_wg.conf 2>/dev/null || grep -vE "^(Address|PostUp|PostDown|DNS|MTU|Table|PreUp|PreDown)[[:space:]]*=" /tmp/fg_new_wg.conf)
     # wg syncconf sometimes silently ignores AllowedIPs changes for existing peers.
     # Force-set AllowedIPs per peer from the new config to ensure they match.
     while IFS= read -r line; do
@@ -539,7 +633,7 @@ with open('/tmp/fg_new_wg.conf','w') as f: f.write(c.replace('PrivateKey = (hidd
       ai=$(echo "$line" | awk '{for(i=2;i<=NF;i++) printf "%s,", $i}' | sed 's/,$//')
       [ -z "$pk" ] || [ -z "$ai" ] && continue
       wg set "$iface" peer "$pk" allowed-ips "$ai" 2>/dev/null || true
-    done < <(wg-quick strip /tmp/fg_new_wg.conf 2>/dev/null | awk '/^[Peer]/{pk="";ai=""} /^PublicKey/{pk=$3} /^AllowedIPs/{ai=$3} pk && ai{print pk, ai; pk=""; ai=""}')
+    done < <(wg-quick strip /tmp/fg_new_wg.conf 2>/dev/null | awk '$1=="[Peer]"{pk="";ai=""} $1=="PublicKey"{pk=$3} $1=="AllowedIPs"{ai="";for(i=3;i<=NF;i++)ai=ai $i} pk && ai{print pk, ai; pk=""; ai=""}')
     cp /tmp/fg_new_wg.conf "/etc/wireguard/$iface.conf"
     sync_routes "$iface"
     log "Applied config update to $iface (syncconf + AllowedIPs force-set, no downtime)"
@@ -612,7 +706,7 @@ d = {
   'local_wg_address': sys.argv[4],
   'allowed_ips': sys.argv[5].split(',') if sys.argv[5] else [],
   'persistent_keepalive': int(sys.argv[6]),
-  'enabled': True
+  'enabled': bool(sys.argv[5])
 }
 print(json.dumps(d))
 " "$PRIV_KEY" "$SERVER_PUB" "$ENDPOINT" "$LOCAL_ADDR" "$ALLOWED" "$KEEPALIVE" 2>/dev/null)
@@ -687,6 +781,28 @@ print(json.dumps(d))
       fi
     done
   fi
+
+  # Remove stale FG-WG-* firewall rules for networks no longer in allowed_ips.
+  # The VPN client's allowed_ips is replaced wholesale on each apply, but the
+  # firewall rules were only ever added — without this, a removed network leaves
+  # its accept-on-WAN_IN rule lingering forever (over-permissive cruft that
+  # accumulates). Mirrors the native sync_routes stale-route reconciler.
+  curl -sk -b /tmp/fg_unifi_cookie \\
+    "$UNIFI_URL/proxy/network/api/s/$UNIFI_SITE/rest/firewallrule" 2>/dev/null |
+    python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+keep = set(n for n in sys.argv[1].split(',') if n)
+for item in data.get('data', []):
+    name = item.get('name', '')
+    if name.startswith('FG-WG-') and name[6:] not in keep:
+        print(item.get('_id', ''))
+" "$ALLOWED" 2>/dev/null | while read -r stale_id; do
+      [ -z "$stale_id" ] && continue
+      curl -sk -b /tmp/fg_unifi_cookie -X DELETE \\
+        "$UNIFI_URL/proxy/network/api/s/$UNIFI_SITE/rest/firewallrule/$stale_id" > /dev/null 2>&1 && \\
+        log "Removed stale FloppyGuard firewall rule $stale_id" || true
+    done
 }`;
 
 	const applyFunction = mode === "unifi" ? applyFunctionUnifi : applyFunctionNative;
@@ -923,6 +1039,10 @@ done`;
 }
 
 const internalAgent = {
+	// Start background timers (service scan + config reconciler). Called once by the
+	// server entrypoint (index.js), never on import — keeps tests/CLI timer-free.
+	startBackgroundTasks,
+
 	// ─── Admin methods (JWT-authenticated) ──────────────────────────────────────
 
 	/**
@@ -1015,6 +1135,9 @@ const internalAgent = {
 		const reg_token = randomToken(32);
 		const config_hash = hashConfig(data.config_text);
 
+		const unifi = {};
+		sanitizeUnifiFields(data, unifi);
+
 		const agent = await Agent.query().insertAndFetch({
 			name: data.name,
 			mode: data.mode || "native",
@@ -1026,10 +1149,10 @@ const internalAgent = {
 			config_hash,
 			mgmt_url: data.mgmt_url || null,
 			wg_link_name: data.wg_link_name || null,
-			unifi_url: data.unifi_url || null,
-			unifi_user: data.unifi_user || null,
-			unifi_pass: data.unifi_pass || null,
-			unifi_site: data.unifi_site || "default",
+			unifi_url: unifi.unifi_url ?? null,
+			unifi_user: unifi.unifi_user ?? null,
+			unifi_pass: unifi.unifi_pass ?? null,
+			unifi_site: unifi.unifi_site ?? "default",
 			last_seen: null,
 			status: "pending",
 			is_deleted: false,
@@ -1078,10 +1201,7 @@ const internalAgent = {
 		}
 		if (typeof data.mgmt_url !== "undefined") patch.mgmt_url = data.mgmt_url || null;
 		if (typeof data.wg_link_name !== "undefined") patch.wg_link_name = data.wg_link_name || null;
-		if (typeof data.unifi_url !== "undefined") patch.unifi_url = data.unifi_url;
-		if (typeof data.unifi_user !== "undefined") patch.unifi_user = data.unifi_user;
-		if (typeof data.unifi_pass !== "undefined") patch.unifi_pass = data.unifi_pass;
-		if (typeof data.unifi_site !== "undefined") patch.unifi_site = data.unifi_site;
+		sanitizeUnifiFields(data, patch);
 		if (typeof data.allowed_sites !== "undefined") {
 			const sites = sanitizeAclSites(data.allowed_sites);
 			patch.allowed_sites = sites ? JSON.stringify(sites) : null;
@@ -1091,17 +1211,19 @@ const internalAgent = {
 			patch.allowed_networks = nets ? JSON.stringify(nets) : null;
 		}
 
-		// Detect ACL changes — they alter which sibling networks belong in this
-		// agent's hub-peer AllowedIPs, so the pushed config_text must be resynced.
-		const aclChanged =
+		// Detect changes that alter which networks belong in this agent's hub-peer
+		// AllowedIPs, so the pushed config_text must be resynced. ACL changes AND
+		// wg_link_name (rebinding to another link flips ownNets→otherSiteNets entirely).
+		const needsResync =
 			(typeof patch.allowed_networks !== "undefined" && patch.allowed_networks !== existing.allowed_networks) ||
-			(typeof patch.allowed_sites !== "undefined" && patch.allowed_sites !== existing.allowed_sites);
+			(typeof patch.allowed_sites !== "undefined" && patch.allowed_sites !== existing.allowed_sites) ||
+			(typeof patch.wg_link_name !== "undefined" && patch.wg_link_name !== existing.wg_link_name);
 
 		await Agent.query().patchAndFetchById(id, patch);
 
-		// Propagate ACL changes into config_text so the agent picks them up on its
-		// next poll. Best-effort: never fail the update if the sync hiccups.
-		if (aclChanged) {
+		// Propagate the change into config_text so the agent picks it up on its next
+		// poll. Best-effort: never fail the update if the sync hiccups.
+		if (needsResync) {
 			try {
 				const metadata = await internalWireGuard.readMetadataStore();
 				await this.syncAgentConfigs(metadata);
@@ -1114,6 +1236,50 @@ const internalAgent = {
 		}
 
 		return this.getById(id);
+	},
+
+	/**
+	 * Cascade a link rename to agent bindings. Agents reference a link by its
+	 * MUTABLE name — `wg_link_name` (column) and `allowed_sites` (whitelist). A
+	 * rename without this migration silently orphans every bound agent: it gets
+	 * skipped on every later sync ("no-link-or-config") and freezes on its last
+	 * config, so future add/remove never reach it.
+	 *
+	 * @param {string} oldName
+	 * @param {string} newName
+	 * @returns {Promise<{wgLinkName:number, allowedSites:number}>}
+	 */
+	async renameLinkBinding(oldName, newName) {
+		if (!oldName || !newName || oldName === newName) return { wgLinkName: 0, allowedSites: 0 };
+		// MySQL's default collation is case-insensitive, but link names are matched
+		// case-sensitively everywhere else (linksByName, the allowed_sites cascade
+		// below). Re-filter the WHERE result to EXACT case so an "office"-bound agent
+		// is not silently rebound by an unrelated "Office"→… rename.
+		let wgLinkName = 0;
+		const bound = await Agent.query().where("wg_link_name", oldName);
+		for (const a of bound) {
+			if (a.wg_link_name !== oldName) continue; // case-insensitive WHERE over-matched
+			await Agent.query().patchAndFetchById(a.id, { wg_link_name: newName });
+			wgLinkName++;
+		}
+		let allowedSites = 0;
+		const agents = await Agent.query().where("is_deleted", 0).whereNotNull("allowed_sites");
+		for (const a of agents) {
+			let sites;
+			try {
+				sites = JSON.parse(a.allowed_sites);
+			} catch {
+				continue;
+			}
+			if (!Array.isArray(sites) || !sites.includes(oldName)) continue;
+			const next = sites.map((s) => (s === oldName ? newName : s));
+			await Agent.query().patchAndFetchById(a.id, { allowed_sites: JSON.stringify(next) });
+			allowedSites++;
+		}
+		if (wgLinkName || allowedSites) {
+			logger.info(`Link rename "${oldName}" → "${newName}": migrated ${wgLinkName} wg_link_name + ${allowedSites} allowed_sites binding(s)`);
+		}
+		return { wgLinkName, allowedSites };
 	},
 
 	/**
@@ -1166,23 +1332,20 @@ const internalAgent = {
 	 * @returns {Promise<string>}
 	 */
 	async getInstallScript(id, publicUrl, tunnelUrl) {
-		// Validate URLs to prevent shell injection in the generated bash script.
-		// publicUrl and tunnelUrl are interpolated into double-quoted strings in the
-		// install script; characters like $, `, ; would be evaluated by bash.
-		for (const [label, url] of [["public_url", publicUrl], ["tunnel_url", tunnelUrl]]) {
-			if (!url) continue;
-			try {
-				const parsed = new URL(url);
-				if (!["http:", "https:"].includes(parsed.protocol)) {
-					throw new error.ValidationError(`${label} must use http or https protocol`);
-				}
-			} catch (err) {
-				if (err instanceof error.ValidationError) throw err;
-				throw new error.ValidationError(`${label} is not a valid URL`);
-			}
-			if (/[$`\\;|&(){}<>!#]/.test(url)) {
-				throw new error.ValidationError(`${label} contains characters unsafe for shell interpolation`);
-			}
+		// publicUrl/tunnelUrl are interpolated into DOUBLE-QUOTED config.env lines that
+		// are `source`d as root by the agent loop. Use the same strict validator as the
+		// hub-URL propagation sink (sanitizeHubUrl) — the old inline guard missed `"`
+		// and whitespace, so `https://a/x" <cmd>"` broke out of the quotes and executed
+		// <cmd> as root. Reassign to the sanitized (trimmed) value actually emitted.
+		let cleanPublic = publicUrl;
+		let cleanTunnel = tunnelUrl;
+		if (publicUrl) {
+			cleanPublic = sanitizeHubUrl(publicUrl);
+			if (!cleanPublic) throw new error.ValidationError("public_url must be a valid http(s) URL without shell metacharacters");
+		}
+		if (tunnelUrl) {
+			cleanTunnel = sanitizeHubUrl(tunnelUrl);
+			if (!cleanTunnel) throw new error.ValidationError("tunnel_url must be a valid http(s) URL without shell metacharacters");
 		}
 
 		const agent = await Agent.query().where("id", id).where("is_deleted", 0).first();
@@ -1218,8 +1381,8 @@ mkdir -p /etc/floppyguard-agent /var/lib/floppyguard-agent
 # ── 2. config.env ───────────────────────────────────────────────────────────────
 cat > /etc/floppyguard-agent/config.env << 'ENVEOF'
 FGTOKEN="${regToken}"
-PRIMARY_URL="${tunnelUrl}"
-FALLBACK_URL="${publicUrl}"
+PRIMARY_URL="${cleanTunnel}"
+FALLBACK_URL="${cleanPublic}"
 FGAGENT_ID="${id}"
 AGENT_MODE="${mode}"
 WG_INTERFACE="${wgInterface}"
@@ -1232,7 +1395,7 @@ echo "[floppyguard-agent] Registering with FloppyGuard..."
 REGISTER_RESPONSE=$(curl -sf --max-time 15 \\
   -X POST -H "Content-Type: application/json" \\
   -d '{"reg_token":"${regToken}"}' \\
-  "${publicUrl}/api/agent/register" 2>/dev/null) || true
+  "${cleanPublic}/api/agent/register" 2>/dev/null) || true
 
 if [ -n "$REGISTER_RESPONSE" ]; then
   AGENT_TOKEN=$(python3 -c "import sys,json; print(json.loads(sys.argv[1]).get('agent_token',''))" "$REGISTER_RESPONSE" 2>/dev/null || echo "")
@@ -1414,6 +1577,12 @@ echo "[floppyguard-agent]   journalctl -u floppyguard-agent -f"
 			patch.agent_version = String(data.script_version);
 		}
 
+		if (data?.server) {
+			// Untrusted display-only value: which hub URL the agent reached us on.
+			// Clamp length and strip control chars; never used in a shell/sed sink.
+			patch.last_server_url = String(data.server).replace(/\s+/g, "").slice(0, 255);
+		}
+
 		await Agent.query().patchAndFetchById(agent.id, patch);
 
 		return { ok: true };
@@ -1443,10 +1612,21 @@ echo "[floppyguard-agent]   journalctl -u floppyguard-agent -f"
 			return { ok: true, stored: false, reason: "empty-config" };
 		}
 
-		const normalized = normalizeAgentConfig(data.config_text);
-		const config_hash = hashConfig(normalized);
+		let finalConfig = normalizeAgentConfig(data.config_text);
+		if (!agent.wg_link_name) {
+			// syncAgentConfigs only reconciles agents WITH a wg_link_name (whereNotNull),
+			// so an unbound agent's uploaded conf is never re-derived. If it still lists
+			// long-removed site networks, the hub would store and re-serve them forever
+			// (reinfection). Strip the hub-peer AllowedIPs down to the tunnel subnet +
+			// /32 host routes so an unbound agent can't pin stale site nets.
+			const tunnelSubnet = deriveTunnelSubnet(finalConfig);
+			const hostRoutes = _parseHubPeerAllowedIPs(finalConfig).filter((c) => c.endsWith("/32") || c.endsWith("/128"));
+			const safe = [...new Set([tunnelSubnet, ...hostRoutes])].sort();
+			finalConfig = normalizeAgentConfig(_rewriteHubPeerAllowedIPs(finalConfig, safe));
+		}
+		const config_hash = hashConfig(finalConfig);
 		await Agent.query().patchAndFetchById(agent.id, {
-			config_text: normalized,
+			config_text: finalConfig,
 			config_hash,
 		});
 
@@ -1488,93 +1668,23 @@ echo "[floppyguard-agent]   journalctl -u floppyguard-agent -f"
 			}
 		}
 
-		// Union of ALL importedNetworks across all links — used to identify "site networks"
-		const allSiteNets = new Set(Object.values(metadata.links || {}).flatMap((l) => l.importedNetworks || []));
+		// The networks that actually live behind the mesh — used to identify "site
+		// networks". Only site-to-site links contribute; client links (road-warrior
+		// phone/laptop) are excluded (see _collectSiteNetworks for why).
+		const allSiteNets = _collectSiteNetworks(metadata.links);
 
 		const results = [];
 
 		for (const agent of agents) {
-			if (ambiguousLinkNames.has(agent.wg_link_name)) {
-				results.push({ agentId: agent.id, name: agent.name, changed: false, reason: "ambiguous-link-name" });
-				continue;
+			// Per-agent isolation: one poisoned link (e.g. an IPv6/host-bits CIDR that
+			// trips assertCIDR deep in normalizeAgentConfig) must NOT abort the whole
+			// loop and leave every later agent un-resynced. Skip the bad one, keep going.
+			try {
+				results.push(await _syncOneAgent(agent, { linksByName, allSiteNets, ambiguousLinkNames }));
+			} catch (err) {
+				logger.error(`syncAgentConfigs: agent ${agent.name} (id=${agent.id}) failed — skipping, other agents unaffected: ${err.message}`);
+				results.push({ agentId: agent.id, name: agent.name, changed: false, error: err.message });
 			}
-			const linkMeta = linksByName.get(agent.wg_link_name);
-			if (!linkMeta || !agent.config_text) {
-				results.push({ agentId: agent.id, name: agent.name, changed: false, reason: "no-link-or-config" });
-				continue;
-			}
-
-			// Networks belonging to THIS agent's own site (don't route these through hub)
-			const ownNets = new Set(linkMeta.importedNetworks || []);
-
-			// ── Network access control (deny-by-default when configured) ──
-			// Priority: allowed_networks > allowed_sites > full-mesh
-			// 1. allowed_networks: explicit list of CIDRs this agent may route
-			//    (most granular, e.g. ["192.168.10.0/24"] — only that subnet)
-			// 2. allowed_sites: whitelist of link names whose networks are allowed
-			//    (site-level, e.g. ["Floppy Home"] — all of that link's networks)
-			// 3. Neither set: full-mesh (all other links' networks)
-			const allowedNetworks = _parseAllowedSites(agent.allowed_networks);
-			const allowedSites = _parseAllowedSites(agent.allowed_sites);
-
-			let otherSiteNets;
-			if (allowedNetworks) {
-				// Explicit network list — use directly, skip own networks
-				otherSiteNets = [...allowedNetworks].filter((n) => !ownNets.has(n));
-			} else {
-				// Site-level or full-mesh filtering
-				otherSiteNets = [...allSiteNets].filter((n) => {
-					if (ownNets.has(n)) return false;
-					if (!allowedSites) return true; // no whitelist = full mesh
-					for (const [, lm] of linksByName) {
-						if (allowedSites.has(lm.name) && (lm.importedNetworks || []).includes(n)) return true;
-					}
-					return false;
-				});
-			}
-
-			// Parse current AllowedIPs from the hub peer in config_text
-			const currentAllowedIPs = _parseHubPeerAllowedIPs(agent.config_text);
-
-			// The tunnel subnet (derived from this agent's Address) must ALWAYS remain
-			// in AllowedIPs — without it the agent can't communicate with the hub or
-			// other peers and the tunnel collapses.
-			const agentTunnelSubnet = deriveTunnelSubnet(agent.config_text);
-
-			// Preserve WG-specific entries not covered by any link's metadata or the tunnel subnet
-			const wgSpecific = currentAllowedIPs.filter((ip) => !allSiteNets.has(ip) && ip !== agentTunnelSubnet);
-
-			const newAllowedIPs = [...new Set([agentTunnelSubnet, ...wgSpecific, ...otherSiteNets])];
-			newAllowedIPs.sort();
-			const newSorted = newAllowedIPs.join(",");
-			const currentSorted = [...currentAllowedIPs].sort().join(",");
-
-			// Compute which remote networks need MASQUERADE on this agent's LAN.
-			// These are all networks routed TO this agent (i.e. from other sites)
-			// that arrive via wg and exit to the local LAN — without MASQUERADE the
-			// local devices can't reply (they don't know the route back).
-			const masqueradeNets = otherSiteNets.filter((n) => !ownNets.has(n));
-			masqueradeNets.sort();
-
-			// Re-normalize config even if AllowedIPs didn't change — PostUp rules
-			// (MASQUERADE for remote site networks) may have changed.
-			const rewritten = newSorted !== currentSorted
-				? _rewriteHubPeerAllowedIPs(agent.config_text, newAllowedIPs)
-				: agent.config_text;
-			const newConfigText = normalizeAgentConfig(rewritten, masqueradeNets);
-			const newHash = hashConfig(newConfigText);
-
-			if (newHash === agent.config_hash) {
-				results.push({ agentId: agent.id, name: agent.name, changed: false });
-				continue;
-			}
-
-			await Agent.query().patchAndFetchById(agent.id, {
-				config_text: newConfigText,
-				config_hash: newHash,
-			});
-
-			results.push({ agentId: agent.id, name: agent.name, changed: true, newAllowedIPs, masqueradeNets });
 		}
 
 		return results;
@@ -1650,6 +1760,139 @@ function _parseAllowedSites(raw) {
 	}
 }
 
+/**
+ * Collects the set of LAN networks that actually exist behind the mesh — the
+ * networks gateways should route to each other.
+ *
+ * Only site-to-site links contribute. A client link (road-warrior phone/laptop)
+ * exports no LAN (exportedNetworks: []), and its importedNetworks is a *reach
+ * list* (which sites the client wants to talk to), NOT networks that live behind
+ * it. Folding client reach-lists into this set made the hub re-advertise a
+ * network to every gateway as long as ANY client still listed it — so removing a
+ * subnet from its real site did nothing while a phone still wanted to reach it.
+ * Links with no `type` default to site (included) to stay safe on older metadata.
+ *
+ * @param {Object} links  metadata.links keyed by id
+ * @returns {Set<string>} site network CIDRs
+ */
+function _collectSiteNetworks(links) {
+	return new Set(
+		Object.values(links || {})
+			.filter((l) => l.type !== "client")
+			.flatMap((l) => l.importedNetworks || []),
+	);
+}
+
+/**
+ * Recompute and persist one agent's hub-peer config. Extracted from the
+ * syncAgentConfigs loop so each agent can be wrapped in its own try/catch — a
+ * single failing agent (e.g. an IPv6 net that trips the IPv4-only assertCIDR)
+ * must not abort the whole fleet sync. Returns the per-agent result; throws only
+ * on a genuine error, which the caller isolates.
+ */
+async function _syncOneAgent(agent, { linksByName, allSiteNets, ambiguousLinkNames }) {
+	if (ambiguousLinkNames.has(agent.wg_link_name)) {
+		return { agentId: agent.id, name: agent.name, changed: false, reason: "ambiguous-link-name" };
+	}
+	const linkMeta = linksByName.get(agent.wg_link_name);
+	if (!linkMeta || !agent.config_text) {
+		return { agentId: agent.id, name: agent.name, changed: false, reason: "no-link-or-config" };
+	}
+
+	// Networks belonging to THIS agent's own site (don't route these through hub)
+	const ownNets = new Set(linkMeta.importedNetworks || []);
+
+	// Network access control: allowed_networks > allowed_sites > full-mesh.
+	const allowedNetworks = _parseAllowedSites(agent.allowed_networks);
+	const allowedSites = _parseAllowedSites(agent.allowed_sites);
+	const { nets: otherSiteNets, orphans } = _computeOtherSiteNets({
+		allowedNetworks,
+		allowedSites,
+		allSiteNets,
+		ownNets,
+		linksByName,
+	});
+	if (orphans.length) {
+		logger.warn(
+			`Agent ${agent.name} (id=${agent.id}): allowed_networks references net(s) no site exports anymore: ${orphans.join(", ")}`,
+		);
+	}
+
+	const currentAllowedIPs = _parseHubPeerAllowedIPs(agent.config_text);
+	// The tunnel subnet must ALWAYS remain in AllowedIPs or the tunnel collapses.
+	const agentTunnelSubnet = deriveTunnelSubnet(agent.config_text);
+	const newAllowedIPs = _computeHubPeerAllowedIPs(agentTunnelSubnet, otherSiteNets);
+	const newSorted = newAllowedIPs.join(",");
+	const currentSorted = [...currentAllowedIPs].sort().join(",");
+
+	const masqueradeNets = otherSiteNets.filter((n) => !ownNets.has(n));
+	masqueradeNets.sort();
+
+	const rewritten =
+		newSorted !== currentSorted ? _rewriteHubPeerAllowedIPs(agent.config_text, newAllowedIPs) : agent.config_text;
+	const newConfigText = normalizeAgentConfig(rewritten, masqueradeNets);
+	const newHash = hashConfig(newConfigText);
+
+	if (newHash === agent.config_hash) {
+		return { agentId: agent.id, name: agent.name, changed: false };
+	}
+
+	await Agent.query().patchAndFetchById(agent.id, { config_text: newConfigText, config_hash: newHash });
+	return { agentId: agent.id, name: agent.name, changed: true, newAllowedIPs, masqueradeNets };
+}
+
+/**
+ * Computes the set of OTHER-site networks an agent may route, applying the
+ * deny-by-default ACL priority: allowed_networks > allowed_sites > full-mesh.
+ *
+ * - allowed_networks: intersect the explicit ACL with the LIVE exported site nets
+ *   (allSiteNets). A CIDR no site exports anymore (subnet removed, or a typo) is
+ *   dropped — otherwise it stays in AllowedIPs/route/MASQUERADE while the hub no
+ *   longer routes it (silent blackhole that never self-prunes). Such entries are
+ *   returned as `orphans` so the caller can surface them.
+ * - allowed_sites: a whitelist of SITE-link names. Client (road-warrior) links are
+ *   skipped — a whitelisted client must not grant site reach via its reach-list.
+ * - neither: full mesh (all site nets except own).
+ *
+ * @returns {{nets: string[], orphans: string[]}}
+ */
+function _computeOtherSiteNets({ allowedNetworks, allowedSites, allSiteNets, ownNets, linksByName }) {
+	if (allowedNetworks) {
+		const nets = [...allowedNetworks].filter((n) => !ownNets.has(n) && allSiteNets.has(n));
+		const orphans = [...allowedNetworks].filter((n) => !ownNets.has(n) && !allSiteNets.has(n));
+		return { nets, orphans };
+	}
+	const nets = [...allSiteNets].filter((n) => {
+		if (ownNets.has(n)) return false;
+		if (!allowedSites) return true; // no whitelist = full mesh
+		for (const [, lm] of linksByName) {
+			if (lm.type !== "client" && allowedSites.has(lm.name) && (lm.importedNetworks || []).includes(n)) return true;
+		}
+		return false;
+	});
+	return { nets, orphans: [] };
+}
+
+/**
+ * Computes the authoritative AllowedIPs for an agent's hub peer.
+ *
+ * The hub is the single source of truth: an agent may reach exactly the tunnel
+ * subnet plus the networks it is allowed to route (otherSiteNets — already
+ * ACL-filtered and own-site-stripped by the caller). A network removed from a
+ * link drops out of otherSiteNets and is therefore absent here, which is what
+ * makes a removal propagate to remote agents. We deliberately do not merge in
+ * the agent's current AllowedIPs: a removed network is indistinguishable from a
+ * hand-added route, so preserving "unknown" entries made removals permanently
+ * sticky.
+ *
+ * @param {string} agentTunnelSubnet  — e.g. "10.10.0.0/24" (always kept)
+ * @param {string[]} otherSiteNets    — networks this agent is allowed to reach
+ * @returns {string[]} deduped, sorted AllowedIPs
+ */
+function _computeHubPeerAllowedIPs(agentTunnelSubnet, otherSiteNets) {
+	return [...new Set([agentTunnelSubnet, ...otherSiteNets])].sort();
+}
+
 export default internalAgent;
 
 // Exported for unit testing only
@@ -1660,6 +1903,10 @@ export const _testExports = {
 	normalizeAgentConfig,
 	_parseHubPeerAllowedIPs,
 	_rewriteHubPeerAllowedIPs,
+	_computeHubPeerAllowedIPs,
+	_collectSiteNetworks,
+	_computeOtherSiteNets,
+	sanitizeUnifiFields,
 	_parseAllowedSites,
 	assertCIDR,
 	sanitizeHubUrl,

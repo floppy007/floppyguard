@@ -84,8 +84,12 @@ router
 			const metadata = (await internalWireGuard.readMetadataStore());
 			let hubSync = null;
 			let agentSync = null;
+			// `name` must trigger a resync too: agents bind to a link by its (mutable)
+			// name via wg_link_name / allowed_sites. A rename with no resync leaves
+			// those agents pointing at a name that no longer exists — they get skipped
+			// on every later sync and freeze on their last config (silent orphan).
 			const hasConfigChange = Object.values(links).some(
-				(p) => p.importedNetworks || p.exportedNetworks || p.type,
+				(p) => p.importedNetworks || p.exportedNetworks || p.type || p.name,
 			) || Object.values(interfaces).some(
 				(p) => p.importedNetworks || p.exportedNetworks || p.routeTargets,
 			);

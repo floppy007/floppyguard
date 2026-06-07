@@ -28,4 +28,4 @@ Key routing rules:
 - lint-frontend: cd frontend && npx biome lint .
 - lint-backend: cd backend && npx biome lint .
 - test-frontend: cd frontend && npx vitest run
-- test-backend: cd backend && node --test --test-force-exit internal/*.test.js
+- test-backend: cd backend && node --test internal/*.test.js

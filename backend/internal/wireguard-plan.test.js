@@ -189,6 +189,15 @@ test("classifyChangeScope distinguishes no-op, metadata-only and config-intent c
 	);
 });
 
+// Regression (Fix #3a): renaming a link is config-relevant — agents bind by name,
+// so a rename must trigger the resync path, not be classified as metadata-only.
+test("classifyChangeScope treats a link name change as config-relevant", () => {
+	assert.equal(
+		classifyChangeScope({ interfaces: [], links: [{ changedFields: ["name"] }] }),
+		"metadata-with-config-intent",
+	);
+});
+
 test("buildApplyContract exposes blockers and backup requirements", () => {
 	const apply = buildApplyContract({
 		errors: [],

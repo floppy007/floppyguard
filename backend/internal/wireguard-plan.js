@@ -115,6 +115,7 @@ function classifyChangeScope(diff) {
 		...diff.links.flatMap((item) => item.changedFields),
 	]);
 	const configRelevantFields = new Set([
+		"name",
 		"type",
 		"importedNetworks",
 		"exportedNetworks",

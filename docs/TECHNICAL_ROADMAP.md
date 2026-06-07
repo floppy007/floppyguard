@@ -1,6 +1,6 @@
 # FloppyGuard Technical Roadmap
 
-Stand: 2026-05-27
+Stand: 2026-06-07
 
 ## Was bereits fertig ist
 
@@ -33,6 +33,10 @@ Stand: 2026-05-27
 - **AllowedIPs Conflict Blocking** (v1.3.12) — Doppelte Subnet-Zuweisungen werden blockiert; Metadata-Aenderungen sofort live; syncHubConf synct alle Interfaces
 - **Stale Route Cleanup** (v1.3.12) — `sync_routes()` entfernt veraltete wg0-Routen und ueberspringt physisch angeschlossene Netze; Hub-Seite filtert ebenfalls
 - **Road Warrior AllowedIPs** (v1.3.13) — Config-Export fuer Road Warriors (Laptop/Mobile) sammelt automatisch alle exportedNetworks anderer Peers; Endpoint nutzt Domain statt IP; Key-Rotation verliert keine Metadata mehr
+- **WG-Netzwerkfeld-Validierung** (v1.3.14) — `importedNetworks`/`exportedNetworks`/`routeTargets` werden am Eingang UND an der Sink-Seite (`syncHubConf`) strikt als IPv4/IPv6-CIDR validiert (Command-Injection-Schutz, da die Werte als root in `ip route add` fliessen); Rate-Limit auch auf `GET /api/agent/install`
+- **Hub-URL-Propagation + Agent-ACL-Editor** (v1.3.15) — `GET /api/agent/config` liefert die Hub-URLs aus dem Setting `agent-hub-url`; der Agent uebernimmt sie in `config.env` erst nach `reach`-Check (Typo brickt keinen Agent); `allowed_networks` pro Agent in der UI editierbar (loest `syncAgentConfigs` aus); strikte ACL-CIDR-Validierung (jedes `/0` abgelehnt); `sanitizeHubUrl`
+- **Zentrale Hub-URL-Einstellung** (v1.3.16) — der pro-Agent-Hub-URL-Editor aus v1.3.15 ist jetzt ein einziges globales Steuerelement oben im WireGuard-Tab „Overview" (reine UI-Umstellung)
+- **Hub→Agent-Sync gehaertet** (v1.3.21) — REMOVE/DELETE/RENAME propagieren zuverlaessig: `deletePeer`/`deleteInterface`/Link-Rename/`createPeer`/`wg_link_name`-Rebind triggern jetzt `syncAgentConfigs`, plus ein 5-Min-Reconciler als Defense-in-Depth; alle Metadaten-Store-Mutationen + Reconciler unter `withWriteLock` (kein Lost-Write); Hub autoritativ fuer Hub-Peer-AllowedIPs; Per-Agent-Fehlerisolierung im Sync-Loop; `%i`→`$iface` vor `eval` (MASQUERADE/FORWARD); Site-Netze strikt IPv4 + kanonisch (IPv6 abgelehnt, Host-Bits maskiert); Root-Command-Injection im Install-Skript geschlossen; `last_server_url` im Heartbeat fuer Hub-Move-Sichtbarkeit. (Konsolidiert die Tages-Releases v1.3.17–v1.3.20.)
 
 ## Noch offen
 

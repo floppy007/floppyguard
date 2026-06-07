@@ -3,6 +3,7 @@ import { promises as fs } from "node:fs";
 import { hostname, networkInterfaces } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import error from "../lib/error.js";
 import { wireguard as logger } from "../logger.js";
 
 const execFileAsync = promisify(execFile);
@@ -16,6 +17,34 @@ function withWriteLock(fn) {
 	const next = _writeLock.then(fn, fn);
 	_writeLock = next.catch(() => {});
 	return next;
+}
+
+// Serialize every read-modify-write of the metadata store under the SAME mutex as
+// createPeer/applyMetadataPatch. Without this, deletePeer/updateLinkMetadata/etc.
+// did an unlocked read→mutate→write (whole-file overwrite): a concurrent save read
+// the pre-delete file, merged, and wrote its copy back — resurrecting a
+// just-deleted link, which syncAgentConfigs then re-advertised fleet-wide. Returns
+// the freshly-written store snapshot; do live wg + syncAgentConfigs OUTSIDE the
+// lock (they don't take it). NOT re-entrant — never call from inside withWriteLock.
+async function mutateMetadataStore(mutator) {
+	return withWriteLock(async () => {
+		const store = await readMetadataStore();
+		await mutator(store);
+		await writeMetadataStore(store);
+		return store;
+	});
+}
+
+// Reject renaming a link onto a name another link already holds. Two links sharing
+// a name make every bound agent resolve to 'ambiguous-link-name' in syncAgentConfigs
+// and freezes BOTH silently. Call inside the store mutator (throws before write).
+function assertUniqueLinkName(store, linkId, newName, oldName) {
+	if (!newName || newName === oldName) return;
+	for (const [id, l] of Object.entries(store.links || {})) {
+		if (id !== linkId && l && l.name === newName) {
+			throw new error.ValidationError(`A link named "${newName}" already exists — choose a unique name`);
+		}
+	}
 }
 
 /**
@@ -163,9 +192,36 @@ function isValidNetwork(value) {
 	return v.includes(":") && IPV6_NET_RE.test(v);
 }
 
+// Canonicalize an IPv4 CIDR to its network address (host bits masked off), e.g.
+// "192.168.10.1/24" → "192.168.10.0/24". Returns null for anything that isn't a
+// valid IPv4 CIDR with a prefix — including IPv6: the mesh routes IPv4 SITE
+// networks only (forwarding IPv6 into local LANs is out of scope). This does NOT
+// affect the hub/app being reachable over IPv6 (that's a proxy/endpoint concern,
+// not a routed site network). Canonicalizing also fixes the host-bits-vs-network
+// mismatch that made an allowed_networks ACL drop a net it should keep.
+function canonicalizeIpv4Network(value) {
+	const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\/(\d{1,2})$/.exec(String(value || "").trim());
+	if (!m) return null;
+	const a = Number(m[1]);
+	const b = Number(m[2]);
+	const c = Number(m[3]);
+	const d = Number(m[4]);
+	const p = Number(m[5]);
+	if (a > 255 || b > 255 || c > 255 || d > 255 || p > 32) return null;
+	const ipInt = ((a << 24) >>> 0) + (b << 16) + (c << 8) + d;
+	const mask = p === 0 ? 0 : (0xffffffff << (32 - p)) >>> 0;
+	const net = (ipInt & mask) >>> 0;
+	return `${(net >>> 24) & 0xff}.${(net >>> 16) & 0xff}.${(net >>> 8) & 0xff}.${net & 0xff}/${p}`;
+}
+
 function sanitizeNetworkArray(value) {
 	if (!Array.isArray(value)) return [];
-	return Array.from(new Set(value.map((item) => String(item || "").trim()).filter(isValidNetwork)));
+	const out = [];
+	for (const item of value) {
+		const canon = canonicalizeIpv4Network(item);
+		if (canon) out.push(canon);
+	}
+	return Array.from(new Set(out));
 }
 
 function sanitizeInterfaceMetadata(input = {}) {
@@ -260,19 +316,33 @@ function normalizeInterfaceRole(role) {
 }
 
 async function updateInterfaceMetadata(interfaceName, patch) {
-	const store = await readMetadataStore();
-	store.interfaces[interfaceName] = mergeMetadataEntry(
-		store.interfaces[interfaceName] || {},
-		sanitizeInterfaceMetadataPatch(patch),
-	);
-	await writeMetadataStore(store);
+	const store = await mutateMetadataStore((s) => {
+		s.interfaces[interfaceName] = mergeMetadataEntry(
+			s.interfaces[interfaceName] || {},
+			sanitizeInterfaceMetadataPatch(patch),
+		);
+	});
 	return store.interfaces[interfaceName];
 }
 
 async function updateLinkMetadata(linkId, patch) {
-	const store = await readMetadataStore();
-	store.links[linkId] = mergeMetadataEntry(store.links[linkId] || {}, sanitizeLinkMetadataPatch(patch));
-	await writeMetadataStore(store);
+	const sanitized = sanitizeLinkMetadataPatch(patch);
+	let oldName;
+	const store = await mutateMetadataStore((s) => {
+		oldName = s.links[linkId]?.name;
+		assertUniqueLinkName(s, linkId, sanitized.name, oldName);
+		s.links[linkId] = mergeMetadataEntry(s.links[linkId] || {}, sanitized);
+	});
+	// Agents bind to a link by its (mutable) name via wg_link_name / allowed_sites.
+	// A rename without cascading those columns silently orphans every bound agent.
+	if (Object.hasOwn(sanitized, "name") && sanitized.name && oldName && sanitized.name !== oldName) {
+		try {
+			const { default: internalAgent } = await import("./agent.js");
+			await internalAgent.renameLinkBinding(oldName, sanitized.name);
+		} catch (err) {
+			logger.error(`Link rename cascade ${oldName}→${sanitized.name} failed: ${err.message}`);
+		}
+	}
 	return store.links[linkId];
 }
 
@@ -850,14 +920,14 @@ async function generatePeerConfig(linkId) {
 	if (oldPubKey && oldPubKey !== newPubKey) {
 		rotated = await _rotatePeerPublicKey(link.interfaceName, oldPubKey, newPubKey, link.allowedIps || []);
 		if (rotated) {
-			// Rename the link in the metadata store (ID is based on pubkey)
-			const store = await readMetadataStore();
+			// Rename the link in the metadata store (ID is based on pubkey) — locked RMW
 			const newLinkId = `${link.interfaceName}:${newPubKey}`;
-			if (store.links[linkId]) {
-				store.links[newLinkId] = store.links[linkId];
-				delete store.links[linkId];
-				await writeMetadataStore(store);
-			}
+			await mutateMetadataStore((s) => {
+				if (s.links[linkId]) {
+					s.links[newLinkId] = s.links[linkId];
+					delete s.links[linkId];
+				}
+			});
 		}
 	}
 
@@ -1137,8 +1207,13 @@ function _buildPeerUpdates(peerMap, linksMeta, ifaceName) {
 		// Client peers only get their tunnel IP on the hub side.
 		// Their importedNetworks define what the CLIENT can reach (goes into the
 		// downloaded client config), not what the hub routes toward them.
-		const linkType = normalizeLinkType(meta.type) || classifyLinkType(currentCIDRs, ifaceName);
-		if (linkType === "client") {
+		// Only an EXPLICITLY-typed client is reduced to host routes. An untyped link
+		// (legacy / imported / plan-created) must NOT be degraded to client by the
+		// ≤1-route heuristic of classifyLinkType — that strips a real single-subnet
+		// site from the hub peer while _collectSiteNetworks (agent-side) keeps
+		// advertising it to every other agent (split-brain). Untyped defaults to site,
+		// matching _collectSiteNetworks.
+		if (normalizeLinkType(meta.type) === "client") {
 			const newIPs = [...new Set(hostRoutes)];
 			if ([...newIPs].sort().join(",") !== [...currentCIDRs].sort().join(",")) {
 				updates.set(pubkey, newIPs);
@@ -1147,10 +1222,14 @@ function _buildPeerUpdates(peerMap, linksMeta, ifaceName) {
 		}
 
 		const imported = (meta.importedNetworks || []).filter((c) => !c.endsWith("/32") && !c.endsWith("/128"));
-		// If metadata has no importedNetworks, preserve existing non-host CIDRs from conf
-		// to avoid stripping AllowedIPs that were set manually or by a previous sync.
+		// Hub authoritative on full removal: only fall back to the conf's current
+		// non-host CIDRs when the metadata has NO importedNetworks key at all
+		// (legacy / hand-maintained peer). An explicit empty array means "all site
+		// networks revoked" and must drop the subnet — falling back to currentNonHost
+		// there re-injected the just-removed net and made REMOVE never propagate
+		// hub-side (sibling of the fixed agent-side _computeHubPeerAllowedIPs bug).
 		const currentNonHost = currentCIDRs.filter((c) => !c.endsWith("/32") && !c.endsWith("/128"));
-		const effectiveNets = imported.length > 0 ? imported : currentNonHost;
+		const effectiveNets = Object.hasOwn(meta, "importedNetworks") ? imported : currentNonHost;
 		const newIPs = [...new Set([...hostRoutes, ...effectiveNets])];
 		if ([...newIPs].sort().join(",") !== [...currentCIDRs].sort().join(",")) {
 			updates.set(pubkey, newIPs);
@@ -1372,12 +1451,36 @@ async function deletePeer(linkId) {
 		}
 	}
 
-	// ── Remove metadata ──
-	const store = await readMetadataStore();
-	delete store.links[linkId];
-	await writeMetadataStore(store);
+	// ── Remove metadata (locked RMW — else a concurrent save resurrects the link) ──
+	const store = await mutateMetadataStore((s) => {
+		delete s.links[linkId];
+	});
 
-	return { deleted: true, linkId };
+	// ── Rebuild the hub conf so the deleted net's PostUp `ip route add <net> dev wg0`
+	// line is removed. Without this it survives in wg0.conf and a later wg-quick
+	// restart/reboot re-creates the route to a net no peer serves (blackhole). ──
+	let hubSync;
+	try {
+		hubSync = await syncHubConf(store, ifaceName);
+	} catch (err) {
+		logger.error(`Hub conf sync after deletePeer (${linkId}) failed: ${err.message}`);
+		hubSync = { error: err.message };
+	}
+
+	// ── Resync agents so the deleted site's networks drop out of every OTHER
+	// agent's AllowedIPs + PostUp route + MASQUERADE. Without this, syncAgentConfigs
+	// never recomputes, config_hash stays unchanged, the 30s poll is a no-op, and
+	// the removed LAN stays routed (blackholed) on every mesh agent forever. ──
+	let agentSync;
+	try {
+		const { default: internalAgent } = await import("./agent.js");
+		agentSync = await internalAgent.syncAgentConfigs(store);
+	} catch (err) {
+		logger.error(`Agent config sync after deletePeer (${linkId}) failed: ${err.message}`);
+		agentSync = { error: err.message };
+	}
+
+	return { deleted: true, linkId, hubSync, agentSync };
 }
 
 /**
@@ -1443,9 +1546,22 @@ async function updatePeer(linkId, changes = {}) {
 		metadataPatch.platform = ["desktop", "mobile"].includes(changes.platform) ? changes.platform : undefined;
 	}
 
-	const store = await readMetadataStore();
-	store.links[linkId] = mergeMetadataEntry(store.links[linkId] || {}, metadataPatch);
-	await writeMetadataStore(store);
+	let oldName;
+	const store = await mutateMetadataStore((s) => {
+		oldName = s.links[linkId]?.name;
+		assertUniqueLinkName(s, linkId, metadataPatch.name, oldName);
+		s.links[linkId] = mergeMetadataEntry(s.links[linkId] || {}, metadataPatch);
+	});
+
+	// Cascade a rename to agent bindings so renamed links don't orphan their agents.
+	if (metadataPatch.name && oldName && metadataPatch.name !== oldName) {
+		try {
+			const { default: internalAgent } = await import("./agent.js");
+			await internalAgent.renameLinkBinding(oldName, metadataPatch.name);
+		} catch (err) {
+			logger.error(`Link rename cascade ${oldName}→${metadataPatch.name} failed: ${err.message}`);
+		}
+	}
 
 	// ── Sync hub conf (rewrites AllowedIPs in conf + live wg set + routes) ──
 	const hubSync = await syncHubConf(store, ifaceName);
@@ -1456,7 +1572,12 @@ async function updatePeer(linkId, changes = {}) {
 		const { default: internalAgent } = await import("./agent.js");
 		agentSync = await internalAgent.syncAgentConfigs(store);
 	} catch (err) {
-		logger.debug(`Agent config sync after updatePeer skipped: ${err.message}`);
+		// Surface, don't swallow: a poisoned sibling link (e.g. an IPv6/prefixless
+		// net that passes isValidNetwork but trips assertCIDR) throws here and
+		// leaves EVERY agent's config stale. Log at error and report it so the
+		// admin sees the update didn't propagate, matching agent.js update().
+		logger.error(`Agent config sync after updatePeer (${linkId}) failed: ${err.message}`);
+		agentSync = { error: err.message };
 	}
 
 	return { updated: true, linkId, hubSync, agentSync };
@@ -1498,7 +1619,11 @@ async function syncHubConf(metadata, ifaceName = "wg0") {
 		}
 	}
 
-	if (!peerUpdates.size) return { synced: true, changes: [] };
+	// NOTE: do NOT early-return when peerUpdates is empty. The live route
+	// reconciliation (add missing + prune stale) below must still run so a route
+	// whose `ip route del` transiently failed on the removing change gets pruned on
+	// the next sync, even though there is no AllowedIPs delta then. Only the conf
+	// rewrite + `wg set` are gated on peerUpdates.size.
 
 	// All non-/32 networks across all peers (effective values after updates)
 	const allRouteNets = new Set();
@@ -1554,31 +1679,38 @@ async function syncHubConf(metadata, ifaceName = "wg0") {
 		}
 	}
 
-	const newText = _rewriteHubConf(lines, ifaceName, peerUpdates, allRouteNets, masqueradeIfaces);
-	await fs.writeFile(confPath, newText, "utf8");
-
 	const wgBin = getWireGuardBin();
 	const ipBin = getIpBin();
 	const changes = [];
 
-	for (const [pubkey, newIPs] of peerUpdates) {
-		try {
-			await execFileAsync(wgBin, ["set", ifaceName, "peer", pubkey, "allowed-ips", newIPs.join(",")]);
-			changes.push({ peer: `${pubkey.slice(0, 8)}…`, allowedIPs: newIPs });
-		} catch (err) {
-			logger.debug(`wg set peer ${pubkey.slice(0, 8)}… skipped (not connected): ${err.message}`);
+	// Conf rewrite + wg set only when AllowedIPs actually changed.
+	if (peerUpdates.size) {
+		const newText = _rewriteHubConf(lines, ifaceName, peerUpdates, allRouteNets, masqueradeIfaces);
+		await fs.writeFile(confPath, newText, "utf8");
+
+		for (const [pubkey, newIPs] of peerUpdates) {
+			try {
+				await execFileAsync(wgBin, ["set", ifaceName, "peer", pubkey, "allowed-ips", newIPs.join(",")]);
+				changes.push({ peer: `${pubkey.slice(0, 8)}…`, allowedIPs: newIPs });
+			} catch (err) {
+				logger.debug(`wg set peer ${pubkey.slice(0, 8)}… skipped (not connected): ${err.message}`);
+			}
 		}
 	}
 
-	// Add any newly required routes live
+	// Add any newly required routes live, and PRUNE stale ones. With `Table = off`
+	// wg-quick manages no routes, so a route added for a now-removed net survives
+	// `wg set allowed-ips` shrinking and keeps blackholing traffic until a manual
+	// wg-quick restart. Mirror the agent-side sync_routes reconciler: delete wg0
+	// routes whose net is no longer in any peer's effective AllowedIPs. Never touch
+	// the kernel-connected tunnel route (proto kernel) or host (/32,/128) routes.
 	try {
 		const { stdout } = await execFileAsync(ipBin, ["route", "show", "dev", ifaceName]);
-		const existing = new Set(
-			stdout
-				.split("\n")
-				.map((l) => l.split(/\s/)[0])
-				.filter(Boolean),
-		);
+		const routeLines = stdout
+			.split("\n")
+			.map((l) => l.trim())
+			.filter(Boolean);
+		const existing = new Set(routeLines.map((l) => l.split(/\s/)[0]).filter(Boolean));
 		for (const net of allRouteNets) {
 			if (!existing.has(net)) {
 				try {
@@ -1586,6 +1718,20 @@ async function syncHubConf(metadata, ifaceName = "wg0") {
 				} catch (err) {
 					logger.debug(`Route add ${net} dev ${ifaceName}: ${err.message}`);
 				}
+			}
+		}
+		for (const line of routeLines) {
+			const prefix = line.split(/\s/)[0];
+			if (!prefix?.includes("/")) continue;
+			if (prefix.endsWith("/32") || prefix.endsWith("/128")) continue;
+			if (line.includes("proto kernel")) continue; // connected tunnel/LAN route
+			if (prefix === tunnelSubnet) continue;
+			if (allRouteNets.has(prefix)) continue; // still routed
+			try {
+				await execFileAsync(ipBin, ["route", "del", prefix, "dev", ifaceName]);
+				changes.push({ routeRemoved: prefix });
+			} catch (err) {
+				logger.debug(`Stale route del ${prefix} dev ${ifaceName}: ${err.message}`);
 			}
 		}
 	} catch (err) {
@@ -1691,6 +1837,9 @@ function checkAllowedIPsConflicts(proposedNets, existingLinks) {
 }
 
 export {
+	_buildPeerUpdates,
+	canonicalizeIpv4Network,
+	withWriteLock,
 	buildLinkRecord,
 	buildRouteAnalysis,
 	buildTopology,
@@ -1805,13 +1954,13 @@ async function createInterface({ name, address, listenPort, role } = {}) {
 		logger.warn(`Failed to enable wg-quick@${name} on boot: ${err.message}`);
 	}
 
-	// ── Write metadata ──
-	const store = await readMetadataStore();
-	store.interfaces[name] = sanitizeInterfaceMetadataPatch({
-		role: role || "auxiliary",
-		managementMode: "local",
+	// ── Write metadata (locked RMW) ──
+	await mutateMetadataStore((s) => {
+		s.interfaces[name] = sanitizeInterfaceMetadataPatch({
+			role: role || "auxiliary",
+			managementMode: "local",
+		});
 	});
-	await writeMetadataStore(store);
 
 	return {
 		created: true,
@@ -1862,17 +2011,30 @@ async function deleteInterface(rawName) {
 	// ── Remove config file ──
 	await fs.unlink(confPath);
 
-	// ── Clean metadata — remove interface + all its links ──
-	const store = await readMetadataStore();
-	delete store.interfaces[name];
-	for (const linkId of Object.keys(store.links)) {
-		if (linkId.startsWith(`${name}:`)) {
-			delete store.links[linkId];
+	// ── Clean metadata — remove interface + all its links (locked RMW) ──
+	const store = await mutateMetadataStore((s) => {
+		delete s.interfaces[name];
+		for (const linkId of Object.keys(s.links)) {
+			if (linkId.startsWith(`${name}:`)) {
+				delete s.links[linkId];
+			}
 		}
-	}
-	await writeMetadataStore(store);
+	});
 
-	return { deleted: true, name };
+	// ── Resync agents: a deleted interface's site networks feed allSiteNets
+	// cross-interface, so every mesh agent (including those on OTHER interfaces)
+	// must recompute or it keeps routing the now-dead LANs (AllowedIPs + route +
+	// MASQUERADE) forever. ──
+	let agentSync;
+	try {
+		const { default: internalAgent } = await import("./agent.js");
+		agentSync = await internalAgent.syncAgentConfigs(store);
+	} catch (err) {
+		logger.error(`Agent config sync after deleteInterface (${name}) failed: ${err.message}`);
+		agentSync = { error: err.message };
+	}
+
+	return { deleted: true, name, agentSync };
 }
 
 /**
@@ -1971,6 +2133,15 @@ async function createPeer({ name, type, dns, fullTunnel, platform, importedNetwo
 		platform: platform || undefined,
 	});
 	await writeMetadataStore(store);
+
+	// Resync existing agents so a newly-added site's networks reach them on the next
+	// poll, not only at the 5-min reconciler. No-op for client peers (no site nets).
+	try {
+		const { default: internalAgent } = await import("./agent.js");
+		await internalAgent.syncAgentConfigs(store);
+	} catch (err) {
+		logger.error(`Agent config sync after createPeer (${linkId}) failed: ${err.message}`);
+	}
 
 	// ── Build client config ──
 	const hubPublicKey = iface.publicKey;
