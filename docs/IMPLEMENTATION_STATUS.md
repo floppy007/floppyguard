@@ -165,6 +165,10 @@ Full security audit performed and all findings remediated:
 
 ## WireGuard — Completed
 
+- Hub→Agent sync hardening ✔ v1.3.21 — REMOVE/DELETE/RENAME propagate reliably: `deletePeer`/`deleteInterface`/link-rename/`createPeer`/`wg_link_name`-rebind now trigger `syncAgentConfigs`, plus a 5-min reconciler (defense-in-depth); every metadata-store mutation + the reconciler run under `withWriteLock` (no lost-write resurrect); hub authoritative for hub-peer AllowedIPs; per-agent error isolation in the sync loop; `%i`→`$iface` before `eval` (MASQUERADE/FORWARD); site networks strictly IPv4 + canonical (IPv6 rejected, host bits masked); install-script root command-injection closed; `last_server_url` recorded on heartbeat. Consolidates same-day releases v1.3.17–v1.3.20.
+- Central hub-URL setting ✔ v1.3.16 — the per-agent hub-URL editor from v1.3.15 is now a single page-level control in the WireGuard "Overview" tab (UI-only, behavior unchanged)
+- Hub-URL propagation + agent ACL editor ✔ v1.3.15 — `GET /api/agent/config` serves hub URLs from the `agent-hub-url` setting; the agent adopts them into `config.env` only after a `reach` check (a typo can't brick it); `allowed_networks` editable per agent in the UI (triggers `syncAgentConfigs`); strict ACL CIDR validation (every `/0` rejected); `sanitizeHubUrl`
+- WireGuard network-field validation ✔ v1.3.14 — `importedNetworks`/`exportedNetworks`/`routeTargets` strictly validated as IPv4/IPv6 CIDRs at input AND at the sink (`syncHubConf`), closing a root command-injection via `ip route add`; rate-limit added to `GET /api/agent/install`
 - Road warrior AllowedIPs ✔ v1.3.13 — `generatePeerConfig` und `createPeer` sammeln automatisch alle exportedNetworks anderer Peers fuer Road Warriors; `resolveHubHost()` nutzt Domain statt IP; Key-Rotation Metadata-Migration nur bei tatsaechlichem Erfolg
 - Stale route cleanup ✔ v1.3.12 — `sync_routes()` entfernt veraltete wg0-Routen und ueberspringt physisch angeschlossene Netze
 - AllowedIPs conflict blocking ✔ v1.3.12 — `applyMetadata` und `PUT /wireguard/metadata` pruefen auf doppelte Subnet-Zuweisungen

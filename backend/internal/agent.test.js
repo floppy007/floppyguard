@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { _testExports } from "./agent.js";
+import internalAgent, { _testExports } from "./agent.js";
 
 const {
 	buildHubPostUp,
@@ -9,6 +9,10 @@ const {
 	normalizeAgentConfig,
 	_parseHubPeerAllowedIPs,
 	_rewriteHubPeerAllowedIPs,
+	_computeHubPeerAllowedIPs,
+	_collectSiteNetworks,
+	_computeOtherSiteNets,
+	sanitizeUnifiFields,
 	_parseAllowedSites,
 	sanitizeHubUrl,
 	buildLoopScript,
@@ -159,6 +163,177 @@ PersistentKeepalive = 25`;
 	assert.ok(!result.includes("AllowedIPs = 10.10.0.0/24\n"));
 });
 
+// ─── _collectSiteNetworks ────────────────────────────────────────────────────
+
+test("_collectSiteNetworks unions importedNetworks of site-to-site links", () => {
+	const links = {
+		a: { name: "Site A", type: "site-to-site", importedNetworks: ["192.168.40.0/24"] },
+		b: { name: "Site B", type: "site-to-site", importedNetworks: ["192.168.60.0/24", "192.168.40.0/24"] },
+	};
+	assert.deepEqual([..._collectSiteNetworks(links)].sort(), ["192.168.40.0/24", "192.168.60.0/24"]);
+});
+
+test("_collectSiteNetworks treats a link with no type as a site (safe default)", () => {
+	const links = { a: { name: "Legacy", importedNetworks: ["10.20.0.0/24"] } };
+	assert.deepEqual([..._collectSiteNetworks(links)], ["10.20.0.0/24"]);
+});
+
+// Regression: a network removed from its real site must NOT keep being advertised
+// just because a road-warrior CLIENT still lists it in its reach-list. Before the
+// fix, allSiteNets unioned EVERY link's importedNetworks (incl. clients), so a
+// phone/laptop wanting to reach 192.168.10.0/24 re-exported it to every gateway.
+test("_collectSiteNetworks excludes client (road-warrior) reach-lists", () => {
+	const links = {
+		home: { name: "Floppy Home", type: "site-to-site", importedNetworks: ["192.168.11.0/24"] },
+		phone: { name: "iPhone Floppy", type: "client", exportedNetworks: [], importedNetworks: ["192.168.10.0/24", "192.168.11.0/24"] },
+		laptop: { name: "Floppy Lappi", type: "client", importedNetworks: ["192.168.10.0/24", "10.10.0.0/24"] },
+	};
+	const nets = _collectSiteNetworks(links);
+	assert.ok(!nets.has("192.168.10.0/24"), "orphaned net only wanted by clients must not be a site network");
+	assert.ok(!nets.has("10.10.0.0/24"), "tunnel subnet from a client reach-list must not leak in");
+	assert.deepEqual([...nets], ["192.168.11.0/24"]);
+});
+
+// ─── _computeOtherSiteNets (ACL resolution) ──────────────────────────────────
+
+test("_computeOtherSiteNets full mesh = all site nets except own", () => {
+	const allSiteNets = new Set(["192.168.40.0/24", "192.168.60.0/24", "192.168.11.0/24"]);
+	const ownNets = new Set(["192.168.11.0/24"]);
+	const { nets } = _computeOtherSiteNets({ allowedNetworks: null, allowedSites: null, allSiteNets, ownNets, linksByName: new Map() });
+	assert.deepEqual(nets.sort(), ["192.168.40.0/24", "192.168.60.0/24"]);
+});
+
+// Regression (Fix #4-acl): an allowed_networks ACL entry that no site exports
+// anymore must be pruned, not routed — else it blackholes silently forever.
+test("_computeOtherSiteNets intersects allowed_networks with live site nets, reports orphans", () => {
+	const allSiteNets = new Set(["192.168.20.0/24"]); // .10 was removed from its site
+	const allowedNetworks = new Set(["192.168.10.0/24", "192.168.20.0/24"]);
+	const { nets, orphans } = _computeOtherSiteNets({ allowedNetworks, allowedSites: null, allSiteNets, ownNets: new Set(), linksByName: new Map() });
+	assert.deepEqual(nets, ["192.168.20.0/24"]);
+	assert.deepEqual(orphans, ["192.168.10.0/24"]);
+});
+
+// Regression (Fix #10): a whitelisted CLIENT must not authorize a site net via
+// its reach-list — only a site-to-site link may.
+test("_computeOtherSiteNets allowed_sites ignores client links", () => {
+	const allSiteNets = new Set(["192.168.11.0/24"]);
+	const linksByName = new Map([
+		["iPhone Floppy", { name: "iPhone Floppy", type: "client", importedNetworks: ["192.168.11.0/24"] }],
+		["Floppy Home", { name: "Floppy Home", type: "site-to-site", importedNetworks: ["192.168.11.0/24"] }],
+	]);
+	const ownNets = new Set();
+	// Whitelisting only the client must NOT admit the net.
+	const viaClient = _computeOtherSiteNets({ allowedNetworks: null, allowedSites: new Set(["iPhone Floppy"]), allSiteNets, ownNets, linksByName });
+	assert.deepEqual(viaClient.nets, []);
+	// Whitelisting the real site admits it.
+	const viaSite = _computeOtherSiteNets({ allowedNetworks: null, allowedSites: new Set(["Floppy Home"]), allSiteNets, ownNets, linksByName });
+	assert.deepEqual(viaSite.nets, ["192.168.11.0/24"]);
+});
+
+// ─── sanitizeUnifiFields (config.env injection guard) ─────────────────────────
+
+test("sanitizeUnifiFields accepts clean values and a valid URL", () => {
+	const patch = {};
+	sanitizeUnifiFields({ unifi_url: "https://unifi.local:8443", unifi_user: "admin", unifi_pass: "s3cret-pw", unifi_site: "default" }, patch);
+	assert.deepEqual(patch, { unifi_url: "https://unifi.local:8443", unifi_user: "admin", unifi_pass: "s3cret-pw", unifi_site: "default" });
+});
+
+test("sanitizeUnifiFields rejects config.env injection in pass/user (quote/newline/$/backtick)", () => {
+	for (const bad of ['p@ss"\nPRIMARY_URL="http://evil', "a`reboot`", "x$(id)", "back\\slash", "line\rbreak"]) {
+		assert.throws(() => sanitizeUnifiFields({ unifi_pass: bad }, {}), /not allowed in config\.env/, `should reject ${JSON.stringify(bad)}`);
+	}
+});
+
+test("sanitizeUnifiFields rejects a non-http(s) / metacharacter unifi_url", () => {
+	assert.throws(() => sanitizeUnifiFields({ unifi_url: "file:///etc/passwd" }, {}), /valid http/);
+	assert.throws(() => sanitizeUnifiFields({ unifi_url: "https://h/$(reboot)" }, {}), /valid http/);
+});
+
+// ─── sanitizeAclNetworks canonicalization (host-bits + IPv6) ─────────────────
+
+test("sanitizeAclNetworks canonicalizes host-bits CIDRs and rejects IPv6", () => {
+	assert.deepEqual(sanitizeAclNetworks(["192.168.10.5/24"]), ["192.168.10.0/24"]);
+	assert.deepEqual(sanitizeAclNetworks(["10.1.2.3/16", "10.1.9.9/16"]), ["10.1.0.0/16"]);
+	assert.throws(() => sanitizeAclNetworks(["fd00::/64"]), /invalid CIDR/);
+});
+
+// ─── getInstallScript URL guard (RCE) ────────────────────────────────────────
+
+// Regression: public_url/tunnel_url are interpolated into double-quoted config.env
+// lines that are `source`d as root. A value with a quote + space breaks out and
+// executes as root. getInstallScript must reject it (sanitizeHubUrl, not the old
+// inline guard that missed " and whitespace). Validation runs before any DB call.
+test("getInstallScript rejects a URL that breaks out of config.env quotes", async () => {
+	await assert.rejects(
+		() => internalAgent.getInstallScript(1, 'https://a.com/x" touch /tmp/pwned "', "http://hub:3300"),
+		/public_url must be a valid http\(s\) URL/,
+	);
+	await assert.rejects(
+		() => internalAgent.getInstallScript(1, "https://ok.example", 'http://h/ "$(reboot)"'),
+		/tunnel_url must be a valid http\(s\) URL/,
+	);
+});
+
+// ─── force-set AllowedIPs producer (multi-CIDR + literal header) ──────────────
+
+// Regression: the awk producer used ai=$3 (only the FIRST CIDR + trailing comma)
+// and /^[Peer]/ (a char class, not the header), so multi-CIDR peers got a broken
+// `wg set allowed-ips`. Must join ALL CIDRs and match a literal [Peer] header.
+test("buildLoopScript force-set producer joins all CIDRs and matches a literal [Peer] header", () => {
+	const script = buildLoopScript("native");
+	assert.ok(script.includes('$1=="[Peer]"'), "literal [Peer] header match");
+	assert.ok(script.includes("for(i=3;i<=NF;i++)ai=ai $i"), "concatenate all CIDR fields, not just $3");
+	assert.ok(!script.includes("/^[Peer]/"), "must not use the buggy regex char class");
+});
+
+// ─── sync_routes overlap guard (Fix #7) ──────────────────────────────────────
+
+test("buildLoopScript installs a real CIDR overlap guard (not exact-match only)", () => {
+	const script = buildLoopScript("native");
+	assert.ok(script.includes("_net_overlaps"), "must define/use the overlap helper");
+	assert.ok(script.includes("ipaddress.ip_network") && script.includes(".overlaps("), "must use real CIDR containment, not grep -qxF alone");
+});
+
+// Regression (Gap #1): the syncconf grep fallback must tolerate the "Address = "
+// spacing — an anchored "^Address=" never matches the real " = " format, so the
+// fallback would feed wg-quick directives to `wg syncconf` and fail (peer removal
+// included) on agents whose wireguard-tools lacks `wg-quick strip`.
+test("buildLoopScript native syncconf fallback strips wg-quick keys with spaced '='", () => {
+	const script = buildLoopScript("native");
+	assert.ok(script.includes("PreDown)[[:space:]]*="), "grep fallback must allow whitespace before '='");
+});
+
+// Regression (Gap #7): the UniFi apply path only ever ADDED firewall rules. A net
+// removed from allowed_ips must also drop its FG-WG-* accept rule, mirroring the
+// native sync_routes stale-route reconciler.
+test("buildLoopScript unifi prunes stale FG-WG firewall rules on removal", () => {
+	const script = buildLoopScript("unifi");
+	assert.ok(script.includes("Removed stale FloppyGuard firewall rule"), "unifi apply must delete stale firewall rules");
+	assert.ok(script.includes("name[6:] not in keep"), "must keep only rules whose net is still in allowed_ips");
+});
+
+// ─── _computeHubPeerAllowedIPs ───────────────────────────────────────────────
+
+test("_computeHubPeerAllowedIPs keeps tunnel subnet + allowed site networks, sorted/deduped", () => {
+	const result = _computeHubPeerAllowedIPs("10.10.0.0/24", ["192.168.40.0/24", "192.168.10.0/24", "10.10.0.0/24"]);
+	assert.deepEqual(result, ["10.10.0.0/24", "192.168.10.0/24", "192.168.40.0/24"]);
+});
+
+// Regression: removing a network from a link must propagate to remote agents.
+// A network that is no longer in otherSiteNets must NOT survive just because it
+// was in the agent's previous AllowedIPs. Before the fix, the old wgSpecific
+// merge preserved any current entry not present in allSiteNets, so a removed
+// network stuck in AllowedIPs forever and the removal never reached the agent.
+test("_computeHubPeerAllowedIPs prunes a removed network (does not preserve stale config entries)", () => {
+	// "floppy office" used to export 192.168.10.0/24; the user removed it, so it
+	// is gone from otherSiteNets. The agent's config still lists it, but the
+	// authoritative result must drop it.
+	const otherSiteNetsAfterRemoval = ["192.168.40.0/24"];
+	const result = _computeHubPeerAllowedIPs("10.10.0.0/24", otherSiteNetsAfterRemoval);
+	assert.ok(!result.includes("192.168.10.0/24"), "removed network must be pruned from AllowedIPs");
+	assert.deepEqual(result, ["10.10.0.0/24", "192.168.40.0/24"]);
+});
+
 // ─── _parseAllowedSites ──────────────────────────────────────────────────────
 
 test("_parseAllowedSites returns null for empty/null input (full mesh)", () => {
@@ -289,6 +464,22 @@ test("buildLoopScript verifies a hub URL is reachable before adopting it, and up
 	// upsert appends the line if missing instead of silently no-op'ing
 	assert.match(script, /upsert_env\(\)/);
 	assert.match(script, /printf '%s="%s"/);
+});
+
+// Regression: apply_config must substitute the wg-quick placeholder %i with the
+// real interface BEFORE eval'ing PostUp/PostDown. Eval'ing the raw strings left
+// %i literal, so every "iptables ... -o %i" silently failed and MASQUERADE rules
+// of removed networks were never cleaned up (routes were fine — sync_routes uses
+// $iface). See CHANGELOG 1.3.17.
+test("buildLoopScript substitutes %i -> $iface before eval'ing PostUp/PostDown", () => {
+	const script = buildLoopScript("native");
+	assert.ok(
+		script.includes('sed "s/%i/$iface/g"'),
+		"apply_config must replace %i with $iface before eval",
+	);
+	// Guard against regressing to a bare eval of the raw rule strings.
+	assert.ok(!/eval "\$old_postdown" 2>/.test(script), "must not eval old_postdown with literal %i");
+	assert.ok(!/eval "\$new_postup" 2>/.test(script), "must not eval new_postup with literal %i");
 });
 
 test("sanitizeAclSites coerces to trimmed non-empty strings, no CIDR check", () => {

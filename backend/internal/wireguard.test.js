@@ -4,7 +4,9 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+	_buildPeerUpdates,
 	buildLinkRecord,
+	canonicalizeIpv4Network,
 	buildRouteAnalysis,
 	buildTopology,
 	classifyLinkType,
@@ -15,6 +17,54 @@ import {
 	sanitizeInterfaceMetadata,
 	sanitizeLinkMetadata,
 } from "./wireguard.js";
+
+// ─── canonicalizeIpv4Network (host-bits masking + IPv6 rejection) ────────────
+
+test("canonicalizeIpv4Network masks host bits and rejects IPv6 / out-of-range / no-prefix", () => {
+	assert.equal(canonicalizeIpv4Network("192.168.10.1/24"), "192.168.10.0/24");
+	assert.equal(canonicalizeIpv4Network("10.5.5.5/8"), "10.0.0.0/8");
+	assert.equal(canonicalizeIpv4Network("192.168.10.0/24"), "192.168.10.0/24");
+	assert.equal(canonicalizeIpv4Network(" 172.16.4.9/12 "), "172.16.0.0/12");
+	assert.equal(canonicalizeIpv4Network("fd00:50::/64"), null, "IPv6 rejected — mesh routes IPv4 site nets only");
+	assert.equal(canonicalizeIpv4Network("999.0.0.0/8"), null, "out-of-range octet");
+	assert.equal(canonicalizeIpv4Network("10.0.0.0/33"), null, "bad prefix");
+	assert.equal(canonicalizeIpv4Network("10.0.0.0"), null, "missing prefix");
+});
+
+// ─── _buildPeerUpdates (hub-side AllowedIPs recompute) ───────────────────────
+
+// Regression (Fix #5): an untyped single-subnet site link must NOT be degraded to
+// "client" by the ≤1-route heuristic — that would strip its LAN from the hub peer
+// while agent-side _collectSiteNetworks keeps advertising it (split-brain).
+test("_buildPeerUpdates keeps an untyped single-subnet link as a site (no strip)", () => {
+	const peerMap = new Map([["PK1", ["10.10.0.6/32", "192.168.60.0/24"]]]);
+	const linksMeta = { "wg0:PK1": { name: "X", importedNetworks: ["192.168.60.0/24"] } }; // no type
+	const updates = _buildPeerUpdates(peerMap, linksMeta, "wg0");
+	assert.ok(!updates.has("PK1"), "untyped site must keep its subnet (no update)");
+});
+
+test("_buildPeerUpdates strips an EXPLICIT client to host routes only", () => {
+	const peerMap = new Map([["PK1", ["10.10.0.6/32", "192.168.60.0/24"]]]);
+	const linksMeta = { "wg0:PK1": { name: "X", type: "client", importedNetworks: ["192.168.60.0/24"] } };
+	const updates = _buildPeerUpdates(peerMap, linksMeta, "wg0");
+	assert.deepEqual(updates.get("PK1"), ["10.10.0.6/32"]);
+});
+
+// Regression (Fix #4): emptying importedNetworks to [] must DROP the subnet hub-side
+// (authoritative), not fall back to the conf's current CIDRs and re-inject it.
+test("_buildPeerUpdates drops the subnet when importedNetworks is explicitly empty", () => {
+	const peerMap = new Map([["PK1", ["10.10.0.5/32", "192.168.50.0/24"]]]);
+	const linksMeta = { "wg0:PK1": { name: "X", type: "site-to-site", importedNetworks: [] } };
+	const updates = _buildPeerUpdates(peerMap, linksMeta, "wg0");
+	assert.deepEqual(updates.get("PK1"), ["10.10.0.5/32"]);
+});
+
+test("_buildPeerUpdates preserves conf CIDRs when metadata has NO importedNetworks key", () => {
+	const peerMap = new Map([["PK1", ["10.10.0.5/32", "192.168.50.0/24"]]]);
+	const linksMeta = { "wg0:PK1": { name: "X", type: "site-to-site" } }; // legacy/unmanaged
+	const updates = _buildPeerUpdates(peerMap, linksMeta, "wg0");
+	assert.ok(!updates.has("PK1"), "absent key = legacy → preserve existing non-host CIDRs");
+});
 
 async function withWireGuardEnv(env, suffix, fn) {
 	const previous = {
@@ -90,7 +140,8 @@ test("normalize and sanitize metadata keep the canonical wireguard vocabulary", 
 
 test("network metadata rejects shell-injection and malformed CIDR values", () => {
 	// Network fields flow into `ip route add <net>` PostUp shell strings executed
-	// as root, so anything that isn't a clean IPv4/IPv6 address or CIDR is dropped.
+	// as root, so anything that isn't a clean IPv4 CIDR is dropped (IPv6 site nets
+	// are out of scope) and host bits are masked to the network address.
 	const link = sanitizeLinkMetadata({
 		type: "site-to-site",
 		exportedNetworks: [
@@ -101,11 +152,12 @@ test("network metadata rejects shell-injection and malformed CIDR values", () =>
 			"`id`", // injection — dropped
 			"-x", // flag injection — dropped
 			"999.1.1.1/24", // octet > 255 — dropped
-			"fd00::/64", // valid IPv6 — kept
+			"fd00::/64", // IPv6 — dropped (mesh routes IPv4 site networks only)
+			"10.0.0.5/24", // host bits set — canonicalized to 10.0.0.0/24 (deduped)
 		],
 		importedNetworks: ["192.168.50.0/24", "not a cidr"],
 	});
-	assert.deepEqual(link.exportedNetworks, ["10.0.0.0/24", "fd00::/64"]);
+	assert.deepEqual(link.exportedNetworks, ["10.0.0.0/24"]);
 	assert.deepEqual(link.importedNetworks, ["192.168.50.0/24"]);
 
 	const iface = sanitizeInterfaceMetadata({

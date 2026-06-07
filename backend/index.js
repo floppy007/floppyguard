@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import app from "./app.js";
+import internalAgent from "./internal/agent.js";
 import internalCertificate from "./internal/certificate.js";
 import internalIpRanges from "./internal/ip_ranges.js";
 import { global as logger } from "./logger.js";
@@ -34,6 +35,7 @@ async function appStart() {
 			startAttempt = 0;
 			internalCertificate.initTimer();
 			internalIpRanges.initTimer();
+			internalAgent.startBackgroundTasks();
 
 			const server = app.listen(PORT, () => {
 				logger.info(`Backend PID ${process.pid} listening on port ${PORT} ...`);
