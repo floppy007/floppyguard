@@ -26,7 +26,7 @@ const hashConfig = (text) => {
 	return createHash("sha256").update(text).digest("hex");
 };
 
-const AGENT_SCRIPT_VERSION = "1.3.22";
+const AGENT_SCRIPT_VERSION = "1.3.23";
 
 /** Setting key holding the hub URLs propagated to agents. */
 const AGENT_HUB_URL_SETTING = "agent-hub-url";
