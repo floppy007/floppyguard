@@ -6,7 +6,7 @@ import requireAdmin from "../lib/express/require-admin.js";
 import rateLimit from "../lib/express/rate-limit.js";
 import { debug, express as logger } from "../logger.js";
 
-const agentLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10 });
+const agentLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, bucket: "agent" });
 
 const router = express.Router({ caseSensitive: true, strict: true, mergeParams: true });
 

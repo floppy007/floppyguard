@@ -3,6 +3,7 @@ import path from "node:path";
 import internalWireGuard, {
 	buildRouteAnalysis,
 	buildTopology,
+	clearPeerConfigCache,
 	dedupe,
 	deriveGlobalNextActions,
 	deriveGlobalWarnings,
@@ -13,6 +14,7 @@ import internalWireGuard, {
 	sanitizeInterfaceMetadataPatch,
 	sanitizeLinkMetadataPatch,
 	syncHubConf,
+	withWriteLock,
 } from "./wireguard.js";
 
 function getApplyAuditFile() {
@@ -361,6 +363,9 @@ async function applyMetadata(patch = {}) {
 	const currentMetadata = (await internalWireGuard.getStatus()).metadata || { interfaces: {}, links: {} };
 	const backupPath = await internalWireGuard.backupMetadataStore(currentMetadata);
 	const metadata = await internalWireGuard.applyMetadataPatch(preview.patch);
+	// The patch may have changed link AllowedIPs/DNS/full-tunnel; invalidate any cached
+	// peer configs so a prior Download/QR isn't re-served stale on the next download.
+	clearPeerConfigCache();
 
 	// Sync ALL WG interfaces' conf files from the new metadata.
 	// Also sync agent config_text so remote gateways pick up routing changes on next poll.
@@ -379,8 +384,15 @@ async function applyMetadata(patch = {}) {
 			hubSync = { synced: false, reason: err.message };
 		}
 		try {
-			const { default: internalAgent } = await import("./agent.js");
-			agentSync = await internalAgent.syncAgentConfigs(metadata);
+			// Run the agent resync under the write lock on FRESHLY-read metadata so a
+			// concurrent mutation's sync (built from an older snapshot) can never land
+			// last and overwrite this apply with a stale config that re-advertises a
+			// removed network fleet-wide. Mirrors deletePeer/updatePeer in wireguard.js.
+			agentSync = await withWriteLock(async () => {
+				const { default: internalAgent } = await import("./agent.js");
+				const fresh = await internalWireGuard.readMetadataStore();
+				return internalAgent.syncAgentConfigs(fresh);
+			});
 		} catch (err) {
 			agentSync = { error: err.message };
 		}
@@ -421,15 +433,52 @@ async function restoreMetadataBackup(backupPath) {
 	const restoreSource = JSON.parse(restoreSourceRaw);
 	const currentMetadata = (await internalWireGuard.getStatus()).metadata || { interfaces: {}, links: {} };
 	const preRestoreBackupPath = await internalWireGuard.backupMetadataStore(currentMetadata);
-	await internalWireGuard.writeMetadataStore({
+	// Replace the store under the module write lock: a raw writeMetadataStore here
+	// could be silently overwritten by a concurrent locked read-modify-write that
+	// read the pre-restore store (the lost-update race mutateMetadataStore guards
+	// against), wiping the restore.
+	const restoredMetadata = await internalWireGuard.replaceMetadataStore({
 		interfaces: restoreSource.interfaces || {},
 		links: restoreSource.links || {},
 	});
+	// Restoring rolls link AllowedIPs/DNS/full-tunnel back; invalidate any cached peer
+	// configs so a prior Download/QR isn't re-served stale on the next download.
+	clearPeerConfigCache();
+
+	// Sync hub conf for every interface plus agent config_text from the restored
+	// metadata, mirroring applyMetadata's config-intent path. Without this, wg0.conf
+	// AllowedIPs/PostUp, live wg peers, kernel routes, and agent configs would keep
+	// reflecting the pre-restore state even though the UI reports the rollback applied.
+	let hubSync = null;
+	let agentSync = null;
+	try {
+		const confNames = ((await internalWireGuard.getStatus()).interfaces || []).map((i) => i.name);
+		hubSync = {};
+		for (const ifName of confNames) {
+			hubSync[ifName] = await syncHubConf(restoredMetadata, ifName);
+		}
+	} catch (err) {
+		hubSync = { synced: false, reason: err.message };
+	}
+	try {
+		// Run the agent resync under the write lock on FRESHLY-read metadata so a
+		// concurrent mutation's sync (built from an older snapshot) can never land
+		// last and overwrite this restore with a stale config that re-advertises a
+		// removed network fleet-wide. Mirrors deletePeer/updatePeer in wireguard.js.
+		agentSync = await withWriteLock(async () => {
+			const { default: internalAgent } = await import("./agent.js");
+			const fresh = await internalWireGuard.readMetadataStore();
+			return internalAgent.syncAgentConfigs(fresh);
+		});
+	} catch (err) {
+		agentSync = { error: err.message };
+	}
+
 	const status = await internalWireGuard.getStatus();
 	const auditEntry = await appendApplyAudit({
 		at: new Date().toISOString(),
 		backupPath: preRestoreBackupPath,
-		changeScope: "metadata-only",
+		changeScope: "metadata-with-config-intent",
 		changeCount: 0,
 		patchSummary: {
 			interfaceTargets: Object.keys(restoreSource.interfaces || {}),
@@ -437,6 +486,7 @@ async function restoreMetadataBackup(backupPath) {
 		},
 		action: "restore-backup",
 		restoredFrom: selectedBackup.path,
+		hubSync,
 	});
 
 	return {
@@ -444,6 +494,8 @@ async function restoreMetadataBackup(backupPath) {
 		restoredFrom: selectedBackup.path,
 		backupPath: preRestoreBackupPath,
 		auditEntry,
+		hubSync,
+		agentSync,
 		metadata: status.metadata || { interfaces: {}, links: {} },
 		status,
 	};

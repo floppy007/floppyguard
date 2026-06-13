@@ -98,4 +98,49 @@ describe("Gateway page", () => {
 		expect(screen.getAllByText("Return path missing").length).toBeGreaterThan(0);
 		expect(screen.getAllByText("Validate").length).toBeGreaterThan(0);
 	});
+
+	it("falls back to live peer networks when no exported networks are modeled", () => {
+		statusMock.mockReturnValue({
+			data: {
+				...buildStatus(),
+				interfaces: [
+					{
+						name: "wg1",
+						active: true,
+						role: "hub" as const,
+						peerNetworks: ["192.168.50.0/24"],
+						exportedNetworks: [],
+					},
+				],
+			},
+			isLoading: false,
+			isError: false,
+			error: null,
+		});
+		render(<Gateway />);
+		expect(screen.getByText("192.168.50.0/24")).toBeTruthy();
+	});
+
+	it("prefers modeled exported networks over live peer networks", () => {
+		statusMock.mockReturnValue({
+			data: {
+				...buildStatus(),
+				interfaces: [
+					{
+						name: "wg1",
+						active: true,
+						role: "hub" as const,
+						peerNetworks: ["192.168.60.0/24"],
+						exportedNetworks: ["10.10.0.0/24"],
+					},
+				],
+			},
+			isLoading: false,
+			isError: false,
+			error: null,
+		});
+		render(<Gateway />);
+		expect(screen.getByText("10.10.0.0/24")).toBeTruthy();
+		expect(screen.queryByText("192.168.60.0/24")).toBeNull();
+	});
 });

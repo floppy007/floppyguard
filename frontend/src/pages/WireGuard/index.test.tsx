@@ -34,7 +34,7 @@ vi.mock("src/hooks", () => ({
 	useUpdateAgent: () => updateAgentMock(),
 	useCreateWireGuardPeer: () => createPeerMock(),
 	useSetting: () => ({ data: { value: "https://proxy.comnic.de", meta: { primary: "http://10.10.0.1:3300" } } }),
-	useSetSetting: () => ({ mutate: vi.fn(), isPending: false }),
+	useSetSetting: () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null, reset: vi.fn() }),
 }));
 
 const buildStatus = () => ({
@@ -443,15 +443,21 @@ describe("WireGuard page", () => {
 			data: [],
 			isLoading: false,
 			isError: false,
+			isSuccess: true,
 			error: null,
 		});
 		createAgentMock.mockReturnValue({
+			mutate: vi.fn(),
 			mutateAsync: vi.fn(),
 			isPending: false,
 		});
 		updateAgentMock.mockReturnValue({
+			mutate: vi.fn(),
 			mutateAsync: vi.fn(),
 			isPending: false,
+			isError: false,
+			error: null,
+			reset: vi.fn(),
 		});
 		createPeerMock.mockReturnValue({
 			mutateAsync: vi.fn(),
@@ -654,5 +660,72 @@ describe("WireGuard page", () => {
 		);
 		// Success message from intl: "Metadata restored from backup."
 		expect(screen.getAllByText(/Metadata restored from backup/).length).toBeGreaterThan(0);
+	});
+
+	const buildAgentLinkStatus = () => {
+		const status = buildStatus();
+		return {
+			...status,
+			links: [{ ...status.links[0], remoteManagementMode: "agent" as const }],
+		};
+	};
+
+	it("does not auto-create an agent while the agents query has not resolved", () => {
+		statusMock.mockReturnValue({ data: buildAgentLinkStatus(), isLoading: false, isError: false, error: null });
+		agentsMock.mockReturnValue({ data: undefined, isLoading: true, isError: false, isSuccess: false, error: null });
+		const createMutation = vi.fn();
+		createAgentMock.mockReturnValue({ mutate: createMutation, mutateAsync: vi.fn(), isPending: false });
+
+		render(<WireGuard />, { wrapper: createWrapper() });
+		fireEvent.click(screen.getAllByRole("button", { name: /Links/ })[0]);
+		fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+		expect(createMutation).not.toHaveBeenCalled();
+	});
+
+	it("auto-creates an agent once the agents query resolved without a match", async () => {
+		statusMock.mockReturnValue({ data: buildAgentLinkStatus(), isLoading: false, isError: false, error: null });
+		const createMutation = vi.fn();
+		createAgentMock.mockReturnValue({ mutate: createMutation, mutateAsync: vi.fn(), isPending: false });
+
+		render(<WireGuard />, { wrapper: createWrapper() });
+		fireEvent.click(screen.getAllByRole("button", { name: /Links/ })[0]);
+		fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+		await waitFor(() => expect(createMutation).toHaveBeenCalledTimes(1));
+		expect(createMutation).toHaveBeenCalledWith(
+			{ name: "site-a", mode: "native", wgInterface: "wg1", wgLinkName: "site-a" },
+			expect.anything(),
+		);
+	});
+
+	it("renders only http(s) agent service URLs as links", () => {
+		agentsMock.mockReturnValue({
+			data: [
+				{
+					id: 1,
+					name: "site-a",
+					wgLinkName: "site-a",
+					hostname: "remote-box",
+					status: "active",
+					agentVersion: "1.3.21",
+					mgmtUrl: null,
+					services: [
+						{ name: "Evil", url: "javascript:alert(1)" },
+						{ name: "Good", url: "http://192.168.10.7:8080" },
+					],
+					allowedNetworks: null,
+					allowedSites: null,
+				},
+			],
+			isLoading: false,
+			isError: false,
+			isSuccess: true,
+			error: null,
+		});
+
+		render(<WireGuard />, { wrapper: createWrapper() });
+		fireEvent.click(screen.getAllByRole("button", { name: /Links/ })[0]);
+		// The http service is rendered as a link, the javascript: one is dropped
+		expect(screen.getByText(/Good/)).toBeTruthy();
+		expect(screen.queryByText(/Evil/)).toBeNull();
 	});
 });

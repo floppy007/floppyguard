@@ -33,8 +33,10 @@ function getDb() {
  * @param {object} opts
  * @param {number} opts.windowMs - Time window in milliseconds (default: 15 min)
  * @param {number} opts.max      - Max requests per window (default: 15)
+ * @param {string} opts.bucket   - Namespace isolating this limiter from others
+ *                                 that share the same windowMs (default: "default")
  */
-export default function rateLimit({ windowMs = 15 * 60 * 1000, max = 15 } = {}) {
+export default function rateLimit({ windowMs = 15 * 60 * 1000, max = 15, bucket = "default" } = {}) {
 	const database = getDb();
 
 	const upsertStmt = database.prepare(`
@@ -57,10 +59,13 @@ export default function rateLimit({ windowMs = 15 * 60 * 1000, max = 15 } = {}) 
 
 	return (req, res, next) => {
 		const ip = req.ip || req.connection?.remoteAddress || "unknown";
+		// Namespace the key by bucket so limiters with an identical windowMs
+		// (and therefore identical window_key) don't share one per-IP counter.
+		const key = `${bucket}:${ip}`;
 		const windowKey = Math.floor(Date.now() / windowMs);
 
-		upsertStmt.run(ip, windowKey);
-		const row = selectStmt.get(ip, windowKey);
+		upsertStmt.run(key, windowKey);
+		const row = selectStmt.get(key, windowKey);
 		const count = row?.count || 1;
 
 		res.set("X-RateLimit-Limit", String(max));

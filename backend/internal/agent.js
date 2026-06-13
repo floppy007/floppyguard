@@ -26,7 +26,7 @@ const hashConfig = (text) => {
 	return createHash("sha256").update(text).digest("hex");
 };
 
-const AGENT_SCRIPT_VERSION = "1.3.21";
+const AGENT_SCRIPT_VERSION = "1.3.22";
 
 /** Setting key holding the hub URLs propagated to agents. */
 const AGENT_HUB_URL_SETTING = "agent-hub-url";
@@ -84,6 +84,31 @@ function sanitizeUnifiFields(data, patch) {
 		}
 		patch[f] = s;
 	}
+}
+
+// `mode` and `wg_interface` are interpolated into the same root-sourced
+// config.env heredoc (AGENT_MODE="..." / WG_INTERFACE="...") in
+// getInstallScript — the JS template substitutes the value BEFORE the
+// single-quoted heredoc is written, so a quote+newline closes the assignment
+// and injects arbitrary lines, exactly the sink sanitizeUnifiFields guards.
+// wg_interface additionally flows into `wg-quick up "$iface"` and the path
+// /etc/wireguard/$iface.conf on the agent. Whitelist both before storage.
+const VALID_AGENT_MODES = ["native", "unifi"];
+// Mirrors VALID_IFACE_NAME in wireguard.js.
+const VALID_WG_INTERFACE_RE = /^wg\d{1,3}$/;
+function sanitizeAgentMode(mode) {
+	const m = mode || "native";
+	if (!VALID_AGENT_MODES.includes(m)) {
+		throw new error.ValidationError(`mode must be one of: ${VALID_AGENT_MODES.join(", ")}`);
+	}
+	return m;
+}
+function sanitizeWgInterface(name) {
+	const n = name || "wg0";
+	if (typeof n !== "string" || !VALID_WG_INTERFACE_RE.test(n)) {
+		throw new error.ValidationError('wg_interface must match wg<number>, e.g. "wg0"');
+	}
+	return n;
 }
 
 /**
@@ -149,6 +174,35 @@ const parseAgentServices = (agent) => {
 		}
 	}
 	return agent;
+};
+
+// Heartbeat `services` come straight from the remote agent's POST body and are
+// rendered in the admin UI as clickable links (<a href={svc.url}>{svc.name}</a>).
+// A compromised agent (or anyone holding an agent_token) must not be able to
+// store javascript: URLs, phishing targets on exotic schemes, or unbounded
+// payloads. Keep only entries with a string name and a plain http(s) URL;
+// drop everything else. (scanAllAgentServices derives its URLs server-side
+// and doesn't need this.)
+const MAX_AGENT_SERVICES = 50;
+const sanitizeAgentServices = (value) => {
+	if (!Array.isArray(value)) return [];
+	const out = [];
+	for (const entry of value) {
+		if (out.length >= MAX_AGENT_SERVICES) break;
+		if (!entry || typeof entry !== "object") continue;
+		if (typeof entry.name !== "string" || typeof entry.url !== "string") continue;
+		const name = entry.name.trim().slice(0, 100);
+		const url = entry.url.trim().slice(0, 255);
+		if (!name || !url) continue;
+		try {
+			const parsed = new URL(url);
+			if (!["http:", "https:"].includes(parsed.protocol)) continue;
+		} catch {
+			continue;
+		}
+		out.push({ name, url });
+	}
+	return out;
 };
 
 // Known port → default label
@@ -440,6 +494,27 @@ const extractIpFromText = (text) => {
 };
 
 /**
+ * True only for a syntactically valid RFC1918 private IPv4 address
+ * (10/8, 172.16/12, 192.168/16). The service-discovery scanner derives its
+ * target from agent-controlled heartbeat input (hostname/lan_ip), so an
+ * agent_token holder must not be able to point the hub's TCP probe + curl at
+ * loopback, link-local (169.254 cloud metadata), or arbitrary public hosts —
+ * an SSRF the agent could not otherwise reach from the hub's network position.
+ */
+const isPrivateIpv4 = (ip) => {
+	if (typeof ip !== "string") return false;
+	const m = ip.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+	if (!m) return false;
+	const octets = m.slice(1, 5).map(Number);
+	if (octets.some((n) => n > 255)) return false;
+	const [a, b] = octets;
+	if (a === 10) return true;
+	if (a === 172 && b >= 16 && b <= 31) return true;
+	if (a === 192 && b === 168) return true;
+	return false;
+};
+
+/**
  * Scan all active agents and update their services field.
  * Called on startup and once daily.
  */
@@ -450,7 +525,13 @@ const scanAllAgentServices = async () => {
 		// Only use WireGuard IP as fallback if no LAN IP found.
 		const lanIp = extractIpFromText(agent.hostname) || extractIpFromText(agent.name);
 		const wgIp = extractWgIp(agent.config_text);
-		const scanIps = lanIp ? [lanIp] : wgIp ? [wgIp] : [];
+		// Defense-in-depth SSRF guard: lanIp is derived from agent-controlled
+		// heartbeat input (hostname/lan_ip), so only ever probe/curl an RFC1918
+		// private target — never loopback, link-local (cloud metadata), or a
+		// public host on the hub's (more privileged) network. Prefer the LAN IP,
+		// fall back to the WireGuard IP, drop anything non-private.
+		const target = [lanIp, wgIp].find((ip) => isPrivateIpv4(ip));
+		const scanIps = target ? [target] : [];
 		if (scanIps.length === 0) continue;
 		try {
 			// Scan all candidate IPs, merge results (prefer LAN IP URLs)
@@ -815,6 +896,13 @@ for item in data.get('data', []):
 	return `#!/bin/bash
 set -euo pipefail
 source /etc/floppyguard-agent/config.env
+# Default the UniFi vars so a unifi-built script self-updated onto a native
+# agent's config.env (which never had them written) does not abort under set -u
+# and crash-loop via systemd. Missing creds just fail unifi_login gracefully.
+: "\${UNIFI_URL:=}"
+: "\${UNIFI_USER:=}"
+: "\${UNIFI_PASS:=}"
+: "\${UNIFI_SITE:=default}"
 
 SCRIPT_VERSION="${AGENT_SCRIPT_VERSION}"
 HASH_FILE="/var/lib/floppyguard-agent/last_hash"
@@ -1069,6 +1157,7 @@ const internalAgent = {
 				"agent_version",
 				"allowed_sites",
 				"allowed_networks",
+				"last_server_url",
 				"created_on",
 				"modified_on",
 			)
@@ -1102,6 +1191,7 @@ const internalAgent = {
 				"agent_version",
 				"allowed_sites",
 				"allowed_networks",
+				"last_server_url",
 				"created_on",
 				"modified_on",
 			)
@@ -1140,11 +1230,11 @@ const internalAgent = {
 
 		const agent = await Agent.query().insertAndFetch({
 			name: data.name,
-			mode: data.mode || "native",
+			mode: sanitizeAgentMode(data.mode),
 			reg_token,
 			agent_token: null,
 			hostname: data.hostname || null,
-			wg_interface: data.wg_interface || "wg0",
+			wg_interface: sanitizeWgInterface(data.wg_interface),
 			config_text: data.config_text || null,
 			config_hash,
 			mgmt_url: data.mgmt_url || null,
@@ -1192,9 +1282,9 @@ const internalAgent = {
 			patch.name = data.name;
 		}
 		if (typeof data.wg_interface !== "undefined") {
-			patch.wg_interface = data.wg_interface;
+			patch.wg_interface = sanitizeWgInterface(data.wg_interface);
 		}
-		if (typeof data.mode !== "undefined") patch.mode = data.mode;
+		if (typeof data.mode !== "undefined") patch.mode = sanitizeAgentMode(data.mode);
 		if (typeof data.config_text !== "undefined") {
 			patch.config_text = data.config_text;
 			patch.config_hash = hashConfig(data.config_text);
@@ -1225,8 +1315,17 @@ const internalAgent = {
 		// poll. Best-effort: never fail the update if the sync hiccups.
 		if (needsResync) {
 			try {
-				const metadata = await internalWireGuard.readMetadataStore();
-				await this.syncAgentConfigs(metadata);
+				// Read-recompute-write must be atomic w.r.t. concurrent peer
+				// mutations. syncAgentConfigs rewrites EVERY agent's stored config
+				// from the metadata snapshot, so an unlocked read could grab a
+				// pre-delete snapshot and land last, re-advertising a just-removed
+				// network fleet-wide (re-granting revoked cross-site access). Hold
+				// the same write lock every other syncAgentConfigs caller takes
+				// (createPeer/deletePeer/reconciler).
+				await withWriteLock(async () => {
+					const metadata = await internalWireGuard.readMetadataStore();
+					await this.syncAgentConfigs(metadata);
+				});
 			} catch (err) {
 				// Sync is best-effort; the next metadata apply will reconcile. Log it
 				// so a poisoned sibling ACL (which makes syncAgentConfigs throw) is
@@ -1355,12 +1454,22 @@ const internalAgent = {
 		}
 
 		const regToken = agent.reg_token || "";
-		const wgInterface = agent.wg_interface || "wg0";
-		const mode = agent.mode || "native";
-		const unifiUrl = agent.unifi_url || "";
-		const unifiUser = agent.unifi_user || "";
-		const unifiPass = agent.unifi_pass || "";
-		const unifiSite = agent.unifi_site || "default";
+		// Re-validate at the sink: these are interpolated into the root-sourced
+		// config.env heredoc below, so a poisoned row (pre-validation data) must
+		// never reach it. create()/update() enforce the same whitelist on write.
+		const wgInterface = sanitizeWgInterface(agent.wg_interface);
+		const mode = sanitizeAgentMode(agent.mode);
+		// Re-validate the UniFi fields at the sink too: they are interpolated raw
+		// into the same root-sourced config.env heredoc (UNIFI_PASS="...") and a
+		// legacy row written before sanitizeUnifiFields existed (pre-v1.3.21) may
+		// carry a quote/newline/$/backtick that closes the assignment and injects
+		// shell as root. sanitizeUnifiFields throws on such a poisoned row.
+		const unifiPatch = {};
+		sanitizeUnifiFields(agent, unifiPatch);
+		const unifiUrl = unifiPatch.unifi_url || "";
+		const unifiUser = unifiPatch.unifi_user || "";
+		const unifiPass = unifiPatch.unifi_pass || "";
+		const unifiSite = unifiPatch.unifi_site || "default";
 
 		// Extra env vars for UniFi mode
 		const unifiEnvLines =
@@ -1469,7 +1578,12 @@ echo "[floppyguard-agent]   journalctl -u floppyguard-agent -f"
 	// ─── Agent methods (agent-token-authenticated) ──────────────────────────────
 
 	/**
-	 * Exchanges a reg_token for a permanent agent_token. Nulls reg_token after use.
+	 * Exchanges a reg_token for a permanent agent_token. Idempotent: a repeat
+	 * register with the same reg_token returns the already-issued agent_token,
+	 * so a lost HTTP response doesn't brick the agent (the loop's register-retry
+	 * resends the same reg_token). The reg_token is only retired once the agent
+	 * proves receipt by authenticating with the agent_token (see getConfig), or
+	 * via an admin resetToken().
 	 * Returns { agent_token, config_hash }.
 	 *
 	 * @param {string} regToken
@@ -1482,13 +1596,14 @@ echo "[floppyguard-agent]   journalctl -u floppyguard-agent -f"
 			throw new error.AuthError("Invalid registration token", "error.auth");
 		}
 
-		const agent_token = randomToken(32);
-
-		await Agent.query().patchAndFetchById(agent.id, {
-			agent_token,
-			reg_token: null,
-			status: "active",
-		});
+		let agent_token = agent.agent_token;
+		if (!agent_token) {
+			agent_token = randomToken(32);
+			await Agent.query().patchAndFetchById(agent.id, {
+				agent_token,
+				status: "active",
+			});
+		}
 
 		return {
 			agent_token,
@@ -1508,6 +1623,14 @@ echo "[floppyguard-agent]   journalctl -u floppyguard-agent -f"
 
 		if (!agent) {
 			throw new error.AuthError("Invalid agent token", "error.auth");
+		}
+
+		// The agent has proven receipt of its agent_token, so the registration
+		// exchange is complete — retire the single-use reg_token now. register()
+		// keeps it valid until this point so a lost register response can be
+		// recovered by the loop's register-retry instead of bricking the agent.
+		if (agent.reg_token) {
+			await Agent.query().patchAndFetchById(agent.id, { reg_token: null });
 		}
 
 		const { primaryUrl, fallbackUrl } = await getAgentHubUrls();
@@ -1564,17 +1687,28 @@ echo "[floppyguard-agent]   journalctl -u floppyguard-agent -f"
 		};
 
 		if (data?.hostname) {
-			// Include LAN IP in hostname field if available (used for service discovery)
-			const lanIp = data.lan_ip ? ` (${data.lan_ip})` : "";
-			patch.hostname = `${data.hostname}${lanIp}`;
+			// hostname/lan_ip are agent-controlled (the route applies no schema
+			// validation) and feed the service-discovery scanner via
+			// extractIpFromText. Strip control chars, only append lan_ip when it is
+			// a syntactically valid RFC1918 private IPv4 (so a hostile value can't
+			// point the hub's scan at loopback/link-local/public hosts), and clamp
+			// to the column width (255) so an oversized value can't throw a MySQL
+			// strict-mode "Data too long" that 500s the heartbeat.
+			// biome-ignore lint/suspicious/noControlCharactersInRegex: intentional control-char strip of agent-supplied hostname
+			const host = String(data.hostname).replace(/[\u0000-\u001f\u007f]/g, "").trim();
+			const lanIp = isPrivateIpv4(data.lan_ip) ? ` (${data.lan_ip})` : "";
+			patch.hostname = `${host}${lanIp}`.slice(0, 255);
 		}
 
 		if (data && Array.isArray(data.services)) {
-			patch.services = JSON.stringify(data.services);
+			patch.services = JSON.stringify(sanitizeAgentServices(data.services));
 		}
 
 		if (data?.script_version) {
-			patch.agent_version = String(data.script_version);
+			// Clamp to the agent_version column width (32) — untrusted input under
+			// MySQL strict mode would otherwise throw "Data too long" and 500 the
+			// heartbeat, freezing this agent's last_seen/status.
+			patch.agent_version = String(data.script_version).slice(0, 32);
 		}
 
 		if (data?.server) {
@@ -1907,6 +2041,9 @@ export const _testExports = {
 	_collectSiteNetworks,
 	_computeOtherSiteNets,
 	sanitizeUnifiFields,
+	sanitizeAgentMode,
+	sanitizeWgInterface,
+	sanitizeAgentServices,
 	_parseAllowedSites,
 	assertCIDR,
 	sanitizeHubUrl,

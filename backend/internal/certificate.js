@@ -140,12 +140,8 @@ const internalCertificate = {
 				// 5. Remove LE config
 				// 6. Re-instate previously disabled hosts
 
-				// 1. Find out any hosts that are using any of the hostnames in this cert
-				const inUseResult = await internalHost.getHostsWithDomains(certificate.domain_names);
-
-				// 2. Disable them in nginx temporarily
-				await internalCertificate.disableInUseHosts(inUseResult);
-
+				// Validate the user email before touching any nginx configs, so a
+				// validation failure can't leave disabled hosts behind
 				const user = await userModel.query().where("is_deleted", 0).andWhere("id", data.owner_user_id).first();
 				if (!user?.email) {
 					throw new error.ValidationError(
@@ -153,15 +149,21 @@ const internalCertificate = {
 					);
 				}
 
+				// 1. Find out any hosts that are using any of the hostnames in this cert
+				const inUseResult = await internalHost.getHostsWithDomains(certificate.domain_names);
+
+				// 2. Disable them in nginx temporarily
+				await internalCertificate.disableInUseHosts(inUseResult);
+
 				// With DNS challenge no config is needed, so skip 3 and 5.
 				if (certificate.meta?.dns_challenge) {
 					try {
 						await internalNginx.reload();
 						// 4. Request cert
 						await internalCertificate.requestLetsEncryptSslWithDnsChallenge(certificate, user.email);
-						await internalNginx.reload();
 						// 6. Re-instate previously disabled hosts
 						await internalCertificate.enableInUseHosts(inUseResult);
+						await internalNginx.reload();
 					} catch (err) {
 						// In the event of failure, revert things and throw err back
 						await internalCertificate.enableInUseHosts(inUseResult);
@@ -173,14 +175,15 @@ const internalCertificate = {
 					try {
 						await internalNginx.generateLetsEncryptRequestConfig(certificate);
 						await internalNginx.reload();
-						setTimeout(() => {}, 5000);
+						// Give nginx a moment to finish activating the challenge config
+						await new Promise((resolve) => setTimeout(resolve, 5000));
 						// 4. Request cert
 						await internalCertificate.requestLetsEncryptSsl(certificate, user.email);
 						// 5. Remove LE config
 						await internalNginx.deleteLetsEncryptRequestConfig(certificate);
-						await internalNginx.reload();
 						// 6. Re-instate previously disabled hosts
 						await internalCertificate.enableInUseHosts(inUseResult);
+						await internalNginx.reload();
 					} catch (err) {
 						// In the event of failure, revert things and throw err back
 						await internalNginx.deleteLetsEncryptRequestConfig(certificate);
@@ -403,6 +406,24 @@ const internalCertificate = {
 
 		if (!row?.id) {
 			throw new error.ItemNotFoundError(data.id);
+		}
+
+		// Refuse to delete a certificate that hosts still reference. Revoking it with
+		// --delete-after-revoke would remove the files their nginx configs point at,
+		// making `nginx -t` fail and blocking all subsequent config operations.
+		const inUse = await certificateModel
+			.query()
+			.findById(row.id)
+			.withGraphFetched("[proxy_hosts, redirection_hosts, dead_hosts, streams]");
+		const inUseCount =
+			(inUse?.proxy_hosts?.length || 0) +
+			(inUse?.redirection_hosts?.length || 0) +
+			(inUse?.dead_hosts?.length || 0) +
+			(inUse?.streams?.length || 0);
+		if (inUseCount > 0) {
+			throw new error.ValidationError(
+				`Certificate is still in use by ${inUseCount} host${inUseCount === 1 ? "" : "s"}. Remove it from those hosts before deleting it.`,
+			);
 		}
 
 		await certificateModel.query().where("id", row.id).patch({
@@ -635,23 +656,27 @@ const internalCertificate = {
 	 */
 	checkPrivateKey: async (privateKey) => {
 		const filepath = await tempWrite(privateKey);
-		const failTimeout = setTimeout(() => {
-			throw new error.ValidationError(
-				"Result Validation Error: Validation timed out. This could be due to the key being passphrase-protected.",
-			);
-		}, 10000);
 
 		try {
-			const result = await utils.execFile("openssl", ["pkey", "-in", filepath, "-check", "-noout"]);
-			clearTimeout(failTimeout);
+			// A passphrase-protected key makes openssl block waiting for input on
+			// stdin, so kill the child and reject after 10s instead of hanging.
+			const result = await utils.execFile("openssl", ["pkey", "-in", filepath, "-check", "-noout"], {
+				timeout: 10000,
+				killSignal: "SIGKILL",
+			});
 			if (!result.toLowerCase().includes("key is valid")) {
 				throw new error.ValidationError(`Result Validation Error: ${result}`);
 			}
 			fs.unlinkSync(filepath);
 			return true;
 		} catch (err) {
-			clearTimeout(failTimeout);
 			fs.unlinkSync(filepath);
+			if (err?.previous?.killed) {
+				throw new error.ValidationError(
+					"Result Validation Error: Validation timed out. This could be due to the key being passphrase-protected.",
+					err,
+				);
+			}
 			throw new error.ValidationError(`Certificate Key is not valid (${err.message})`, err);
 		}
 	},
@@ -731,7 +756,7 @@ const internalCertificate = {
 			});
 
 			if (!validFrom || !validTo) {
-				throw new error.ValidationError(`Could not determine dates from certificate: ${result}`);
+				throw new error.ValidationError(`Could not determine dates from certificate: ${result3}`);
 			}
 
 			if (throw_expired && validTo < Number.parseInt(moment().format("X"), 10)) {
@@ -910,6 +935,10 @@ const internalCertificate = {
 				`${internalCertificate.getLiveCertPath(certificate.id)}/fullchain.pem`,
 			);
 
+			// The renewed cert files are confirmed on disk, reload nginx so it
+			// actually serves them instead of the old in-memory certificate
+			await internalNginx.reload();
+
 			const updatedCertificate = await certificateModel.query().patchAndFetchById(certificate.id, {
 				expires_on: moment(certInfo.dates.to, "X").format("YYYY-MM-DD HH:mm:ss"),
 			});
@@ -933,21 +962,30 @@ const internalCertificate = {
 	 * @returns {Promise}
 	 */
 	/**
-	 * Remove all certbot dirs and configs for a given certificate ID before
+	 * Move all certbot dirs and configs for a given certificate ID aside before
 	 * running certonly --force-renewal, so certbot always creates a clean
-	 * npm-<id> lineage without versioned suffixes like npm-<id>-0001.
+	 * npm-<id> lineage without versioned suffixes like npm-<id>-0001 — without
+	 * destroying the still-valid certificate if certbot fails. Discard the
+	 * backup after a successful run, restore it if certbot fails.
 	 */
-	clearCertDirsForRenewal: (certificateId) => {
+	backupCertDirsForRenewal: (certificateId) => {
 		const letsencryptDir = "/etc/letsencrypt";
 		const prefix = `npm-${certificateId}`;
+		const backupDir = `${letsencryptDir}/.renewal-backup-${prefix}`;
+		const entries = [];
+
+		// Discard any stale backup left over from a previous interrupted renewal
+		fs.rmSync(backupDir, { recursive: true, force: true });
 
 		for (const subdir of ["archive", "live"]) {
 			const base = `${letsencryptDir}/${subdir}`;
 			if (!fs.existsSync(base)) continue;
 			for (const entry of fs.readdirSync(base)) {
 				if (entry === prefix || entry.startsWith(`${prefix}-`)) {
-					fs.rmSync(`${base}/${entry}`, { recursive: true, force: true });
-					logger.info(`Cleared ${subdir}/${entry} for renewal`);
+					fs.mkdirSync(`${backupDir}/${subdir}`, { recursive: true });
+					fs.renameSync(`${base}/${entry}`, `${backupDir}/${subdir}/${entry}`);
+					entries.push(`${subdir}/${entry}`);
+					logger.info(`Moved ${subdir}/${entry} aside for renewal`);
 				}
 			}
 		}
@@ -956,19 +994,45 @@ const internalCertificate = {
 		if (fs.existsSync(renewalDir)) {
 			for (const entry of fs.readdirSync(renewalDir)) {
 				if ((entry === `${prefix}.conf` || entry.startsWith(`${prefix}-`)) && entry.endsWith(".conf")) {
-					fs.unlinkSync(`${renewalDir}/${entry}`);
-					logger.info(`Cleared renewal config ${entry}`);
+					fs.mkdirSync(`${backupDir}/renewal`, { recursive: true });
+					fs.renameSync(`${renewalDir}/${entry}`, `${backupDir}/renewal/${entry}`);
+					entries.push(`renewal/${entry}`);
+					logger.info(`Moved renewal config ${entry} aside for renewal`);
 				}
 			}
 		}
+
+		return { backupDir, entries };
+	},
+
+	/**
+	 * Put the previous certificate files back after a failed renewal, removing
+	 * anything certbot partially created in their place first.
+	 */
+	restoreCertDirsBackup: (backup) => {
+		const letsencryptDir = "/etc/letsencrypt";
+		try {
+			for (const relPath of backup.entries) {
+				fs.rmSync(`${letsencryptDir}/${relPath}`, { recursive: true, force: true });
+				fs.mkdirSync(path.dirname(`${letsencryptDir}/${relPath}`), { recursive: true });
+				fs.renameSync(`${backup.backupDir}/${relPath}`, `${letsencryptDir}/${relPath}`);
+				logger.info(`Restored ${relPath} after failed renewal`);
+			}
+			fs.rmSync(backup.backupDir, { recursive: true, force: true });
+		} catch (err) {
+			// Don't mask the certbot error; just log the restore failure
+			logger.error(`Failed to restore certificate backup from ${backup.backupDir}: ${err.message}`);
+		}
+	},
+
+	discardCertDirsBackup: (backup) => {
+		fs.rmSync(backup.backupDir, { recursive: true, force: true });
 	},
 
 	renewLetsEncryptSsl: async (certificate) => {
 		logger.info(
 			`Renewing LetsEncrypt certificates for Cert #${certificate.id}: ${certificate.domain_names.join(", ")}`,
 		);
-
-		internalCertificate.clearCertDirsForRenewal(certificate.id);
 
 		const args = [
 			"certonly",
@@ -1003,9 +1067,16 @@ const internalCertificate = {
 
 		logger.info(`Command: ${certbotCommand} ${args ? args.join(" ") : ""}`);
 
-		const result = await utils.execFile(certbotCommand, args, adds.opts);
-		logger.info(result);
-		return result;
+		const backup = internalCertificate.backupCertDirsForRenewal(certificate.id);
+		try {
+			const result = await utils.execFile(certbotCommand, args, adds.opts);
+			internalCertificate.discardCertDirsBackup(backup);
+			logger.info(result);
+			return result;
+		} catch (err) {
+			internalCertificate.restoreCertDirsBackup(backup);
+			throw err;
+		}
 	},
 
 	/**
@@ -1021,8 +1092,6 @@ const internalCertificate = {
 		logger.info(
 			`Renewing LetsEncrypt certificates via ${dnsPlugin.name} for Cert #${certificate.id}: ${certificate.domain_names.join(", ")}`,
 		);
-
-		internalCertificate.clearCertDirsForRenewal(certificate.id);
 
 		await installPlugin(certificate.meta.dns_provider);
 
@@ -1078,11 +1147,14 @@ const internalCertificate = {
 
 		logger.info(`Command: ${certbotCommand} ${args ? args.join(" ") : ""}`);
 
+		const backup = internalCertificate.backupCertDirsForRenewal(certificate.id);
 		try {
 			const result = await utils.execFile(certbotCommand, args, adds.opts);
+			internalCertificate.discardCertDirsBackup(backup);
 			logger.info(result);
 			return result;
 		} catch (err) {
+			internalCertificate.restoreCertDirsBackup(backup);
 			fs.unlink(credentialsLocation, () => {});
 			throw err;
 		}

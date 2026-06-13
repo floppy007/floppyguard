@@ -126,7 +126,7 @@ const Gateway = () => {
 	const natCandidates = data.routes.natCandidates || [];
 	const observations = data.routes.observations || [];
 	const networkRows = data.interfaces.flatMap((item) =>
-		(item.exportedNetworks || item.peerNetworks).map((network) => ({
+		(item.exportedNetworks?.length ? item.exportedNetworks : (item.peerNetworks ?? [])).map((network) => ({
 			iface: item.name,
 			network,
 			active: item.active,

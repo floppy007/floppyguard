@@ -100,22 +100,43 @@ async function readNumber(targetPath) {
 }
 
 async function readMetadataStore() {
+	let raw;
 	try {
-		const raw = await fs.readFile(getMetadataFile(), "utf8");
-		const parsed = JSON.parse(raw);
-		return {
-			interfaces: parsed.interfaces || {},
-			links: parsed.links || {},
-		};
-	} catch {
-		return { interfaces: {}, links: {} };
+		raw = await fs.readFile(getMetadataFile(), "utf8");
+	} catch (err) {
+		// Only a missing file is a legitimate empty store (first run). Any OTHER read
+		// error (EACCES/EMFILE/…) MUST NOT be swallowed into an empty store: every
+		// mutation path does read→mutate→write of the whole file, so returning {} here
+		// would let the next mutation persist an empty store over real data and
+		// permanently wipe all link/interface metadata. Surface it so the mutation
+		// aborts instead.
+		if (err.code === "ENOENT") return { interfaces: {}, links: {} };
+		throw err;
 	}
+	let parsed;
+	try {
+		parsed = JSON.parse(raw);
+	} catch (err) {
+		// A corrupt/truncated store (e.g. a crash mid-write) must throw, not silently
+		// become {} — same data-loss reasoning as above.
+		throw new Error(`WireGuard metadata store at ${getMetadataFile()} is corrupt: ${err.message}`);
+	}
+	return {
+		interfaces: parsed.interfaces || {},
+		links: parsed.links || {},
+	};
 }
 
 async function writeMetadataStore(store) {
 	const metadataFile = getMetadataFile();
 	await fs.mkdir(path.dirname(metadataFile), { recursive: true });
-	await fs.writeFile(metadataFile, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+	// Write atomically: a partial fs.writeFile (crash/power loss mid-write) would
+	// leave truncated JSON that readMetadataStore now refuses to parse. Write to a
+	// temp file then rename (atomic on the same filesystem) so the live file is
+	// always either the old or the new complete document, never a truncated one.
+	const tmpFile = `${metadataFile}.tmp`;
+	await fs.writeFile(tmpFile, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+	await fs.rename(tmpFile, metadataFile);
 }
 
 function mergeMetadataEntry(current = {}, patch = {}) {
@@ -165,6 +186,22 @@ async function applyMetadataPatch(patch = {}) {
 	});
 }
 
+// Replace the ENTIRE metadata store under the module write lock. Used by backup
+// restore: a raw writeMetadataStore outside the lock loses to the exact race the
+// mutateMetadataStore comment describes — a concurrent locked read-modify-write
+// that read the pre-restore store writes its copy back afterwards, silently
+// wiping the restore. Returns the freshly-written store snapshot.
+async function replaceMetadataStore(store = {}) {
+	return withWriteLock(async () => {
+		const nextStore = {
+			interfaces: store.interfaces || {},
+			links: store.links || {},
+		};
+		await writeMetadataStore(nextStore);
+		return nextStore;
+	});
+}
+
 function sanitizeStringArray(value) {
 	if (!Array.isArray(value)) return [];
 	return Array.from(new Set(value.map((item) => String(item || "").trim()).filter(Boolean)));
@@ -190,6 +227,44 @@ function isValidNetwork(value) {
 	}
 	// IPv6 must contain a colon and only hex/colon characters (plus optional prefix).
 	return v.includes(":") && IPV6_NET_RE.test(v);
+}
+
+// Strict validator for an interface [Interface] Address. The raw value is written
+// verbatim into a wg-quick conf and the interface is activated with `wg-quick up`,
+// which executes any PostUp/PostDown directives in that conf AS ROOT. A value with
+// an embedded newline could smuggle in an attacker-controlled `PostUp = <cmd>` line
+// (String.trim() strips only leading/trailing whitespace, not interior newlines),
+// so reject anything that isn't a single clean IPv4/IPv6 HOST address WITH a prefix
+// and no whitespace. Unlike sanitizeNetworkArray we keep the host bits — an
+// interface address like 10.20.0.1/24 is a host, not a masked network.
+const IPV4_HOST_CIDR_RE = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\/(\d{1,2})$/;
+function isValidInterfaceAddress(value) {
+	const v = String(value || "").trim();
+	if (!v || /\s/.test(v)) return false;
+	const m = IPV4_HOST_CIDR_RE.exec(v);
+	if (m) {
+		return [m[1], m[2], m[3], m[4]].every((o) => Number(o) <= 255) && Number(m[5]) <= 32;
+	}
+	// IPv6 host with a MANDATORY prefix: hex + colons only (no shell metacharacters).
+	return v.includes(":") && v.includes("/") && IPV6_NET_RE.test(v);
+}
+
+// A link/peer name is written verbatim as a `# <name>` comment line into a wg-quick
+// conf; an embedded newline could smuggle an attacker-controlled `[Interface]` /
+// `PostUp = <cmd>` line that wg-quick executes AS ROOT on the next `wg-quick up`.
+// String.trim() in the route strips only leading/trailing whitespace, not interior
+// newlines — so mirror the interface-address guard above and reject control characters.
+// biome-ignore lint/suspicious/noControlCharactersInRegex: intentional control-char guard
+const CONTROL_CHARS_RE = /[\u0000-\u001f\u007f]/;
+function isSafeLinkName(value) {
+	return !CONTROL_CHARS_RE.test(String(value ?? ""));
+}
+// Belt-and-suspenders companion: strip control characters from a name before it is
+// persisted or rendered, so a malicious value can never reach a conf via any path.
+// biome-ignore lint/suspicious/noControlCharactersInRegex: intentional control-char guard
+const CONTROL_CHARS_GLOBAL_RE = /[\u0000-\u001f\u007f]/g;
+function stripLinkNameControlChars(value) {
+	return String(value).replace(CONTROL_CHARS_GLOBAL_RE, "");
 }
 
 // Canonicalize an IPv4 CIDR to its network address (host bits masked off), e.g.
@@ -260,7 +335,7 @@ function sanitizeLinkMetadata(input = {}) {
 	const returnPathMode = input.returnPathMode ? String(input.returnPathMode) : undefined;
 	const remoteManagementMode = input.remoteManagementMode ? String(input.remoteManagementMode) : undefined;
 	return {
-		name: input.name ? String(input.name) : undefined,
+		name: input.name ? stripLinkNameControlChars(input.name) : undefined,
 		type: normalizeLinkType(type),
 		exportedNetworks: sanitizeNetworkArray(input.exportedNetworks),
 		importedNetworks: sanitizeNetworkArray(input.importedNetworks),
@@ -274,7 +349,7 @@ function sanitizeLinkMetadata(input = {}) {
 
 function sanitizeLinkMetadataPatch(input = {}) {
 	const sanitized = {};
-	if (Object.hasOwn(input, "name")) sanitized.name = input.name ? String(input.name) : undefined;
+	if (Object.hasOwn(input, "name")) sanitized.name = input.name ? stripLinkNameControlChars(input.name) : undefined;
 	if (Object.hasOwn(input, "type")) sanitized.type = normalizeLinkType(input.type ? String(input.type) : undefined);
 	if (Object.hasOwn(input, "exportedNetworks"))
 		sanitized.exportedNetworks = sanitizeNetworkArray(input.exportedNetworks);
@@ -333,6 +408,9 @@ async function updateLinkMetadata(linkId, patch) {
 		assertUniqueLinkName(s, linkId, sanitized.name, oldName);
 		s.links[linkId] = mergeMetadataEntry(s.links[linkId] || {}, sanitized);
 	});
+	// The patch may change AllowedIPs/DNS/full-tunnel/platform; drop cached peer configs
+	// so a prior Download/QR cache isn't re-served stale on the next download.
+	clearPeerConfigCache();
 	// Agents bind to a link by its (mutable) name via wg_link_name / allowed_sites.
 	// A rename without cascading those columns silently orphans every bound agent.
 	if (Object.hasOwn(sanitized, "name") && sanitized.name && oldName && sanitized.name !== oldName) {
@@ -821,6 +899,10 @@ function buildCapabilities() {
 	};
 }
 
+// NOTE: this performs a conf read-modify-write and live `wg set` and MUST run under
+// the module write lock (withWriteLock) so it can't interleave with createPeer's
+// locked appendFile and silently drop a freshly-added [Peer] block. The sole caller
+// (generatePeerConfig) wraps the call in withWriteLock; never call it unlocked.
 async function _rotatePeerPublicKey(ifaceName, oldPubKey, newPubKey, peerAllowedIps) {
 	const confPath = path.join(getWireGuardConfDir(), `${ifaceName}.conf`);
 	let confText;
@@ -877,7 +959,64 @@ async function _rotatePeerPublicKey(ifaceName, oldPubKey, newPubKey, peerAllowed
 	return true;
 }
 
+// generatePeerConfig generates a fresh keypair and rotates the hub-side peer key on
+// every call (the hub only stores the public key, so it cannot re-emit the original
+// private key). The WireGuard page offers BOTH "Download config" and "Show QR" for
+// the same link without refetching, so two calls would otherwise: (a) 404 the second
+// call because rotation changed the link id (linkId embeds the pubkey), (b) silently
+// sever a just-provisioned device on the second rotation, or (c) hand out two keys
+// where only the last works. Cache the generated material briefly, keyed by BOTH the
+// id the caller passed AND the post-rotation id, so back-to-back Download+QR (in any
+// order) and repeat downloads return identical material and rotate exactly once.
+const _peerConfigCache = new Map(); // linkId -> { result, expires }
+// In-flight de-duplication: the result cache is only written at the very END of
+// generation (after getStatus + genkey + the locked key rotation). Two genuinely
+// concurrent requests for the same linkId (e.g. Download config + open QR fired
+// together) would both miss the result cache, both rotate the hub-side key, and the
+// SECOND would serve a config whose public key the hub never registered (a dead config
+// cached for the whole TTL). Sharing a single in-flight promise per linkId makes them
+// rotate exactly once and return identical, registered material.
+const _peerConfigInFlight = new Map(); // linkId -> Promise<result>
+const PEER_CONFIG_CACHE_TTL_MS = 120_000;
+
+function _getCachedPeerConfig(linkId) {
+	const entry = _peerConfigCache.get(linkId);
+	if (!entry) return null;
+	if (entry.expires <= Date.now()) {
+		_peerConfigCache.delete(linkId);
+		return null;
+	}
+	return entry.result;
+}
+
+// Drop every cached peer config. Must be called by any path that mutates the link
+// metadata fields a cached config is built from (importedNetworks/dns/fullTunnel/
+// platform), so the next Download/QR regenerates instead of serving a stale config.
+// The cache Map is module-private, so external mutators (e.g. wireguard-plan.js's
+// applyMetadata/restoreMetadataBackup) invalidate through this exported helper.
+function clearPeerConfigCache() {
+	_peerConfigCache.clear();
+}
+
 async function generatePeerConfig(linkId) {
+	const cached = _getCachedPeerConfig(linkId);
+	if (cached) return cached;
+
+	// Coalesce overlapping requests for the same link onto one execution so the
+	// hub-side key is rotated exactly once (see _peerConfigInFlight above).
+	const inFlight = _peerConfigInFlight.get(linkId);
+	if (inFlight) return inFlight;
+
+	const promise = _generatePeerConfigUncached(linkId);
+	_peerConfigInFlight.set(linkId, promise);
+	try {
+		return await promise;
+	} finally {
+		_peerConfigInFlight.delete(linkId);
+	}
+}
+
+async function _generatePeerConfigUncached(linkId) {
 	const status = await getStatus();
 	if (!status.available) {
 		throw new Error("WireGuard is not available");
@@ -918,7 +1057,12 @@ async function generatePeerConfig(linkId) {
 	const oldPubKey = link.peerPublicKey;
 	let rotated = false;
 	if (oldPubKey && oldPubKey !== newPubKey) {
-		rotated = await _rotatePeerPublicKey(link.interfaceName, oldPubKey, newPubKey, link.allowedIps || []);
+		// Serialize the conf RMW + live wg set under the write lock so it can't
+		// interleave with a concurrent createPeer's locked appendFile (which would
+		// otherwise lose the new peer block from the conf).
+		rotated = await withWriteLock(() =>
+			_rotatePeerPublicKey(link.interfaceName, oldPubKey, newPubKey, link.allowedIps || []),
+		);
 		if (rotated) {
 			// Rename the link in the metadata store (ID is based on pubkey) — locked RMW
 			const newLinkId = `${link.interfaceName}:${newPubKey}`;
@@ -984,7 +1128,15 @@ async function generatePeerConfig(linkId) {
 		"PersistentKeepalive = 25",
 	);
 
-	return { filename, content: `${lines.join("\n")}\n`, publicKey: newPubKey };
+	const result = { filename, content: `${lines.join("\n")}\n`, publicKey: newPubKey };
+
+	// Cache under the id the caller passed AND the post-rotation id so a follow-up
+	// Download/QR with either id returns the SAME material without rotating again.
+	const expires = Date.now() + PEER_CONFIG_CACHE_TTL_MS;
+	_peerConfigCache.set(linkId, { result, expires });
+	if (rotated) _peerConfigCache.set(`${link.interfaceName}:${newPubKey}`, { result, expires });
+
+	return result;
 }
 
 async function generatePeerConfigQr(linkId) {
@@ -1418,12 +1570,16 @@ async function deletePeer(linkId) {
 		logger.debug(`Peer ${publicKey.slice(0, 8)}… not active on ${ifaceName}, skipping live removal: ${err.message}`);
 	}
 
-	// ── Remove from config file ──
+	// ── Remove from config file (locked RMW — serialize with createPeer's locked
+	// appendFile so a concurrent create can't have its [Peer] block read out here
+	// and clobbered by this writeFile). ──
 	const confPath = path.join(getWireGuardConfDir(), `${ifaceName}.conf`);
 	try {
-		const confText = await fs.readFile(confPath, "utf8");
-		const newConf = _removePeerFromConf(confText, publicKey);
-		await fs.writeFile(confPath, newConf, "utf8");
+		await withWriteLock(async () => {
+			const confText = await fs.readFile(confPath, "utf8");
+			const newConf = _removePeerFromConf(confText, publicKey);
+			await fs.writeFile(confPath, newConf, "utf8");
+		});
 	} catch (err) {
 		logger.warn(`Could not update conf for ${ifaceName} during peer deletion: ${err.message}`);
 	}
@@ -1456,6 +1612,9 @@ async function deletePeer(linkId) {
 		delete s.links[linkId];
 	});
 
+	// Drop any cached peer config for the removed link so it can't be re-served.
+	_peerConfigCache.clear();
+
 	// ── Rebuild the hub conf so the deleted net's PostUp `ip route add <net> dev wg0`
 	// line is removed. Without this it survives in wg0.conf and a later wg-quick
 	// restart/reboot re-creates the route to a net no peer serves (blackhole). ──
@@ -1473,8 +1632,15 @@ async function deletePeer(linkId) {
 	// the removed LAN stays routed (blackholed) on every mesh agent forever. ──
 	let agentSync;
 	try {
-		const { default: internalAgent } = await import("./agent.js");
-		agentSync = await internalAgent.syncAgentConfigs(store);
+		// Run the agent resync under the write lock on FRESHLY-read metadata so a
+		// concurrent mutation's sync (built from an older snapshot) can never land
+		// last and overwrite this delete with a stale config that re-advertises the
+		// removed network fleet-wide. Mirrors the locked reconciler in agent.js.
+		agentSync = await withWriteLock(async () => {
+			const { default: internalAgent } = await import("./agent.js");
+			const fresh = await readMetadataStore();
+			return internalAgent.syncAgentConfigs(fresh);
+		});
 	} catch (err) {
 		logger.error(`Agent config sync after deletePeer (${linkId}) failed: ${err.message}`);
 		agentSync = { error: err.message };
@@ -1512,13 +1678,18 @@ async function updatePeer(linkId, changes = {}) {
 	if (!link) throw new Error(`Link not found: ${linkId}`);
 
 	// ── AllowedIPs conflict check for importedNetworks changes ──
+	// Skip for client links: importedNetworks is a reach list, not hub-side routing, so
+	// it cannot conflict (mirrors createPeer and the /metadata + plan-preview checks).
 	if (changes.importedNetworks !== undefined) {
-		const newNets = sanitizeNetworkArray(changes.importedNetworks);
-		const otherLinks = status.links.filter((l) => l.id !== linkId);
-		const conflicts = checkAllowedIPsConflicts(newNets, otherLinks);
-		if (conflicts.length > 0) {
-			const details = conflicts.map((c) => `${c.subnet} already claimed by ${c.peer}`).join("; ");
-			throw new Error(`AllowedIPs conflict: ${details}`);
+		const effectiveType = changes.type ?? link.type;
+		if (effectiveType !== "client") {
+			const newNets = sanitizeNetworkArray(changes.importedNetworks);
+			const otherLinks = status.links.filter((l) => l.id !== linkId);
+			const conflicts = checkAllowedIPsConflicts(newNets, otherLinks);
+			if (conflicts.length > 0) {
+				const details = conflicts.map((c) => `${c.subnet} already claimed by ${c.peer}`).join("; ");
+				throw new Error(`AllowedIPs conflict: ${details}`);
+			}
 		}
 	}
 
@@ -1531,7 +1702,7 @@ async function updatePeer(linkId, changes = {}) {
 		metadataPatch.importedNetworks = sanitizeNetworkArray(changes.importedNetworks);
 	}
 	if (changes.name !== undefined) {
-		metadataPatch.name = changes.name ? String(changes.name) : undefined;
+		metadataPatch.name = changes.name ? stripLinkNameControlChars(changes.name) : undefined;
 	}
 	if (changes.type !== undefined) {
 		metadataPatch.type = normalizeLinkType(changes.type);
@@ -1553,6 +1724,10 @@ async function updatePeer(linkId, changes = {}) {
 		s.links[linkId] = mergeMetadataEntry(s.links[linkId] || {}, metadataPatch);
 	});
 
+	// Drop any cached peer configs — the link's AllowedIPs/DNS may have changed and a
+	// stale cached config must not be re-served on the next download/QR.
+	_peerConfigCache.clear();
+
 	// Cascade a rename to agent bindings so renamed links don't orphan their agents.
 	if (metadataPatch.name && oldName && metadataPatch.name !== oldName) {
 		try {
@@ -1569,8 +1744,13 @@ async function updatePeer(linkId, changes = {}) {
 	// ── Sync agent configs (push updated AllowedIPs to remote agents) ──
 	let agentSync;
 	try {
-		const { default: internalAgent } = await import("./agent.js");
-		agentSync = await internalAgent.syncAgentConfigs(store);
+		// Locked + fresh-read so a concurrent mutation's older-snapshot sync can't
+		// land last and clobber this update (see deletePeer for the full rationale).
+		agentSync = await withWriteLock(async () => {
+			const { default: internalAgent } = await import("./agent.js");
+			const fresh = await readMetadataStore();
+			return internalAgent.syncAgentConfigs(fresh);
+		});
 	} catch (err) {
 		// Surface, don't swallow: a poisoned sibling link (e.g. an IPv6/prefixless
 		// net that passes isValidNetwork but trips assertCIDR) throws here and
@@ -1583,7 +1763,15 @@ async function updatePeer(linkId, changes = {}) {
 	return { updated: true, linkId, hubSync, agentSync };
 }
 
+// Public entry point: serialize the whole conf read-modify-write under the module
+// write lock so it can't interleave with createPeer's locked appendFile (which would
+// otherwise lose a freshly-added [Peer] block from the conf — see mutex note above).
+// createPeer already holds the lock, so it calls _syncHubConfCore directly instead.
 async function syncHubConf(metadata, ifaceName = "wg0") {
+	return withWriteLock(() => _syncHubConfCore(metadata, ifaceName));
+}
+
+async function _syncHubConfCore(metadata, ifaceName = "wg0") {
 	const confPath = path.join(getWireGuardConfDir(), `${ifaceName}.conf`);
 	let confText;
 	try {
@@ -1683,11 +1871,21 @@ async function syncHubConf(metadata, ifaceName = "wg0") {
 	const ipBin = getIpBin();
 	const changes = [];
 
-	// Conf rewrite + wg set only when AllowedIPs actually changed.
-	if (peerUpdates.size) {
-		const newText = _rewriteHubConf(lines, ifaceName, peerUpdates, allRouteNets, masqueradeIfaces);
+	// Rewrite the conf whenever its content would change — NOT only when a peer's
+	// AllowedIPs changed. A newly-added site peer adds routes (PostUp `ip route add`
+	// + MASQUERADE) without any AllowedIPs delta, so gating the rewrite on
+	// peerUpdates.size left those PostUp lines out of the conf: the live route was
+	// added below but every wg-quick restart/reboot dropped it again. Diff the rebuilt
+	// conf against the normalized on-disk text and write only on a real change.
+	const normalizedOriginal = lines.join("\n");
+	const newText = _rewriteHubConf(lines, ifaceName, peerUpdates, allRouteNets, masqueradeIfaces);
+	if (newText !== normalizedOriginal) {
 		await fs.writeFile(confPath, newText, "utf8");
+	}
 
+	// Live `wg set` is still gated on an actual AllowedIPs change — only peers whose
+	// cryptokey routing changed need re-applying.
+	if (peerUpdates.size) {
 		for (const [pubkey, newIPs] of peerUpdates) {
 			try {
 				await execFileAsync(wgBin, ["set", ifaceName, "peer", pubkey, "allowed-ips", newIPs.join(",")]);
@@ -1839,11 +2037,13 @@ function checkAllowedIPsConflicts(proposedNets, existingLinks) {
 export {
 	_buildPeerUpdates,
 	canonicalizeIpv4Network,
+	isValidInterfaceAddress,
 	withWriteLock,
 	buildLinkRecord,
 	buildRouteAnalysis,
 	buildTopology,
 	classifyLinkType,
+	clearPeerConfigCache,
 	dedupe,
 	deriveGlobalNextActions,
 	deriveGlobalWarnings,
@@ -1877,82 +2077,99 @@ const VALID_IFACE_NAME = /^wg\d{1,3}$/;
 
 async function createInterface({ name, address, listenPort, role } = {}) {
 	if (!address?.trim()) throw new Error("Address is required (e.g. 10.20.0.1/24)");
+	// This value is written verbatim into the wg-quick conf and activated with
+	// `wg-quick up`, which runs PostUp/PostDown as root. Reject anything that isn't a
+	// single clean IPv4/IPv6 host+prefix so a newline can't inject a PostUp command.
+	if (!isValidInterfaceAddress(address)) {
+		throw new Error("Invalid address — expected a single IPv4/IPv6 host with prefix, e.g. 10.20.0.1/24");
+	}
 
 	const confDir = getWireGuardConfDir();
 	const wgBin = getWireGuardBin();
 
-	// ── Auto-assign interface name if not provided ──
-	if (!name) {
-		const existing = await listConfigNames();
-		for (let i = 0; i < 100; i++) {
-			const candidate = `wg${i}`;
-			if (!existing.includes(candidate)) {
-				name = candidate;
-				break;
+	// Serialize the name/port auto-allocation + conf write + bring-up under the module
+	// write lock. Without it two concurrent create-interface calls (double-submit, or
+	// two admins) both read the same listConfigNames()/port snapshot before either
+	// writes, pick the same wgN + 51820, writeFile the same conf (last writer wins), and
+	// the loser's `wg-quick up` fails — its catch then unlink()s the conf the WINNER is
+	// now running from, leaving metadata that references an interface with no conf file.
+	// mutateMetadataStore (below) takes this same lock and is NOT re-entrant, so it stays
+	// outside this block.
+	let publicKey;
+	await withWriteLock(async () => {
+		// ── Auto-assign interface name if not provided ──
+		if (!name) {
+			const existing = await listConfigNames();
+			for (let i = 0; i < 100; i++) {
+				const candidate = `wg${i}`;
+				if (!existing.includes(candidate)) {
+					name = candidate;
+					break;
+				}
 			}
+			if (!name) throw new Error("No free interface name available");
 		}
-		if (!name) throw new Error("No free interface name available");
-	}
 
-	if (!VALID_IFACE_NAME.test(name)) {
-		throw new Error(`Invalid interface name "${name}" — must match wgN (e.g. wg0, wg1)`);
-	}
-
-	const confPath = path.join(confDir, `${name}.conf`);
-	if (await pathExists(confPath)) {
-		throw new Error(`Interface ${name} already exists`);
-	}
-
-	// ── Auto-assign listen port if not provided ──
-	if (!listenPort) {
-		const existing = await listConfigNames();
-		const usedPorts = new Set();
-		for (const n of existing) {
-			const conf = parseConfig(await readText(path.join(confDir, `${n}.conf`)));
-			if (conf.listenPort) usedPorts.add(conf.listenPort);
+		if (!VALID_IFACE_NAME.test(name)) {
+			throw new Error(`Invalid interface name "${name}" — must match wgN (e.g. wg0, wg1)`);
 		}
-		for (let port = 51820; port < 51920; port++) {
-			if (!usedPorts.has(port)) {
-				listenPort = port;
-				break;
+
+		const confPath = path.join(confDir, `${name}.conf`);
+		if (await pathExists(confPath)) {
+			throw new Error(`Interface ${name} already exists`);
+		}
+
+		// ── Auto-assign listen port if not provided ──
+		if (!listenPort) {
+			const existing = await listConfigNames();
+			const usedPorts = new Set();
+			for (const n of existing) {
+				const conf = parseConfig(await readText(path.join(confDir, `${n}.conf`)));
+				if (conf.listenPort) usedPorts.add(conf.listenPort);
 			}
+			for (let port = 51820; port < 51920; port++) {
+				if (!usedPorts.has(port)) {
+					listenPort = port;
+					break;
+				}
+			}
+			if (!listenPort) throw new Error("No free listen port available");
 		}
-		if (!listenPort) throw new Error("No free listen port available");
-	}
 
-	// ── Generate keypair ──
-	const { stdout: privKeyRaw } = await execFileAsync(wgBin, ["genkey"]);
-	const privateKey = privKeyRaw.trim();
-	const publicKey = derivePublicKey(privateKey);
+		// ── Generate keypair ──
+		const { stdout: privKeyRaw } = await execFileAsync(wgBin, ["genkey"]);
+		const privateKey = privKeyRaw.trim();
+		publicKey = derivePublicKey(privateKey);
 
-	// ── Write config file ──
-	const confLines = [
-		"[Interface]",
-		`Address = ${address.trim()}`,
-		`ListenPort = ${listenPort}`,
-		`PrivateKey = ${privateKey}`,
-		"Table = off",
-		`PostUp = iptables -A FORWARD -i ${name} -j ACCEPT; iptables -A FORWARD -o ${name} -j ACCEPT`,
-		`PostDown = iptables -D FORWARD -i ${name} -j ACCEPT; iptables -D FORWARD -o ${name} -j ACCEPT`,
-		"",
-	];
-	await fs.writeFile(confPath, confLines.join("\n"), "utf8");
+		// ── Write config file ──
+		const confLines = [
+			"[Interface]",
+			`Address = ${address.trim()}`,
+			`ListenPort = ${listenPort}`,
+			`PrivateKey = ${privateKey}`,
+			"Table = off",
+			`PostUp = iptables -A FORWARD -i ${name} -j ACCEPT; iptables -A FORWARD -o ${name} -j ACCEPT`,
+			`PostDown = iptables -D FORWARD -i ${name} -j ACCEPT; iptables -D FORWARD -o ${name} -j ACCEPT`,
+			"",
+		];
+		await fs.writeFile(confPath, confLines.join("\n"), "utf8");
 
-	// ── Bring interface up ──
-	try {
-		await execFileAsync("wg-quick", ["up", name]);
-	} catch (err) {
-		// Clean up conf if wg-quick fails
-		await fs.unlink(confPath).catch(() => {});
-		throw new Error(`Failed to bring up ${name}: ${err.message}`);
-	}
+		// ── Bring interface up ──
+		try {
+			await execFileAsync("wg-quick", ["up", name]);
+		} catch (err) {
+			// Clean up conf if wg-quick fails
+			await fs.unlink(confPath).catch(() => {});
+			throw new Error(`Failed to bring up ${name}: ${err.message}`);
+		}
 
-	// ── Enable on boot ──
-	try {
-		await execFileAsync("systemctl", ["enable", `wg-quick@${name}`]);
-	} catch (err) {
-		logger.warn(`Failed to enable wg-quick@${name} on boot: ${err.message}`);
-	}
+		// ── Enable on boot ──
+		try {
+			await execFileAsync("systemctl", ["enable", `wg-quick@${name}`]);
+		} catch (err) {
+			logger.warn(`Failed to enable wg-quick@${name} on boot: ${err.message}`);
+		}
+	});
 
 	// ── Write metadata (locked RMW) ──
 	await mutateMetadataStore((s) => {
@@ -2012,7 +2229,7 @@ async function deleteInterface(rawName) {
 	await fs.unlink(confPath);
 
 	// ── Clean metadata — remove interface + all its links (locked RMW) ──
-	const store = await mutateMetadataStore((s) => {
+	await mutateMetadataStore((s) => {
 		delete s.interfaces[name];
 		for (const linkId of Object.keys(s.links)) {
 			if (linkId.startsWith(`${name}:`)) {
@@ -2021,14 +2238,22 @@ async function deleteInterface(rawName) {
 		}
 	});
 
+	// Drop any cached peer configs for the removed interface's links.
+	_peerConfigCache.clear();
+
 	// ── Resync agents: a deleted interface's site networks feed allSiteNets
 	// cross-interface, so every mesh agent (including those on OTHER interfaces)
 	// must recompute or it keeps routing the now-dead LANs (AllowedIPs + route +
 	// MASQUERADE) forever. ──
 	let agentSync;
 	try {
-		const { default: internalAgent } = await import("./agent.js");
-		agentSync = await internalAgent.syncAgentConfigs(store);
+		// Locked + fresh-read so a concurrent mutation's older-snapshot sync can't
+		// land last and clobber this delete (see deletePeer for the full rationale).
+		agentSync = await withWriteLock(async () => {
+			const { default: internalAgent } = await import("./agent.js");
+			const fresh = await readMetadataStore();
+			return internalAgent.syncAgentConfigs(fresh);
+		});
 	} catch (err) {
 		logger.error(`Agent config sync after deleteInterface (${name}) failed: ${err.message}`);
 		agentSync = { error: err.message };
@@ -2043,6 +2268,12 @@ async function deleteInterface(rawName) {
  * live interface and config file, writes metadata, and returns the client config.
  */
 async function createPeer({ name, type, dns, fullTunnel, platform, importedNetworks, ifaceName = "wg0" }) {
+	// Reject control characters (incl. newlines) in the name BEFORE any side effects:
+	// it is written verbatim as a `# <name>` comment line into the wg-quick conf, so a
+	// newline could inject a root-executed PostUp (see isSafeLinkName).
+	if (name != null && !isSafeLinkName(name)) {
+		throw new Error("Invalid name — control characters (including newlines) are not allowed");
+	}
 	return withWriteLock(async () => {
 	const status = await getStatus();
 	if (!status.available) throw new Error("WireGuard is not available");
@@ -2051,12 +2282,33 @@ async function createPeer({ name, type, dns, fullTunnel, platform, importedNetwo
 	if (!iface) throw new Error(`Interface ${ifaceName} not found`);
 
 	// ── Find next free tunnel IP ──
+	// Compute the host range from the hub's ACTUAL prefix instead of assuming /24.
+	// Hardcoding /24 (scan .2-.254 of the first three octets) handed out addresses
+	// OUTSIDE a longer prefix's subnet (e.g. 10.10.0.130/25, past the /25 broadcast),
+	// which the hub — running `Table = off` with only the connected tunnel route —
+	// cannot reach, and wrongly capped shorter prefixes at 253 hosts.
 	const hubAddr = (iface.addresses[0] || "10.10.0.1/24").split("/");
-	const basePrefix = hubAddr[0].split(".").slice(0, 3).join(".");
+	const hubIp = hubAddr[0];
 	const mask = hubAddr[1] || "24";
+	const prefix = Number.parseInt(mask, 10);
+	const octets = hubIp.split(".").map(Number);
+	if (
+		octets.length !== 4 ||
+		octets.some((o) => !Number.isInteger(o) || o < 0 || o > 255) ||
+		!Number.isInteger(prefix) ||
+		prefix < 0 ||
+		prefix > 32
+	) {
+		throw new Error(`Interface ${ifaceName} has an invalid address: ${iface.addresses[0]}`);
+	}
+	const hubInt = ((octets[0] << 24) >>> 0) + (octets[1] << 16) + (octets[2] << 8) + octets[3];
+	const maskBits = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
+	const network = (hubInt & maskBits) >>> 0;
+	const broadcast = (network | (~maskBits >>> 0)) >>> 0;
+	const intToIp = (n) => `${(n >>> 24) & 0xff}.${(n >>> 16) & 0xff}.${(n >>> 8) & 0xff}.${n & 0xff}`;
 	const usedIPs = new Set();
 	// Hub's own IP
-	usedIPs.add(hubAddr[0]);
+	usedIPs.add(hubIp);
 	// All existing peer tunnel IPs
 	for (const link of status.links) {
 		for (const addr of link.tunnelAddresses) {
@@ -2064,12 +2316,12 @@ async function createPeer({ name, type, dns, fullTunnel, platform, importedNetwo
 		}
 	}
 	let nextIP = null;
-	for (let i = 2; i < 255; i++) {
-		const candidate = `${basePrefix}.${i}`;
-		if (!usedIPs.has(candidate)) {
-			nextIP = candidate;
-			break;
-		}
+	// Iterate host addresses strictly inside the subnet, excluding network + broadcast.
+	for (let host = network + 1; host < broadcast; host++) {
+		const candidate = intToIp(host >>> 0);
+		if (usedIPs.has(candidate)) continue;
+		nextIP = candidate;
+		break;
 	}
 	if (!nextIP) throw new Error("No free tunnel IPs available in subnet");
 
@@ -2091,17 +2343,36 @@ async function createPeer({ name, type, dns, fullTunnel, platform, importedNetwo
 	if (importedNets.length && !isClientType) hubAllowedIPs.push(...importedNets);
 
 	// ── AllowedIPs conflict check ──
-	const conflicts = checkAllowedIPsConflicts(importedNets, status.links);
-	if (conflicts.length > 0) {
-		const details = conflicts.map((c) => `${c.subnet} already claimed by ${c.peer}`).join("; ");
-		throw new Error(`AllowedIPs conflict: ${details}`);
+	// Skip for client/road-warrior links: their importedNetworks are a REACH list
+	// (which existing sites they want to talk to), deliberately NOT added to
+	// hubAllowedIPs (see the !isClientType guard above), so there is no cryptokey-routing
+	// conflict. The other conflict checks (routes/wireguard.js /metadata and
+	// wireguard-plan.js) likewise exempt clients; createPeer must too or selecting any
+	// existing site to reach falsely throws "AllowedIPs conflict".
+	if (!isClientType) {
+		const conflicts = checkAllowedIPsConflicts(importedNets, status.links);
+		if (conflicts.length > 0) {
+			const details = conflicts.map((c) => `${c.subnet} already claimed by ${c.peer}`).join("; ");
+			throw new Error(`AllowedIPs conflict: ${details}`);
+		}
 	}
+
+	// ── Reject duplicate link names BEFORE any conf/live side effects. Two links
+	// sharing a name make every bound agent resolve to ambiguous-link-name in
+	// syncAgentConfigs and silently freeze BOTH. The update paths already guard this
+	// via assertUniqueLinkName; createPeer must too. ──
+	const desiredName = name ? String(name) : undefined;
+	assertUniqueLinkName(
+		{ links: Object.fromEntries((status.links || []).map((l) => [l.id, l])) },
+		`${ifaceName}:${publicKey}`,
+		desiredName,
+	);
 
 	// ── Write config file FIRST (safe to fail without side effects) ──
 	const confPath = path.join(getWireGuardConfDir(), `${ifaceName}.conf`);
 	const peerBlock = [
 		"",
-		`# ${name || "new-peer"}`,
+		`# ${stripLinkNameControlChars(name || "new-peer")}`,
 		"[Peer]",
 		`PublicKey = ${publicKey}`,
 		`AllowedIPs = ${hubAllowedIPs.join(", ")}`,
@@ -2133,6 +2404,20 @@ async function createPeer({ name, type, dns, fullTunnel, platform, importedNetwo
 		platform: platform || undefined,
 	});
 	await writeMetadataStore(store);
+
+	// ── Site peers: reconcile the hub conf so the new site's networks get a kernel
+	// route + persisted PostUp `ip route add`. createPeer only set cryptokey routing
+	// (wg set allowed-ips); with `Table = off` the hub has no kernel route to the new
+	// LAN until syncHubConf runs, and without the PostUp rewrite the route is dropped
+	// on every wg-quick restart. We already hold the write lock, so call the unlocked
+	// core directly (the wrapper would deadlock). No-op for client peers. ──
+	if (importedNets.length && !isClientType) {
+		try {
+			await _syncHubConfCore(store, ifaceName);
+		} catch (err) {
+			logger.error(`Hub conf sync after createPeer (${linkId}) failed: ${err.message}`);
+		}
+	}
 
 	// Resync existing agents so a newly-added site's networks reach them on the next
 	// poll, not only at the 5-min reconciler. No-op for client peers (no site nets).
@@ -2199,6 +2484,7 @@ async function createPeer({ name, type, dns, fullTunnel, platform, importedNetwo
 export default {
 	applyMetadataPatch,
 	backupMetadataStore,
+	clearPeerConfigCache,
 	createInterface,
 	createPeer,
 	deleteInterface,
@@ -2209,6 +2495,7 @@ export default {
 	getBandwidth,
 	getStatus,
 	readMetadataStore,
+	replaceMetadataStore,
 	syncHubConf,
 	updateInterfaceMetadata,
 	updateLinkMetadata,

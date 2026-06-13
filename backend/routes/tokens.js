@@ -6,7 +6,7 @@ import apiValidator from "../lib/validator/api.js";
 import { debug, express as logger } from "../logger.js";
 import { getValidationSchema } from "../schema/index.js";
 
-const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 15 });
+const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 15, bucket: "login" });
 
 const router = express.Router({
 	caseSensitive: true,

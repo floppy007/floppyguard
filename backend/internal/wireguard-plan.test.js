@@ -435,6 +435,13 @@ PrivateKey = test-private-key
 			assert.equal(result.restored, true);
 			assert.equal(result.restoredFrom, backupPath);
 			assert.equal(result.auditEntry.action, "restore-backup");
+			// Restore must resync live config (hub conf per interface + agents), not
+			// silently leave wg conf/routes/agents at the pre-restore state.
+			assert.equal(result.auditEntry.changeScope, "metadata-with-config-intent");
+			assert.equal(typeof result.hubSync, "object");
+			assert.ok(result.hubSync !== null, "hubSync must run during restore");
+			assert.ok("wg1" in result.hubSync, "hub conf sync must cover every interface");
+			assert.notEqual(result.agentSync, null, "agent sync must run during restore");
 			const saved = JSON.parse(await readFile(metadataFile, "utf8"));
 			assert.deepEqual(saved.interfaces.wg1.notes, ["restored note"]);
 			const state = await planModule.default.getApplyState();

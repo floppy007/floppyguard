@@ -14,10 +14,10 @@
 			"schema": {
 				"type": "string",
 				"minLength": 1,
-				"enum": ["default-site"]
+				"enum": ["default-site", "agent-hub-url"]
 			},
 			"required": true,
-			"description": "Setting ID",
+			"description": "Setting ID. `default-site` uses the enum `value`/`meta` body documented below; `agent-hub-url` instead accepts a URL string `value` (public/fallback URL) and `meta.primary`/`meta.fallback` URLs, validated at the route layer because the request body schema cannot branch on the path parameter.",
 			"example": "default-site"
 		}
 	],
