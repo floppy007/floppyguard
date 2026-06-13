@@ -69,6 +69,18 @@ export class AuthStore {
 		localStorage.setItem(TOKEN_KEY, JSON.stringify([{ token, expires }]));
 	}
 
+	// Replace the token at the END of the stack, preserving any tokens below it.
+	// Used by token refresh so a "login as" stack isn't wiped out.
+	replaceTop({ token, expires }: TokenResponse) {
+		const t = this.tokens;
+		if (!t.length) {
+			this.set({ token, expires });
+			return;
+		}
+		t[t.length - 1] = { token, expires };
+		localStorage.setItem(TOKEN_KEY, JSON.stringify(t));
+	}
+
 	// Add a token to the END of the stack
 	add({ token, expires }: TokenResponse) {
 		const t = this.tokens;

@@ -12,6 +12,43 @@ const router = express.Router({
 	mergeParams: true,
 });
 
+// The OpenAPI PUT schema (settings/settingID/put.json) is enum-locked to the
+// nginx default-site values, which rejects every save of the agent-hub-url
+// setting (value = public/fallback URL, meta.primary = internal primary URL).
+// Validate that setting with its own schema instead: free-form http(s) URLs,
+// empty string to clear. The pattern mirrors sanitizeHubUrl() in
+// internal/agent.js — these URLs end up in root-sourced agent config.env, so
+// shell/sed metacharacters are rejected at the door.
+const HUB_URL_PATTERN = "^$|^https?://[^\\s\"'$`\\\\;|&(){}<>!#]+$";
+const agentHubUrlPutSchema = {
+	type: "object",
+	additionalProperties: false,
+	minProperties: 1,
+	properties: {
+		value: {
+			type: "string",
+			maxLength: 255,
+			pattern: HUB_URL_PATTERN,
+		},
+		meta: {
+			type: "object",
+			additionalProperties: false,
+			properties: {
+				primary: {
+					type: "string",
+					maxLength: 255,
+					pattern: HUB_URL_PATTERN,
+				},
+				fallback: {
+					type: "string",
+					maxLength: 255,
+					pattern: HUB_URL_PATTERN,
+				},
+			},
+		},
+	},
+};
+
 /**
  * /api/settings
  */
@@ -88,7 +125,11 @@ router
 	 */
 	.put(async (req, res, next) => {
 		try {
-			const payload = await apiValidator(getValidationSchema("/settings/{settingID}", "put"), req.body);
+			const schema =
+				req.params.setting_id === "agent-hub-url"
+					? agentHubUrlPutSchema
+					: getValidationSchema("/settings/{settingID}", "put");
+			const payload = await apiValidator(schema, req.body);
 			payload.id = req.params.setting_id;
 			const result = await internalSetting.update(res.locals.access, payload);
 			res.status(200).send(result);

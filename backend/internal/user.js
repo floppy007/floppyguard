@@ -89,6 +89,25 @@ const internalUser = {
 		return access
 			.can("users:update", data.id)
 			.then(() => {
+				// Privileged fields may only be changed by an admin. The "users:update" permission
+				// also passes for non-admin self-updates, so without this check any user could
+				// escalate themselves by sending roles:["admin"]. Note: regular login tokens carry
+				// scope "user" even for admins, so the requester's roles must be checked in the DB.
+				if (typeof data.roles === "undefined" && typeof data.is_disabled === "undefined") {
+					return;
+				}
+				return userModel
+					.query()
+					.where("id", access.token.getUserId(0))
+					.andWhere("is_deleted", 0)
+					.first()
+					.then((requester) => {
+						if (!requester || !Array.isArray(requester.roles) || requester.roles.indexOf("admin") === -1) {
+							throw new errs.PermissionError("Permission Denied");
+						}
+					});
+			})
+			.then(() => {
 				// Make sure that the user being updated doesn't change their email to another user that is already using it
 				// 1. get user we want to update
 				return internalUser.get(access, { id: data.id }).then((user) => {

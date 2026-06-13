@@ -38,13 +38,15 @@ const internalAccessList = {
 		const promises = [];
 		// Items
 		data.items.map((item) => {
-			promises.push(
-				accessListAuthModel.query().insert({
-					access_list_id: row.id,
-					username: item.username,
-					password: item.password,
-				}),
-			);
+			if (item.password) {
+				promises.push(
+					accessListAuthModel.query().insert({
+						access_list_id: row.id,
+						username: item.username,
+						password: item.password,
+					}),
+				);
+			}
 			return true;
 		});
 
@@ -457,6 +459,9 @@ const internalAccessList = {
 									logger.error(err);
 									next(err);
 								});
+						} else {
+							// No password set, skip this item but keep the sequence moving
+							next();
 						}
 					})
 					.error((err) => {

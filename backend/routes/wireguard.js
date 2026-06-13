@@ -47,12 +47,19 @@ router
 
 			// ── Pre-save conflict check ──────────────────────────────────
 			// Project the metadata after applying the patch, then check for
-			// subnet conflicts between non-client peers.
+			// subnet conflicts between non-client peers. The patch must be
+			// sanitized first so the comparison runs on canonical network
+			// addresses — stored metadata is canonicalized on save
+			// ('192.168.10.5/24' → '192.168.10.0/24'), so comparing raw
+			// request strings would let host-bit variants slip past.
 			const preStatus = await internalWireGuard.getStatus();
 			const currentMeta = preStatus.metadata || { interfaces: {}, links: {} };
 			const projectedLinks = { ...currentMeta.links };
 			for (const [id, patch] of Object.entries(links)) {
-				projectedLinks[id] = { ...(projectedLinks[id] || {}), ...patch };
+				projectedLinks[id] = {
+					...(projectedLinks[id] || {}),
+					...internalWireGuard.sanitizeLinkMetadataPatch(patch),
+				};
 			}
 			const subnetToPeers = new Map();
 			for (const [id, meta] of Object.entries(projectedLinks)) {

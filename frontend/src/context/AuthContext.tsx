@@ -91,8 +91,10 @@ function AuthProvider({ children, tokenRefreshInterval = 5 * 60 * 1000 }: Props)
 
 	const refresh = useCallback(async () => {
 		const response = await refreshToken();
-		handleTokenUpdate(response);
-	}, [handleTokenUpdate]);
+		// Replace only the top of the stack so a "login as" session
+		// doesn't wipe out the admin's original token underneath it.
+		AuthStore.replaceTop(response);
+	}, []);
 
 	useEffect(() => {
 		if (!authenticated) {

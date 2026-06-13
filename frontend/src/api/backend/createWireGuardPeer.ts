@@ -19,5 +19,7 @@ export interface CreateWireGuardPeerResponse {
 }
 
 export async function createWireGuardPeer(data: CreateWireGuardPeerRequest): Promise<CreateWireGuardPeerResponse> {
-	return api.post({ url: "wireguard/create-peer", data }) as Promise<CreateWireGuardPeerResponse>;
+	// rawBody: the backend route reads camelCase keys (fullTunnel, importedNetworks, ifaceName),
+	// so the default decamelizeKeys() conversion would silently drop them.
+	return api.post({ url: "wireguard/create-peer", data, rawBody: true }) as Promise<CreateWireGuardPeerResponse>;
 }

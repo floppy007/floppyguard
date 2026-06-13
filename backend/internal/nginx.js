@@ -34,7 +34,7 @@ const internalNginx = {
 				// We're deleting this config regardless.
 				// Don't throw errors, as the file may not exist at all
 				// Delete the .err file too
-				return internalNginx.deleteConfig(host_type, host, false, true);
+				return internalNginx.deleteConfig(host_type, host, true);
 			})
 			.then(() => {
 				return internalNginx.generateConfig(host_type, host);
@@ -83,10 +83,12 @@ const internalNginx = {
 								meta: combined_meta,
 							})
 							.then(() => {
-								internalNginx.renameConfigAsError(host_type, host);
+								return internalNginx.renameConfigAsError(host_type, host);
 							})
 							.then(() => {
-								return internalNginx.deleteConfig(host_type, host, true);
+								// The config file was renamed to .err above; this just makes
+								// sure nothing is left behind. Keep the .err file for debugging.
+								return internalNginx.deleteConfig(host_type, host);
 							});
 					});
 			})
@@ -378,12 +380,10 @@ const internalNginx = {
 		const config_file_err = `${config_file}.err`;
 
 		return new Promise((resolve /*, reject*/) => {
-			fs.unlink(config_file, () => {
-				// ignore result, continue
-				fs.rename(config_file, config_file_err, () => {
-					// also ignore result, as this is a debugging informative file anyway
-					resolve();
-				});
+			// Rename replaces any existing .err file atomically.
+			// Ignore the result, as this is a debugging informative file anyway
+			fs.rename(config_file, config_file_err, () => {
+				resolve();
 			});
 		});
 	},

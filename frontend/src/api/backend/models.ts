@@ -534,7 +534,8 @@ export interface AgentUpdateData {
 	mode?: AgentMode;
 	wgInterface?: string;
 	configText?: string;
-	mgmtUrl?: string;
+	/** null clears the URL (undefined keys are dropped from the JSON body) */
+	mgmtUrl?: string | null;
 	/** Per-agent network ACL — explicit CIDRs this agent may route */
 	allowedNetworks?: string[];
 	/** Per-agent site ACL — link names whose networks are allowed */

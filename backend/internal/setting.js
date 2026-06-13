@@ -24,6 +24,12 @@ const internalSetting = {
 					);
 				}
 
+				// The 'html' default-site value requires meta.html to write index.html.
+				// Validate before persisting so a missing value can't half-apply the setting.
+				if (data.id === "default-site" && data.value === "html" && (!data.meta || typeof data.meta.html !== "string")) {
+					throw new errs.ValidationError("meta.html is required when value is 'html'");
+				}
+
 				return settingModel.query().where({ id: data.id }).patch(data);
 			})
 			.then(() => {
@@ -54,7 +60,7 @@ const internalSetting = {
 							return row;
 						})
 						.catch((/*err*/) => {
-							internalNginx
+							return internalNginx
 								.deleteConfig("default")
 								.then(() => {
 									return internalNginx.test();
@@ -62,8 +68,10 @@ const internalSetting = {
 								.then(() => {
 									return internalNginx.reload();
 								})
+								.catch((/*recoveryErr*/) => {
+									// Recovery itself failed - fall through to the error below
+								})
 								.then(() => {
-									// I'm being slack here I know..
 									throw new errs.ValidationError("Could not reconfigure Nginx. Please check logs.");
 								});
 						});

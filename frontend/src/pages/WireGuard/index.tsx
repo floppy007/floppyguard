@@ -108,6 +108,10 @@ const splitCsv = (value: string) =>
 		.map((s) => s.trim())
 		.filter(Boolean);
 
+// Agent-reported service URLs cross a trust boundary (heartbeat payload from
+// the remote box) — only render plain http(s) URLs as clickable links.
+const isSafeServiceUrl = (url: string) => /^https?:\/\//i.test(url);
+
 const parseMgmt = (v: string): WireGuardRemoteManagementMode =>
 	(["none", "ssh", "agent"] as const).includes(v as never) ? (v as WireGuardRemoteManagementMode) : "unknown";
 const parseReturn = (v: string): WireGuardReturnPathMode =>
@@ -540,7 +544,15 @@ function PreviewResult({ preview, current }: { preview: WireGuardPlanPreviewResp
 
 // ── Agent Section ──────────────────────────────────────────────────────────────
 
-function AgentSection({ link, agents }: { link: WireGuardLink; agents: Agent[] }) {
+function AgentSection({
+	link,
+	agents,
+	agentsReady,
+}: {
+	link: WireGuardLink;
+	agents: Agent[];
+	agentsReady: boolean;
+}) {
 	const existingAgent =
 		agents.find((a) => a.wgLinkName === link.name) ??
 		agents.find((a) => a.name === link.name) ??
@@ -564,11 +576,14 @@ function AgentSection({ link, agents }: { link: WireGuardLink; agents: Agent[] }
 	const [aclEdit, setAclEdit] = useState<string | null>(null);
 	const [showReinstall, setShowReinstall] = useState(false);
 	const [resetLoading, setResetLoading] = useState(false);
+	const [resetError, setResetError] = useState<string | null>(null);
 	const agentCreateAttempted = useRef(false);
 
-	// Auto-create agent if none exists for this link
+	// Auto-create agent if none exists for this link. Only once the agents query
+	// has actually resolved — while it is in flight (or errored) the list is just
+	// a placeholder [] and creating here would duplicate an existing agent.
 	useEffect(() => {
-		if (!existingAgent && !activeAgent && !agentCreateAttempted.current) {
+		if (agentsReady && !existingAgent && !activeAgent && !agentCreateAttempted.current) {
 			agentCreateAttempted.current = true;
 			createAgent.mutate(
 				{
@@ -580,7 +595,7 @@ function AgentSection({ link, agents }: { link: WireGuardLink; agents: Agent[] }
 				{ onSuccess: setActiveAgent },
 			);
 		}
-	}, [existingAgent, activeAgent, link.interfaceName, link.name, createAgent.mutate]);
+	}, [agentsReady, existingAgent, activeAgent, link.interfaceName, link.name, createAgent.mutate]);
 
 	const handleCopy = (text: string) => {
 		navigator.clipboard.writeText(text).catch(() => {});
@@ -590,10 +605,13 @@ function AgentSection({ link, agents }: { link: WireGuardLink; agents: Agent[] }
 
 	const handleResetToken = async (agentId: number) => {
 		setResetLoading(true);
+		setResetError(null);
 		try {
 			const updated = await resetAgentToken(agentId);
 			setActiveAgent(updated);
 			setShowReinstall(true);
+		} catch (err) {
+			setResetError(err instanceof Error ? err.message : String(err));
 		} finally {
 			setResetLoading(false);
 		}
@@ -604,7 +622,9 @@ function AgentSection({ link, agents }: { link: WireGuardLink; agents: Agent[] }
 		updateAgent.mutate(
 			{
 				id: agentId,
-				data: { mgmtUrl: mgmtUrlEdit.trim() || undefined },
+				// null (not undefined) so the key survives JSON.stringify and an
+				// emptied field actually clears mgmt_url on the backend
+				data: { mgmtUrl: mgmtUrlEdit.trim() || null },
 			},
 			{
 				onSuccess: (updated) => {
@@ -631,6 +651,7 @@ function AgentSection({ link, agents }: { link: WireGuardLink; agents: Agent[] }
 
 	// Use the resolved agent (either pre-existing or just created)
 	const agent = activeAgent ?? existingAgent ?? null;
+	const safeServices = (agent?.services ?? []).filter((svc) => isSafeServiceUrl(svc.url));
 
 	return (
 		<div className={styles.inlineSection}>
@@ -671,8 +692,8 @@ function AgentSection({ link, agents }: { link: WireGuardLink; agents: Agent[] }
 									v{agent.agentVersion}
 								</div>
 							)}
-							{agent.services && agent.services.length > 0
-								? agent.services.map((svc) => (
+							{safeServices.length > 0
+								? safeServices.map((svc) => (
 										<div key={svc.url} className="small">
 											<a
 												href={svc.url}
@@ -718,13 +739,16 @@ function AgentSection({ link, agents }: { link: WireGuardLink; agents: Agent[] }
 									<button
 										type="button"
 										className="btn btn-sm btn-link p-0 small"
-										onClick={() => setMgmtUrlEdit(agent.mgmtUrl ?? "")}
+										onClick={() => {
+											updateAgent.reset();
+											setMgmtUrlEdit(agent.mgmtUrl ?? "");
+										}}
 									>
 										{intl.formatMessage({ id: "wireguard.agent.change" })}
 									</button>
 								</div>
 							) : (
-								<div className="d-flex align-items-center gap-2">
+								<div className="d-flex align-items-center gap-2 flex-wrap">
 									<input
 										type="url"
 										className="form-control form-control-sm"
@@ -748,6 +772,9 @@ function AgentSection({ link, agents }: { link: WireGuardLink; agents: Agent[] }
 									>
 										{intl.formatMessage({ id: "cancel" })}
 									</button>
+									{updateAgent.isError && (
+										<span className="small text-danger">{updateAgent.error?.message}</span>
+									)}
 								</div>
 							)}
 						</div>
@@ -769,7 +796,10 @@ function AgentSection({ link, agents }: { link: WireGuardLink; agents: Agent[] }
 									<button
 										type="button"
 										className="btn btn-sm btn-link p-0 small"
-										onClick={() => setAclEdit((agent.allowedNetworks ?? []).join(", "))}
+										onClick={() => {
+											updateAgent.reset();
+											setAclEdit((agent.allowedNetworks ?? []).join(", "));
+										}}
 									>
 										{intl.formatMessage({ id: "wireguard.agent.change" })}
 									</button>
@@ -799,6 +829,9 @@ function AgentSection({ link, agents }: { link: WireGuardLink; agents: Agent[] }
 									>
 										{intl.formatMessage({ id: "cancel" })}
 									</button>
+									{updateAgent.isError && (
+										<span className="small text-danger">{updateAgent.error?.message}</span>
+									)}
 								</div>
 							)}
 							<div className="form-text small">
@@ -820,6 +853,7 @@ function AgentSection({ link, agents }: { link: WireGuardLink; agents: Agent[] }
 								: intl.formatMessage({ id: "wireguard.agent.reinstall" })}
 						</button>
 					)}
+					{resetError && <div className="small text-danger mb-2">{resetError}</div>}
 
 					{/* Install one-liner — always shown when pending, toggled when active */}
 					{(agent.status !== "active" || showReinstall) &&
@@ -912,13 +946,15 @@ interface LinkCardProps {
 	natCandidates: WireGuardRouteHint[];
 	planningInterfaces: EnhancedInterface[];
 	agents: Agent[];
+	agentsReady: boolean;
 }
 
-function LinkCard({ link, missingReturnRoutes, natCandidates, planningInterfaces, agents }: LinkCardProps) {
+function LinkCard({ link, missingReturnRoutes, natCandidates, planningInterfaces, agents, agentsReady }: LinkCardProps) {
 	const [editorOpen, setEditorOpen] = useState(false);
 	const [plannerOpen, setPlannerOpen] = useState(false);
 	const [agentOpen, setAgentOpen] = useState(false);
 	const [downloading, setDownloading] = useState(false);
+	const [downloadError, setDownloadError] = useState<string | null>(null);
 
 	// Editor state
 	const [draftName, setDraftName] = useState("");
@@ -954,7 +990,10 @@ function LinkCard({ link, missingReturnRoutes, natCandidates, planningInterfaces
 				return (a.hostname ?? "").includes(ip) || a.name.includes(ip);
 			}),
 		);
-	const agentServices = matchedAgent?.status === "active" ? (matchedAgent.services ?? []) : [];
+	const agentServices =
+		matchedAgent?.status === "active"
+			? (matchedAgent.services ?? []).filter((svc) => isSafeServiceUrl(svc.url))
+			: [];
 
 	const openEditor = () => {
 		setDraftName(link.name);
@@ -1196,9 +1235,12 @@ function LinkCard({ link, missingReturnRoutes, natCandidates, planningInterfaces
 						disabled={downloading}
 						onClick={async () => {
 							setDownloading(true);
+							setDownloadError(null);
 							try {
 								const filename = `${(link.name || link.id).replace(/[^\w.-]/g, "_")}.conf`;
 								await downloadWireGuardLinkConfig(link.id, filename);
+							} catch (err) {
+								setDownloadError(err instanceof Error ? err.message : String(err));
 							} finally {
 								setDownloading(false);
 							}
@@ -1238,10 +1280,13 @@ function LinkCard({ link, missingReturnRoutes, natCandidates, planningInterfaces
 						{intl.formatMessage({ id: "wireguard.link.delete" })}
 					</button>
 				</div>
+				{downloadError && <div className="small text-danger mt-2">{downloadError}</div>}
 			</div>
 
 			{/* Agent section */}
-			{agentOpen && link.remoteManagementMode === "agent" && <AgentSection link={link} agents={agents} />}
+			{agentOpen && link.remoteManagementMode === "agent" && (
+				<AgentSection link={link} agents={agents} agentsReady={agentsReady} />
+			)}
 
 			{/* Inline metadata editor */}
 			{editorOpen && (
@@ -2110,12 +2155,13 @@ function HubUrlEditor() {
 						<button
 							type="button"
 							className="btn btn-sm btn-link p-0 small"
-							onClick={() =>
+							onClick={() => {
+								setSetting.reset();
 								setEdit({
 									primary: hubSetting.data?.meta?.primary ?? "",
 									fallback: hubSetting.data?.value ?? "",
-								})
-							}
+								});
+							}}
 						>
 							{intl.formatMessage({ id: "wireguard.agent.change" })}
 						</button>
@@ -2154,6 +2200,9 @@ function HubUrlEditor() {
 								<span className="small text-danger">
 									{intl.formatMessage({ id: "wireguard.agent.hub-url-invalid" })}
 								</span>
+							)}
+							{!invalid && setSetting.isError && (
+								<span className="small text-danger">{setSetting.error?.message}</span>
 							)}
 						</div>
 					</div>
@@ -2238,7 +2287,13 @@ const WireGuard = () => {
 	};
 
 	const agents = agentsQuery.data ?? [];
-	const linkCardProps = { missingReturnRoutes, natCandidates, planningInterfaces, agents };
+	const linkCardProps = {
+		missingReturnRoutes,
+		natCandidates,
+		planningInterfaces,
+		agents,
+		agentsReady: agentsQuery.isSuccess,
+	};
 
 	const renderLinks = (items: WireGuardLink[], label: string, badgeCls: string) => {
 		if (items.length === 0) return null;

@@ -7,6 +7,37 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.3.22] – 2026-06-13
+
+Sicherheits- und Stabilitäts-Release aus einem strukturierten Multi-Agent-Audit der gesamten App (Finden → adversariale Verifikation → Fix, drei Durchläufe). Behebt zwei kritische Privilege-Escalation-/Datenverlust-Fehler, zwei weitere Root-RCE-Pfade derselben Newline-Injection-Klasse wie v1.3.21, sowie eine Reihe von WireGuard-Races, Agent-Robustheitsproblemen und kaputten Frontend↔Backend-Verträgen. Health-Stack vollständig grün (Backend 87/87, Frontend 23/23, tsc + beide Lints sauber).
+
+### Security
+
+- **Privilege Escalation über `PUT /api/users/me` geschlossen** — ein normaler Benutzer konnte sich mit `{"roles":["admin"]}` selbst zum Admin machen (das Schema erlaubte `roles`, `update()` patchte es ungefiltert). Self-Updates dürfen `roles` jetzt nur noch ändern, wenn der Requester laut DB selbst Admin ist.
+- **Root-RCE in `createInterface` geschlossen** — das `address`-Feld lief nur durch `String.trim()` und floss per Newline-Injection als `PostUp = <cmd>` in die wg-quick-Conf (root). Neuer strenger `isValidInterfaceAddress`-Validator (anchored IPv4/IPv6 + Prefix, lehnt Whitespace/Newline ab).
+- **Root-RCE über Peer-Namen geschlossen** — derselbe Sink in `createPeer`: ein Peer-Name mit Newline schmuggelte eine `[Interface]`/`PostUp`-Sektion in `wg0.conf`. Namen laufen jetzt durch `stripLinkNameControlChars`.
+- **Config.env-Injection über Agent-Felder geschlossen** — `mode`/`wg_interface` waren unvalidiert und landeten in der als root ge-`source`ten `config.env`. Neue Whitelists (`sanitizeAgentMode`, `sanitizeWgInterface`), auch am Sink in `getInstallScript` erneut erzwungen.
+- **SSRF vom Hub eingedämmt** — agent-kontrollierte `hostname`/`lan_ip` aus dem Heartbeat trieben serverseitige Portscans + `curl`. Ziele sind jetzt auf RFC1918-Adressen beschränkt; `hostname`/`agent_version` werden längen-geklammert.
+- **Remote-DoS bei Key-Upload behoben** — `checkPrivateKey()` warf aus einem `setTimeout`-Callback (unfangbar → Prozess-Crash) beim Upload eines passwortgeschützten Private Keys.
+- **Backend-Crash in `setting.js` behoben** — fehlendes `return` im Default-Site-Fehlerpfad führte zu einer unhandled Rejection (Prozess-Absturz) bei gleichzeitigem HTTP 200.
+
+### Fixed
+
+- **Zertifikats-Erneuerung bricked nginx nicht mehr** — die stündliche Auto-Renewal löschte gültige Zertifikate VOR dem certbot-Lauf; schlug certbot fehl (LE-Ausfall, Rate-Limit), war das Zertifikat weg und `nginx -t` scheiterte fleetweit. Löschung erfolgt jetzt erst nach erfolgreicher Erneuerung; Renewal lädt nginx neu.
+- **WireGuard-Conf-Races serialisiert** — alle `<iface>.conf`-Read-Modify-Writes (`deletePeer`, `generatePeerConfig`, `syncHubConf`) laufen jetzt unter `withWriteLock`; `syncAgentConfigs` läuft im Lock mit frischen Metadaten (kein Last-Write-Wins mehr).
+- **Atomare Metadaten-Writes** — Store wird via tmp+rename geschrieben; Lesefehler liefern keinen leeren Store mehr, der echte Daten überschreibt.
+- **Korrekte Subnetz-Mathematik** — Tunnel-IP-Allokation respektiert die echte Prefix-Länge statt hartem /24.
+- **Key-Rotation-Cache** — Download/QR rotieren den Peer-Key nicht mehr gegenseitig kaputt; Cache wird bei Edit/Delete invalidiert.
+- **Hub-Routen für Site-Peers** — neue Site-Netzwerke bekommen live Kernel-Routen + persistente PostUp-Zeilen (überleben Reboot).
+- **Eindeutige Link-Namen erzwungen** — Duplikat-Namen froren vorher den Agent-Sync ein.
+- **Agent-Registrierung ist idempotent** — geht die HTTP-Antwort verloren, bricked der Agent nicht mehr; der `reg_token` wird erst nach nachgewiesenem Empfang zurückgezogen.
+- **Rate-Limiter pro Bucket getrennt** — Login- und Agent-Limiter teilten einen per-IP-Zähler und sperrten sich gegenseitig aus (NAT).
+- **Hub-URL-Propagation speicherbar** — das Settings-PUT-Schema lehnte das `agent-hub-url`-Payload ab (Feature aus v1.3.15/16 war ein No-op); jetzt conditional auf die Setting-ID validiert, ohne `default-site` zu lockern.
+- **Migration läuft auf sqlite** — `agent_allowed_sites` nutzte MySQL-only `SHOW COLUMNS` und brach lokale Dev-DBs; jetzt portables `hasColumn`.
+- **Frontend↔Backend-Verträge repariert** — Create-Peer/Restore-Metadata/Create-Interface sendeten snake_case bzw. falsche Keys, die das Backend (camelCase) still verwarf (`fullTunnel`, `importedNetworks`, `ifaceName`, `backupPath`, Listen-Port).
+- **Client-Reach-List löst keinen falschen „AllowedIPs conflict" mehr aus** — Road-Warrior-Clients, die ein bestehendes Site-Netz erreichen, lassen sich wieder anlegen/bearbeiten.
+- **Audit-Log-Suche** — fehlendes abschließendes `%` im LIKE-Muster matchte nur Einträge, die mit der Query endeten.
+
 ## [1.3.21] – 2026-06-07
 
 Großes Härtungs-Release der gesamten Hub→Agent-WireGuard-Sync-Struktur (zwei vollständige Audit-Runden + Re-Audit an einem Tag, konsolidiert). Behebt eine ganze Familie von Fällen, in denen eine hub-seitige Änderung — vor allem REMOVE/DELETE/RENAME — nicht zuverlässig am Remote-Agent ankam, plus eine kritische RCE.
