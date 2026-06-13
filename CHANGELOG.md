@@ -7,6 +7,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.3.23] – 2026-06-13
+
+Konsolidiertes Tagesrelease. Bündelt den großen Sicherheits- und Stabilitäts-Audit-Batch (siehe 1.3.22) mit einem Betriebs-Fix für die Log-Rotation. Health-Stack vollständig grün, in Produktion deployt und verifiziert (Live-API meldet die neue Version, Logrotate ohne Warnung).
+
+### Fixed
+
+- **Log-Rotation funktioniert wieder** — das Backend rief alle 2 Tage `logrotate /etc/logrotate.d/floppyguard` auf, aber die Datei wurde nie angelegt: Bei jedem Tick eine `cannot stat`-Warnung, und die Per-Host-nginx-Logs unter `/data/logs` wuchsen ungebremst (Fallback-Logs ~270 MB). Die Konfig liegt jetzt als Repo-Asset (`backend/config/logrotate.d/floppyguard`) bei, und `ensureLogrotateConfig()` installiert sie beim Start nach `/etc/logrotate.d/`, falls sie fehlt — ein frischer Deploy heilt sich selbst.
+
+### Enthält (aus 1.3.22, gleicher Tag)
+
+Das komplette Multi-Agent-Audit der App (Finden → adversariale Verifikation → Fix, drei Durchläufe): Privilege Escalation über `PUT /api/users/me`, zwei Root-RCE-Pfade derselben Newline-Injection-Klasse (`createInterface` address, `createPeer` peer name), config.env-Injection über Agent-Felder, SSRF-Eindämmung, DoS-Fix bei Key-Upload, `setting.js`-Crash, sowie die Zertifikats-Renewal-Bricking, WireGuard-Conf-Races/Locking, atomare Metadaten-Writes, Subnetz-Mathematik, Key-Rotation-Cache, Hub-Routen für Site-Peers, idempotente Agent-Registrierung, getrennte Rate-Limiter, speicherbare Hub-URL-Propagation, sqlite-portable Migration und reparierte Frontend↔Backend-Payload-Verträge. Vollständige Details unten unter 1.3.22.
+
 ## [1.3.22] – 2026-06-13
 
 Sicherheits- und Stabilitäts-Release aus einem strukturierten Multi-Agent-Audit der gesamten App (Finden → adversariale Verifikation → Fix, drei Durchläufe). Behebt zwei kritische Privilege-Escalation-/Datenverlust-Fehler, zwei weitere Root-RCE-Pfade derselben Newline-Injection-Klasse wie v1.3.21, sowie eine Reihe von WireGuard-Races, Agent-Robustheitsproblemen und kaputten Frontend↔Backend-Verträgen. Health-Stack vollständig grün (Backend 87/87, Frontend 23/23, tsc + beide Lints sauber).
