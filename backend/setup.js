@@ -1,3 +1,6 @@
+import { access, copyFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { installPlugins } from "./lib/certbot.js";
 import utils from "./lib/utils.js";
 import { setup as logger } from "./logger.js";
@@ -135,6 +138,28 @@ const setupCertbotPlugins = async () => {
 	}
 };
 
+const LOGROTATE_CONFIG_PATH = "/etc/logrotate.d/floppyguard";
+const LOGROTATE_CONFIG_SOURCE = join(dirname(fileURLToPath(import.meta.url)), "config", "logrotate.d", "floppyguard");
+
+/**
+ * Installs the bundled logrotate config to /etc/logrotate.d on first run.
+ * Without it, logrotate warns "cannot stat .../floppyguard" on every tick and
+ * the per-host nginx logs in /data/logs never rotate.
+ * @returns {Promise}
+ */
+const ensureLogrotateConfig = async () => {
+	try {
+		await access(LOGROTATE_CONFIG_PATH);
+	} catch {
+		try {
+			await copyFile(LOGROTATE_CONFIG_SOURCE, LOGROTATE_CONFIG_PATH);
+			logger.info(`Installed logrotate config at ${LOGROTATE_CONFIG_PATH}`);
+		} catch (e) {
+			logger.warn(`Could not install logrotate config: ${e.message}`);
+		}
+	}
+};
+
 /**
  * Starts a timer to call run the logrotation binary every two days
  * @returns {Promise}
@@ -144,7 +169,8 @@ const setupLogrotation = () => {
 
 	const runLogrotate = async () => {
 		try {
-			await utils.execFile("logrotate", ["/etc/logrotate.d/floppyguard"]);
+			await ensureLogrotateConfig();
+			await utils.execFile("logrotate", [LOGROTATE_CONFIG_PATH]);
 			logger.info("Logrotate completed.");
 		} catch (e) {
 			logger.warn(e);
