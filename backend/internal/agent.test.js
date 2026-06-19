@@ -9,6 +9,7 @@ const {
 	normalizeAgentConfig,
 	_parseHubPeerAllowedIPs,
 	_rewriteHubPeerAllowedIPs,
+	_rewriteHubPeerEndpoint,
 	_computeHubPeerAllowedIPs,
 	_collectSiteNetworks,
 	_computeOtherSiteNets,
@@ -164,6 +165,135 @@ PersistentKeepalive = 25`;
 	const result = _rewriteHubPeerAllowedIPs(config, ["10.10.0.0/24", "192.168.10.0/24"]);
 	assert.ok(result.includes("AllowedIPs = 10.10.0.0/24, 192.168.10.0/24"));
 	assert.ok(!result.includes("AllowedIPs = 10.10.0.0/24\n"));
+});
+
+// ─── _rewriteHubPeerEndpoint ─────────────────────────────────────────────────
+
+test("_rewriteHubPeerEndpoint swaps the host but keeps the port", () => {
+	const config = `[Interface]
+Address = 10.10.0.5/24
+
+[Peer]
+PublicKey = hubkey
+Endpoint = hub.comnic.de:51821
+AllowedIPs = 10.10.0.0/24
+PersistentKeepalive = 25`;
+	const result = _rewriteHubPeerEndpoint(config, "proxy.comnic.de");
+	assert.ok(result.includes("Endpoint = proxy.comnic.de:51821"));
+	assert.ok(!result.includes("hub.comnic.de"));
+});
+
+test("_rewriteHubPeerEndpoint leaves a raw IPv4-literal endpoint untouched", () => {
+	// An operator pins a raw IP deliberately (no DNS / no IPv6 ambiguity) — never
+	// downgrade it to a dual-stack hostname.
+	const config = `[Peer]
+Endpoint = 95.216.66.221:51821
+AllowedIPs = 10.10.0.0/24`;
+	assert.equal(_rewriteHubPeerEndpoint(config, "proxy.comnic.de"), config);
+});
+
+test("_rewriteHubPeerEndpoint is a no-op when host already matches", () => {
+	const config = `[Peer]
+Endpoint = proxy.comnic.de:51821
+AllowedIPs = 10.10.0.0/24`;
+	assert.equal(_rewriteHubPeerEndpoint(config, "proxy.comnic.de"), config);
+});
+
+test("_rewriteHubPeerEndpoint only touches the [Peer] section, not [Interface]", () => {
+	// An Endpoint-looking line outside [Peer] (defensive) must be left alone.
+	const config = `[Interface]
+Address = 10.10.0.5/24
+Endpoint = should-not-touch:1
+
+[Peer]
+Endpoint = hub.comnic.de:51821`;
+	const result = _rewriteHubPeerEndpoint(config, "proxy.comnic.de");
+	assert.ok(result.includes("Endpoint = should-not-touch:1"));
+	assert.ok(result.includes("Endpoint = proxy.comnic.de:51821"));
+});
+
+test("_rewriteHubPeerEndpoint leaves a port-less Endpoint untouched (nothing safe to swap)", () => {
+	const config = `[Peer]
+Endpoint = hub.comnic.de`;
+	assert.equal(_rewriteHubPeerEndpoint(config, "proxy.comnic.de"), config);
+});
+
+test("_rewriteHubPeerEndpoint leaves an IPv6-literal endpoint untouched", () => {
+	const config = `[Peer]
+Endpoint = [2a01:4f9:2b:307::221]:51821`;
+	assert.equal(_rewriteHubPeerEndpoint(config, "proxy.comnic.de"), config);
+});
+
+// A real hub IP migration must still reach IP-pinned agents: skip only IP→name
+// (the dual-stack downgrade), never IP→IP.
+test("_rewriteHubPeerEndpoint rewrites IP→IP when the hub itself moved to a new IP", () => {
+	const config = `[Peer]
+Endpoint = 95.216.66.221:51821`;
+	assert.ok(_rewriteHubPeerEndpoint(config, "95.216.66.249").includes("Endpoint = 95.216.66.249:51821"));
+});
+
+test("_rewriteHubPeerEndpoint is a no-op for the same IP literal", () => {
+	const config = `[Peer]
+Endpoint = 95.216.66.221:51821`;
+	assert.equal(_rewriteHubPeerEndpoint(config, "95.216.66.221"), config);
+});
+
+test("_rewriteHubPeerEndpoint host compare is case-insensitive (no churn on case diff)", () => {
+	const config = `[Peer]
+Endpoint = Proxy.Comnic.DE:51821`;
+	assert.equal(_rewriteHubPeerEndpoint(config, "proxy.comnic.de"), config);
+});
+
+test("_rewriteHubPeerEndpoint rewrites a stale host but keeps a trailing inline comment", () => {
+	const config = `[Peer]
+Endpoint = hub.comnic.de:51821 # primary`;
+	assert.equal(_rewriteHubPeerEndpoint(config, "proxy.comnic.de"), `[Peer]
+Endpoint = proxy.comnic.de:51821 # primary`);
+});
+
+test("_rewriteHubPeerEndpoint tolerates whitespace around the colon", () => {
+	const config = `[Peer]
+Endpoint = hub.comnic.de : 51821`;
+	assert.ok(_rewriteHubPeerEndpoint(config, "proxy.comnic.de").includes("Endpoint = proxy.comnic.de:51821"));
+});
+
+test("_rewriteHubPeerEndpoint returns input unchanged for empty host", () => {
+	const config = `[Peer]
+Endpoint = hub.comnic.de:51821`;
+	assert.equal(_rewriteHubPeerEndpoint(config, ""), config);
+});
+
+// Regression: only the FIRST [Peer] (the hub peer) may be rewritten. A port-less
+// (or absent) hub Endpoint must NOT fall through and clobber a later peer.
+test("_rewriteHubPeerEndpoint never touches a second peer (port-less hub endpoint)", () => {
+	const config = `[Peer]
+PublicKey = hubkey
+Endpoint = hub.comnic.de
+
+[Peer]
+PublicKey = othersite
+Endpoint = othersite.example:51821`;
+	const result = _rewriteHubPeerEndpoint(config, "proxy.comnic.de");
+	assert.ok(result.includes("Endpoint = othersite.example:51821"), "second peer must be untouched");
+	assert.ok(!result.includes("proxy.comnic.de"), "no rewrite when hub peer endpoint has no port");
+});
+
+test("_rewriteHubPeerEndpoint rewrites only the first peer, leaves the second", () => {
+	const config = `[Peer]
+Endpoint = hub.comnic.de:51821
+
+[Peer]
+Endpoint = othersite.example:51821`;
+	const result = _rewriteHubPeerEndpoint(config, "proxy.comnic.de");
+	assert.ok(result.includes("Endpoint = proxy.comnic.de:51821"));
+	assert.ok(result.includes("Endpoint = othersite.example:51821"));
+});
+
+// Regression: same host but non-canonical bytes must NOT flip the line (no churn).
+test("_rewriteHubPeerEndpoint leaves a non-canonical line with the same host byte-identical", () => {
+	const config = `[Peer]
+Endpoint=proxy.comnic.de:51821`;
+	assert.equal(_rewriteHubPeerEndpoint(config, "proxy.comnic.de"), config);
 });
 
 // ─── _collectSiteNetworks ────────────────────────────────────────────────────
