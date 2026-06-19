@@ -69,9 +69,35 @@ const getWireGuardConfDir = () => process.env.WG_CONF_DIR || "/etc/wireguard";
 const getWireGuardBin = () => process.env.WG_BIN || "wg";
 const getIpBin = () => process.env.IP_BIN || "ip";
 
-/** Resolve hub hostname for peer/agent configs: WG_HUB_HOST env > OS hostname */
+/** A clean hostname or IP literal (incl. bracketed IPv6) — no whitespace, no shell
+ * or newline metacharacters. WG_HUB_HOST flows verbatim into config_text that
+ * agents apply as root, so anything that fails this is rejected, not propagated. */
+const HUB_HOST_RE = /^[A-Za-z0-9.\-_:[\]]+$/;
+
+/** Trim + validate a hub host, returning a value safe to splice into `${host}:${port}`,
+ * or null when unset/malformed. A bare (unbracketed) IPv6 literal contains ':' and
+ * would make `${host}:${port}` ambiguous/invalid, so it is bracket-wrapped — a
+ * hostname never contains ':', so this only ever normalizes IPv6. */
+function _sanitizeHubHost(raw) {
+	const v = (raw || "").trim();
+	if (!v || !HUB_HOST_RE.test(v)) return null;
+	return v.includes(":") && !v.startsWith("[") ? `[${v}]` : v;
+}
+
+/** Resolve hub hostname for peer/agent configs: a clean WG_HUB_HOST env > OS
+ * hostname. Trims, bracket-wraps a bare IPv6, and ignores a malformed value (stray
+ * space, newline, shell metacharacter) rather than baking it into every config. */
 function resolveHubHost() {
-	return process.env.WG_HUB_HOST || hostname() || "<server-ip>";
+	return _sanitizeHubHost(process.env.WG_HUB_HOST) || hostname() || "<server-ip>";
+}
+
+/** The explicitly-configured hub host (a clean WG_HUB_HOST), or null when unset or
+ * malformed. Unlike resolveHubHost() this NEVER falls back to the OS hostname:
+ * callers that OVERWRITE existing baked config (endpoint propagation) must act only
+ * on a deliberate, valid value — never clobber the whole fleet with a non-routable
+ * hostname fallback or a whitespace/newline-poisoned string. */
+function configuredHubHost() {
+	return _sanitizeHubHost(process.env.WG_HUB_HOST);
 }
 const getMetadataFile = () =>
 	process.env.WG_METADATA_FILE || path.resolve(process.cwd(), ".local-data", "wireguard-metadata.json");
@@ -2037,7 +2063,9 @@ function checkAllowedIPsConflicts(proposedNets, existingLinks) {
 export {
 	_buildPeerUpdates,
 	canonicalizeIpv4Network,
+	configuredHubHost,
 	isValidInterfaceAddress,
+	resolveHubHost,
 	withWriteLock,
 	buildLinkRecord,
 	buildRouteAnalysis,
@@ -2493,9 +2521,11 @@ export default {
 	updatePeer,
 	generatePeerConfigQr,
 	getBandwidth,
+	configuredHubHost,
 	getStatus,
 	readMetadataStore,
 	replaceMetadataStore,
+	resolveHubHost,
 	syncHubConf,
 	updateInterfaceMetadata,
 	updateLinkMetadata,

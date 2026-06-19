@@ -579,9 +579,19 @@ function startBackgroundTasks() {
 				const metadata = await internalWireGuard.readMetadataStore();
 				const res = await internalAgent.syncAgentConfigs(metadata);
 				const changed = Array.isArray(res) ? res.filter((r) => r.changed) : [];
-				if (changed.length) {
+				// An endpoint-ONLY rewrite (hub-domain propagation) is expected, not a
+				// missed trigger — separate it so a fleet-wide domain move doesn't drown
+				// out the genuine network/ACL drift this warning exists to surface.
+				const endpointOnly = changed.filter((r) => r.endpointChanged && !r.allowedChanged);
+				const drift = changed.filter((r) => !(r.endpointChanged && !r.allowedChanged));
+				if (drift.length) {
 					logger.warn(
-						`Agent reconciler: ${changed.length} stale agent config(s) resynced (a mutation path missed its trigger): ${changed.map((r) => r.name).join(", ")}`,
+						`Agent reconciler: ${drift.length} stale agent config(s) resynced (a mutation path missed its trigger): ${drift.map((r) => r.name).join(", ")}`,
+					);
+				}
+				if (endpointOnly.length) {
+					logger.info(
+						`Agent reconciler: propagated hub endpoint to ${endpointOnly.length} agent(s): ${endpointOnly.map((r) => r.name).join(", ")}`,
 					);
 				}
 			}).catch((err) => logger.debug(`Agent reconciler skipped: ${err.message}`));
@@ -1880,6 +1890,70 @@ function _rewriteHubPeerAllowedIPs(configText, newAllowedIPs) {
 }
 
 /**
+ * Rewrite the hub [Peer] Endpoint host to the current hub host (WG_HUB_HOST),
+ * keeping the existing port. The hub is authoritative for the endpoint just like
+ * it is for AllowedIPs, so a hub-domain change (e.g. floppyguard.comnic.de →
+ * proxy.comnic.de) propagates to every agent on its next poll instead of leaving
+ * the endpoint baked at install time. That stale-endpoint gap is the recurring
+ * "tunnel dead after reboot / domain move" class (PVE 2026-06-07, Floppy+Daniel
+ * 2026-06-19). Only the host is swapped — the port is preserved, and a line
+ * without a trailing :port is left untouched (nothing safe to rewrite).
+ *
+ * @param {string} configText
+ * @param {string} hubHost  e.g. "proxy.comnic.de" (from resolveHubHost())
+ * @returns {string}
+ */
+function _rewriteHubPeerEndpoint(configText, hubHost) {
+	if (!configText || !hubHost) return configText;
+	let peerIdx = 0;
+	let inPeer = false;
+	let replaced = false;
+	return configText
+		.split(/\r?\n/)
+		.map((raw) => {
+			const t = raw.trim();
+			if (t === "[Peer]") {
+				peerIdx += 1;
+				inPeer = true;
+				return raw;
+			}
+			if (t.startsWith("[")) {
+				inPeer = false;
+				return raw;
+			}
+			// Only the hub peer = the FIRST [Peer]. Scoping to peerIdx === 1 (not just
+			// a global "replaced" flag) is essential: a port-less or absent hub Endpoint
+			// must NOT fall through and clobber a LATER peer's endpoint in a multi-peer
+			// (relay/site-to-site) config. Endpoint is optional, so we cannot rely on it
+			// always matching the way AllowedIPs does.
+			if (inPeer && peerIdx === 1 && !replaced && t.startsWith("Endpoint")) {
+				// Endpoint = <host> : <port> [# comment]. Tolerate whitespace around the
+				// colon and an optional trailing comment (wg accepts both, and a baked
+				// config may carry them); the host group is comment-free. A port-less
+				// endpoint does not match and is left untouched.
+				const m = t.match(/^Endpoint\s*=\s*([^#]*?)\s*:\s*(\d+)\s*(#.*)?$/);
+				if (m) {
+					replaced = true;
+					const host = m[1];
+					const comment = m[3] ? ` ${m[3]}` : "";
+					// Don't DOWNGRADE a deliberately-pinned IP literal to a (possibly
+					// dual-stack) DNS name — that could re-introduce the AAAA black-hole.
+					// But DO rewrite IP→IP when the hub itself moved to a new IP: a real
+					// server migration must still propagate to IP-pinned agents.
+					const isIp = (h) => /^\d{1,3}(\.\d{1,3}){3}$/.test(h) || h.startsWith("[");
+					if (isIp(host) && !isIp(hubHost)) return raw;
+					// Same host (case-insensitive — DNS is) must not flip the hash and
+					// needlessly bounce wg0.
+					if (host.toLowerCase() === hubHost.toLowerCase()) return raw;
+					return `Endpoint = ${hubHost}:${m[2]}${comment}`;
+				}
+			}
+			return raw;
+		})
+		.join("\n");
+}
+
+/**
  * Parses the allowed_sites JSON column. Returns a Set of link names,
  * or null if the field is empty/unset (meaning full-mesh, all sites allowed).
  */
@@ -1962,8 +2036,20 @@ async function _syncOneAgent(agent, { linksByName, allSiteNets, ambiguousLinkNam
 	const masqueradeNets = otherSiteNets.filter((n) => !ownNets.has(n));
 	masqueradeNets.sort();
 
-	const rewritten =
+	// Hub is authoritative for the [Peer] Endpoint too — rewrite it from
+	// WG_HUB_HOST so a hub-domain change reaches every agent's baked config on
+	// the next poll (the stale-endpoint-after-reboot class, see
+	// _rewriteHubPeerEndpoint). Use configuredHubHost(), NOT resolveHubHost():
+	// when WG_HUB_HOST is unset/malformed the latter falls back to the OS hostname
+	// ("vpn-hub-comnic") or a whitespace/newline-poisoned value. Since this runs on
+	// EVERY sync for EVERY agent, baking such a value would black-hole the whole
+	// fleet — so without a clean, explicit WG_HUB_HOST we leave endpoints untouched.
+	const hubHost = internalWireGuard.configuredHubHost();
+	const allowedRewritten =
 		newSorted !== currentSorted ? _rewriteHubPeerAllowedIPs(agent.config_text, newAllowedIPs) : agent.config_text;
+	const rewritten = _rewriteHubPeerEndpoint(allowedRewritten, hubHost);
+	const endpointChanged = rewritten !== allowedRewritten;
+	const allowedChanged = newSorted !== currentSorted;
 	const newConfigText = normalizeAgentConfig(rewritten, masqueradeNets);
 	const newHash = hashConfig(newConfigText);
 
@@ -1972,7 +2058,7 @@ async function _syncOneAgent(agent, { linksByName, allSiteNets, ambiguousLinkNam
 	}
 
 	await Agent.query().patchAndFetchById(agent.id, { config_text: newConfigText, config_hash: newHash });
-	return { agentId: agent.id, name: agent.name, changed: true, newAllowedIPs, masqueradeNets };
+	return { agentId: agent.id, name: agent.name, changed: true, newAllowedIPs, masqueradeNets, endpointChanged, allowedChanged };
 }
 
 /**
@@ -2037,6 +2123,7 @@ export const _testExports = {
 	normalizeAgentConfig,
 	_parseHubPeerAllowedIPs,
 	_rewriteHubPeerAllowedIPs,
+	_rewriteHubPeerEndpoint,
 	_computeHubPeerAllowedIPs,
 	_collectSiteNetworks,
 	_computeOtherSiteNets,

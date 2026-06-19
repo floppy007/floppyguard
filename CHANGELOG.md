@@ -7,6 +7,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.3.24] – 2026-06-20
+
+Schließt die wiederkehrende „Tunnel nach Reboot tot"-Fehlerklasse strukturell: Der WireGuard-Endpoint in Agent-Configs wird jetzt vom Hub propagiert, statt einmalig beim Install eingebacken zu bleiben. Entwickelt mit anschließendem Multi-Agent-Audit (Finden → adversariale Verifikation → Fix, vier Durchläufe). Health-Stack grün (Backend 106/106, Frontend tsc + beide Lints sauber). Reiner Hub-seitiger Fix — `AGENT_SCRIPT_VERSION` bewusst auf 1.3.23 gelassen (das Agent-Skript ist unverändert, kein Flotten-Restart nötig; Agents ziehen die neue `config_text` beim normalen Poll).
+
+### Fixed
+
+- **WG-Endpoint propagiert jetzt an bestehende Agents (Hub ist autoritativ).** Bisher setzte nur die Erst-Generierung den `[Peer] Endpoint` aus `WG_HUB_HOST`; `syncAgentConfigs` schrieb ausschließlich die `AllowedIPs` um. Ein Hub-Domain-Wechsel (z. B. `floppyguard.comnic.de` → `hub.comnic.de` → `proxy.comnic.de`) erreichte deshalb keine bereits installierte Agent-Config — die veraltete, dual-stack-aufgelöste Domain blieb eingebacken und führte nach jedem Reboot zum Blackhole, wenn der Standort kein funktionierendes IPv6 hat (3× live aufgetreten: PVE, Floppy Home, Daniel Home). `_syncOneAgent` schreibt die Endpoint-Zeile jetzt bei jedem Sync aus `WG_HUB_HOST` neu, sodass die Änderung beim nächsten ~30-s-Poll die ganze Flotte erreicht.
+
+### Robustness
+
+- **Endpoint-Rewrite ist konservativ und gezielt.** Nur der **erste** `[Peer]` (= Hub-Peer) wird angefasst — ein port-loser/fehlender Hub-Endpoint kann keinen späteren Peer in Multi-Peer-Configs überschreiben. **IP-Literale bleiben unberührt** (eine bewusst gepinnte robuste IPv4/IPv6 wird nie auf einen Dual-Stack-Namen herabgestuft — genau die AAAA-Blackhole-Ursache), außer bei einer echten IP→IP-Hub-Migration. Der Hostvergleich ist case-insensitiv, ein Trailing-Inline-Comment und Whitespace ums `:` werden toleriert, und eine gleichbleibende Host-Zeile wird byte-identisch belassen (kein unnötiger Flotten-`wg0`-Bounce).
+- **`WG_HUB_HOST` wird vor dem Einbacken gesäubert.** `resolveHubHost()`/`configuredHubHost()` trimmen, lehnen Whitespace/Newline/Shell-Metazeichen ab (kein Fleet-weites Einschleusen über eine fehlkonfigurierte Env-Variable) und bracket-wrappen eine bare IPv6. Ist `WG_HUB_HOST` ungesetzt/ungültig, bleibt der eingebackene Endpoint unangetastet statt mit dem OS-Hostnamen-Fallback überschrieben zu werden.
+- **Reconciler-Log unterscheidet** erwartete Endpoint-Propagation von echtem Konfig-Drift, damit ein Domain-Wechsel den „missed trigger"-Alarm nicht übertönt.
+- 14 neue Regressionstests (`_rewriteHubPeerEndpoint`, `resolveHubHost`/`configuredHubHost`).
+
 ## [1.3.23] – 2026-06-13
 
 Konsolidiertes Tagesrelease. Bündelt den großen Sicherheits- und Stabilitäts-Audit-Batch (siehe 1.3.22) mit einem Betriebs-Fix für die Log-Rotation. Health-Stack vollständig grün, in Produktion deployt und verifiziert (Live-API meldet die neue Version, Logrotate ohne Warnung).
