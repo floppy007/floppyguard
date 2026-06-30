@@ -392,6 +392,8 @@
   "wireguard.agent.allowed-networks": "Réseaux autorisés :",
   "wireguard.agent.allowed-networks-all": "Tous (aucune restriction)",
   "wireguard.agent.allowed-networks-hint": "CIDR séparés par des virgules que cet agent peut atteindre via le hub. Vide = maillage complet (tous les autres sites).",
+  "wireguard.agent.preserve-lan": "Conserver l'IP réelle du client dans le LAN local",
+  "wireguard.agent.preserve-lan-hint": "Ne pas masquer (MASQUERADE) le trafic client/road-warrior (sous-réseau du tunnel) vers le LAN de cette passerelle, afin que les hôtes (p. ex. AD) voient l'IP réelle du client. Le site-à-site reste masqué. Nécessite une route de retour vers le sous-réseau du tunnel — laisser désactivé sur les sites sans route de retour.",
   "wireguard.agent.change": "modifier",
   "wireguard.agent.copied": "Copié !",
   "wireguard.agent.copy": "Copier",

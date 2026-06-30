@@ -110,6 +110,10 @@ function sanitizeWgInterface(name) {
 	}
 	return n;
 }
+function sanitizeBool(value, dflt) {
+	if (typeof value === "undefined" || value === null) return dflt;
+	return value === true || value === 1 || value === "true" || value === "1";
+}
 
 /**
  * Resolve the hub URLs to advertise to agents. Source of truth: the
@@ -344,35 +348,65 @@ function sanitizeAclSites(value) {
 
 /**
  * Build hub-managed PostUp/PostDown rules from the config's tunnel subnet.
- * %i is replaced by wg-quick with the interface name at runtime.
  *
- * @param {string} tunnelSubnet  e.g. "10.10.0.0/24"
- * @param {string[]} remoteSiteNets  networks from other sites that need MASQUERADE
- *   when exiting through the local LAN (e.g. ["192.168.111.0/24", "192.168.112.0/24"])
+ * The FloppyGuard agent runs these in a plain shell (eval) on the config-update
+ * path, NOT only through wg-quick, so the wg-quick `%i` placeholder must NOT be
+ * used — it would stay literal and `! -o %i` would match every packet (NATing
+ * even tunnel↔tunnel). We therefore bake in the real interface name. Each agent
+ * gets its own `wg_interface`, so a gateway running multiple tunnels (wg0 + wg1)
+ * is handled correctly — no shared/blanket rule.
+ *
+ * @param {string} tunnelSubnet  e.g. "10.10.0.0/24" — the client/road-warrior subnet
+ * @param {string[]} remoteSiteNets  other sites' nets that get MASQUERADE when
+ *   exiting the local LAN (site-to-site stays NATed — deliberately not exempted)
+ * @param {string[]} peerNets  hub-peer route nets (added as `ip route … dev <iface>`)
+ * @param {{iface?: string, localNets?: string[]}} [opts]
+ *   iface — real WG interface name (default "wg0"); localNets — this gateway's own
+ *   LAN nets. When set (per-agent preserve_lan_source_ip flag, site links only),
+ *   CLIENT/road-warrior traffic (source = tunnel subnet) to the local LAN is
+ *   exempted from NAT so hosts like AD see the real client IP. Requires a return
+ *   route to the tunnel subnet at that site.
  */
-function buildHubPostUp(tunnelSubnet, remoteSiteNets = [], peerNets = []) {
+function buildHubPostUp(tunnelSubnet, remoteSiteNets = [], peerNets = [], opts = {}) {
+	const iface = sanitizeWgInterface(opts.iface);
+	const localNets = opts.localNets || [];
 	assertCIDR(tunnelSubnet);
-	let rules = `sysctl -w net.ipv4.ip_forward=1; iptables -A FORWARD -i %i -j ACCEPT; iptables -A FORWARD -o %i -j ACCEPT; iptables -t nat -A POSTROUTING ! -o %i -s ${tunnelSubnet} -j MASQUERADE`;
+	let rules = `sysctl -w net.ipv4.ip_forward=1; iptables -A FORWARD -i ${iface} -j ACCEPT; iptables -A FORWARD -o ${iface} -j ACCEPT`;
+	// Opt-in: exempt CLIENT traffic (source = tunnel subnet) to the local LAN from
+	// NAT, BEFORE the MASQUERADE so it wins. Site-to-site source nets below are
+	// intentionally left masqueraded.
+	for (const net of localNets) {
+		assertCIDR(net);
+		rules += `; iptables -t nat -A POSTROUTING -s ${tunnelSubnet} -d ${net} -j RETURN`;
+	}
+	rules += `; iptables -t nat -A POSTROUTING ! -o ${iface} -s ${tunnelSubnet} -j MASQUERADE`;
 	for (const net of remoteSiteNets) {
 		assertCIDR(net);
-		rules += `; iptables -t nat -A POSTROUTING ! -o %i -s ${net} -j MASQUERADE`;
+		rules += `; iptables -t nat -A POSTROUTING ! -o ${iface} -s ${net} -j MASQUERADE`;
 	}
 	for (const net of peerNets) {
 		assertCIDR(net);
-		rules += `; ip route add ${net} dev %i 2>/dev/null || true`;
+		rules += `; ip route add ${net} dev ${iface} 2>/dev/null || true`;
 	}
 	return rules;
 }
-function buildHubPostDown(tunnelSubnet, remoteSiteNets = [], peerNets = []) {
+function buildHubPostDown(tunnelSubnet, remoteSiteNets = [], peerNets = [], opts = {}) {
+	const iface = sanitizeWgInterface(opts.iface);
+	const localNets = opts.localNets || [];
 	assertCIDR(tunnelSubnet);
-	let rules = `iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -j ACCEPT; iptables -t nat -D POSTROUTING ! -o %i -s ${tunnelSubnet} -j MASQUERADE`;
+	let rules = `iptables -D FORWARD -i ${iface} -j ACCEPT; iptables -D FORWARD -o ${iface} -j ACCEPT`;
+	for (const net of localNets) {
+		assertCIDR(net);
+		rules += `; iptables -t nat -D POSTROUTING -s ${tunnelSubnet} -d ${net} -j RETURN`;
+	}
+	rules += `; iptables -t nat -D POSTROUTING ! -o ${iface} -s ${tunnelSubnet} -j MASQUERADE`;
 	for (const net of remoteSiteNets) {
 		assertCIDR(net);
-		rules += `; iptables -t nat -D POSTROUTING ! -o %i -s ${net} -j MASQUERADE`;
+		rules += `; iptables -t nat -D POSTROUTING ! -o ${iface} -s ${net} -j MASQUERADE`;
 	}
 	for (const net of peerNets) {
 		assertCIDR(net);
-		rules += `; ip route del ${net} dev %i 2>/dev/null || true`;
+		rules += `; ip route del ${net} dev ${iface} 2>/dev/null || true`;
 	}
 	return rules;
 }
@@ -396,8 +430,10 @@ function deriveTunnelSubnet(configText) {
 /**
  * @param {string} configText  raw wg-quick config
  * @param {string[]} remoteSiteNets  networks from other sites needing LAN MASQUERADE
+ * @param {{iface?: string, localNets?: string[]}} [opts]  iface = real WG interface
+ *   name baked into the rules; localNets = local LAN nets exempted from NAT.
  */
-function normalizeAgentConfig(configText, remoteSiteNets = []) {
+function normalizeAgentConfig(configText, remoteSiteNets = [], opts = {}) {
 	if (!configText) return configText;
 	const lines = configText.split(/\r?\n/);
 	const out = [];
@@ -438,8 +474,8 @@ function normalizeAgentConfig(configText, remoteSiteNets = []) {
 	const peerNets = _parseHubPeerAllowedIPs(configText).filter(
 		(c) => !c.endsWith("/32") && !c.endsWith("/128"),
 	);
-	toInsert.push(`PostUp = ${buildHubPostUp(tunnelSubnet, remoteSiteNets, peerNets)}`);
-	toInsert.push(`PostDown = ${buildHubPostDown(tunnelSubnet, remoteSiteNets, peerNets)}`);
+	toInsert.push(`PostUp = ${buildHubPostUp(tunnelSubnet, remoteSiteNets, peerNets, opts)}`);
+	toInsert.push(`PostDown = ${buildHubPostDown(tunnelSubnet, remoteSiteNets, peerNets, opts)}`);
 
 	out.splice(insertAt, 0, ...toInsert);
 
@@ -1167,6 +1203,7 @@ const internalAgent = {
 				"agent_version",
 				"allowed_sites",
 				"allowed_networks",
+				"preserve_lan_source_ip",
 				"last_server_url",
 				"created_on",
 				"modified_on",
@@ -1201,6 +1238,7 @@ const internalAgent = {
 				"agent_version",
 				"allowed_sites",
 				"allowed_networks",
+				"preserve_lan_source_ip",
 				"last_server_url",
 				"created_on",
 				"modified_on",
@@ -1249,6 +1287,7 @@ const internalAgent = {
 			config_hash,
 			mgmt_url: data.mgmt_url || null,
 			wg_link_name: data.wg_link_name || null,
+			preserve_lan_source_ip: sanitizeBool(data.preserve_lan_source_ip, false),
 			unifi_url: unifi.unifi_url ?? null,
 			unifi_user: unifi.unifi_user ?? null,
 			unifi_pass: unifi.unifi_pass ?? null,
@@ -1310,13 +1349,20 @@ const internalAgent = {
 			const nets = sanitizeAclNetworks(data.allowed_networks);
 			patch.allowed_networks = nets ? JSON.stringify(nets) : null;
 		}
+		if (typeof data.preserve_lan_source_ip !== "undefined") {
+			patch.preserve_lan_source_ip = sanitizeBool(data.preserve_lan_source_ip, true);
+		}
 
 		// Detect changes that alter which networks belong in this agent's hub-peer
-		// AllowedIPs, so the pushed config_text must be resynced. ACL changes AND
-		// wg_link_name (rebinding to another link flips ownNets→otherSiteNets entirely).
+		// AllowedIPs (or how they are NATed), so the pushed config_text must be
+		// resynced. ACL changes, wg_link_name (rebinding to another link flips
+		// ownNets→otherSiteNets entirely), and preserve_lan_source_ip (toggles the
+		// local-LAN RETURN rules in the generated PostUp/PostDown).
 		const needsResync =
 			(typeof patch.allowed_networks !== "undefined" && patch.allowed_networks !== existing.allowed_networks) ||
 			(typeof patch.allowed_sites !== "undefined" && patch.allowed_sites !== existing.allowed_sites) ||
+			(typeof patch.preserve_lan_source_ip !== "undefined" &&
+				patch.preserve_lan_source_ip !== sanitizeBool(existing.preserve_lan_source_ip, false)) ||
 			(typeof patch.wg_link_name !== "undefined" && patch.wg_link_name !== existing.wg_link_name);
 
 		await Agent.query().patchAndFetchById(id, patch);
@@ -1756,7 +1802,8 @@ echo "[floppyguard-agent]   journalctl -u floppyguard-agent -f"
 			return { ok: true, stored: false, reason: "empty-config" };
 		}
 
-		let finalConfig = normalizeAgentConfig(data.config_text);
+		const uploadIface = sanitizeWgInterface(agent.wg_interface);
+		let finalConfig = normalizeAgentConfig(data.config_text, [], { iface: uploadIface });
 		if (!agent.wg_link_name) {
 			// syncAgentConfigs only reconciles agents WITH a wg_link_name (whereNotNull),
 			// so an unbound agent's uploaded conf is never re-derived. If it still lists
@@ -1766,7 +1813,7 @@ echo "[floppyguard-agent]   journalctl -u floppyguard-agent -f"
 			const tunnelSubnet = deriveTunnelSubnet(finalConfig);
 			const hostRoutes = _parseHubPeerAllowedIPs(finalConfig).filter((c) => c.endsWith("/32") || c.endsWith("/128"));
 			const safe = [...new Set([tunnelSubnet, ...hostRoutes])].sort();
-			finalConfig = normalizeAgentConfig(_rewriteHubPeerAllowedIPs(finalConfig, safe));
+			finalConfig = normalizeAgentConfig(_rewriteHubPeerAllowedIPs(finalConfig, safe), [], { iface: uploadIface });
 		}
 		const config_hash = hashConfig(finalConfig);
 		await Agent.query().patchAndFetchById(agent.id, {
@@ -2050,7 +2097,16 @@ async function _syncOneAgent(agent, { linksByName, allSiteNets, ambiguousLinkNam
 	const rewritten = _rewriteHubPeerEndpoint(allowedRewritten, hubHost);
 	const endpointChanged = rewritten !== allowedRewritten;
 	const allowedChanged = newSorted !== currentSorted;
-	const newConfigText = normalizeAgentConfig(rewritten, masqueradeNets);
+	// Local LAN nets fed to buildHubPostUp ONLY for true site gateways with the
+	// preserve flag explicitly ON (default OFF). There they exempt CLIENT traffic
+	// (tunnel subnet → local LAN) from NAT so hosts like AD see the real client IP.
+	// A client (road-warrior) link's importedNetworks is a *reach list*, not a LAN
+	// behind it (see _collectSiteNetworks), so client links never contribute here.
+	const isClientLink = linkMeta.type === "client";
+	const preserveLan = agent.preserve_lan_source_ip === true || agent.preserve_lan_source_ip === 1;
+	const localNets = !isClientLink && preserveLan ? [...ownNets] : [];
+	const iface = sanitizeWgInterface(agent.wg_interface);
+	const newConfigText = normalizeAgentConfig(rewritten, masqueradeNets, { iface, localNets });
 	const newHash = hashConfig(newConfigText);
 
 	if (newHash === agent.config_hash) {

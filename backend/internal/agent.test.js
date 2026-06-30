@@ -52,9 +52,21 @@ test("deriveTunnelSubnet falls back to 10.10.0.0/24 if unparseable", () => {
 test("buildHubPostUp generates base rules without remote nets", () => {
 	const result = buildHubPostUp("10.10.0.0/24");
 	assert.ok(result.includes("ip_forward=1"));
-	assert.ok(result.includes("-A FORWARD -i %i -j ACCEPT"));
-	assert.ok(result.includes("-A FORWARD -o %i -j ACCEPT"));
+	assert.ok(result.includes("-A FORWARD -i wg0 -j ACCEPT"));
+	assert.ok(result.includes("-A FORWARD -o wg0 -j ACCEPT"));
 	assert.ok(result.includes("-s 10.10.0.0/24 -j MASQUERADE"));
+});
+
+test("buildHubPostUp never emits the literal wg-quick %i placeholder", () => {
+	// %i stays literal when the agent eval's the rules in a plain shell (not via
+	// wg-quick), making `! -o %i` match every packet → NAT even tunnel↔tunnel.
+	const result = buildHubPostUp("10.10.0.0/24", ["192.168.111.0/24"], ["192.168.50.0/24"], {
+		iface: "wg3",
+		localNets: ["192.168.210.0/24"],
+	});
+	assert.ok(!result.includes("%i"), "must not contain literal %i");
+	assert.ok(result.includes("! -o wg3 -s 10.10.0.0/24 -j MASQUERADE"));
+	assert.ok(result.includes("dev wg3"));
 });
 
 test("buildHubPostUp adds MASQUERADE rules for each remote net", () => {
@@ -63,10 +75,29 @@ test("buildHubPostUp adds MASQUERADE rules for each remote net", () => {
 	assert.ok(result.includes("-s 192.168.112.0/24 -j MASQUERADE"));
 });
 
+test("buildHubPostUp exempts ONLY client (tunnel-subnet) traffic to local LAN when localNets set", () => {
+	const result = buildHubPostUp("10.10.0.0/24", ["192.168.111.0/24"], [], {
+		localNets: ["192.168.210.0/24"],
+	});
+	// Client traffic to the local LAN is RETURNed (real IP), before MASQUERADE.
+	const ret = result.indexOf("-s 10.10.0.0/24 -d 192.168.210.0/24 -j RETURN");
+	const masq = result.indexOf("! -o wg0 -s 10.10.0.0/24 -j MASQUERADE");
+	assert.ok(ret >= 0, "client→local-LAN must get a RETURN rule");
+	assert.ok(ret < masq, "RETURN must come before MASQUERADE so it wins");
+	// Site-to-site source stays masqueraded (NOT exempted).
+	assert.ok(result.includes("-s 192.168.111.0/24 -j MASQUERADE"));
+	assert.ok(!result.includes("-s 192.168.111.0/24 -d 192.168.210.0/24 -j RETURN"));
+});
+
+test("buildHubPostUp omits the local-LAN RETURN when localNets empty (default OFF)", () => {
+	const result = buildHubPostUp("10.10.0.0/24", ["192.168.111.0/24"]);
+	assert.ok(!result.includes("-j RETURN"));
+});
+
 test("buildHubPostDown mirrors PostUp with -D rules", () => {
-	const result = buildHubPostDown("10.10.0.0/24", ["192.168.10.0/24"]);
-	assert.ok(result.includes("-D FORWARD -i %i -j ACCEPT"));
-	assert.ok(result.includes("-D POSTROUTING ! -o %i -s 192.168.10.0/24 -j MASQUERADE"));
+	const result = buildHubPostDown("10.10.0.0/24", ["192.168.10.0/24"], [], { iface: "wg0" });
+	assert.ok(result.includes("-D FORWARD -i wg0 -j ACCEPT"));
+	assert.ok(result.includes("-D POSTROUTING ! -o wg0 -s 192.168.10.0/24 -j MASQUERADE"));
 });
 
 test("buildHubPostUp rejects shell injection in tunnel subnet", () => {
@@ -79,6 +110,14 @@ test("buildHubPostUp rejects shell injection in remote nets", () => {
 
 test("buildHubPostDown rejects invalid CIDR", () => {
 	assert.throws(() => buildHubPostDown("not-a-cidr"), /Invalid CIDR/);
+});
+
+test("buildHubPostUp rejects shell injection in iface name", () => {
+	assert.throws(() => buildHubPostUp("10.10.0.0/24", [], [], { iface: "wg0; rm -rf /" }), /wg_interface/);
+});
+
+test("buildHubPostUp rejects shell injection in localNets", () => {
+	assert.throws(() => buildHubPostUp("10.10.0.0/24", [], [], { localNets: ["$(id)"] }), /Invalid CIDR/);
 });
 
 // ─── normalizeAgentConfig ────────────────────────────────────────────────────

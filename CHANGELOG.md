@@ -7,6 +7,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.3.25] – 2026-06-30
+
+Behebt eine MASQUERADE-Fehlklasse in den hub-generierten Agent-PostUp/PostDown-Regeln: durch den literalen `%i` maskierten Standort-Gateways VPN-Verkehr auch dort, wo er nicht hingehört (u. a. Tunnel↔Tunnel). Zusätzlich neues, **standardmäßig ausgeschaltetes** Per-Agent-Flag, mit dem ein Site-Gateway die echte Client-IP ins lokale LAN durchreicht (damit am Standort Hinderlich VPN-Rechner im AD mit ihrer echten IP statt der Gateway-IP `192.168.210.7` erscheinen). Reiner Hub-seitiger Fix — das Agent-Skript (`buildLoopScript`) ist unverändert, `AGENT_SCRIPT_VERSION` bleibt auf 1.3.23; die neuen Regeln fließen über `config_text`/`config_hash` und werden beim normalen ~30-s-Poll übernommen. Health-Stack grün (Backend 111/111, Frontend tsc + Lints sauber, WireGuard-UI-Tests 11/11).
+
+### Fixed
+
+- **Literales `%i` aus den iptables-Regeln entfernt.** `buildHubPostUp`/`buildHubPostDown` schrieben den wg-quick-Platzhalter `%i` in die Regeln. Der Agent eval't diese aber auf dem Config-Update-Pfad in einer normalen Shell (nicht über wg-quick), wo `%i` literal bleibt → `! -o %i` matcht jedes Paket → **alles** wird maskiert, auch Tunnel↔Tunnel. Der echte Interface-Name (`agent.wg_interface`, validiert `^wg\d+$`) wird jetzt **pro Agent** eingebacken. Damit ist die Regel auch auf Gateways mit **mehreren** WG-Netzen (wg0 + wg1) korrekt — jedes Interface bekommt seine eigene gebackene Regel, keine geteilte/Blanket-Regel.
+
+### Added
+
+- **Neues Per-Agent-Flag `preserve_lan_source_ip` (Default AUS, opt-in).** Ist es an einem Site-Gateway AN, behält **nur Client-/Road-Warrior-Verkehr** (Quelle = Tunnel-Subnetz) die echte IP ins lokale LAN — per `-s <tunnel> -d <lokales-LAN> -j RETURN` vor dem MASQUERADE. **Site-to-Site bleibt bewusst maskiert.** Damit sieht z. B. der AD-Server die echte Client-IP statt der Gateway-IP. Gegated auf echte Site-Links (`type !== "client"`) — die `importedNetworks` eines Road-Warrior-Links sind eine *Reach-Liste*, kein lokales LAN. Setzt eine Rückroute ins Tunnel-Subnetz voraus; pro Gateway über UI-Toggle (de/en/fr) + API schaltbar. Migration backfillt bestehende Agents auf AUS → der Rollout ändert **kein** LAN-Verhalten (nur der `%i`-Fix greift), die echten IPs schaltet man pro Standort bewusst frei.
+
 ## [1.3.24] – 2026-06-20
 
 Schließt die wiederkehrende „Tunnel nach Reboot tot"-Fehlerklasse strukturell: Der WireGuard-Endpoint in Agent-Configs wird jetzt vom Hub propagiert, statt einmalig beim Install eingebacken zu bleiben. Entwickelt mit anschließendem Multi-Agent-Audit (Finden → adversariale Verifikation → Fix, vier Durchläufe). Health-Stack grün (Backend 106/106, Frontend tsc + beide Lints sauber). Reiner Hub-seitiger Fix — `AGENT_SCRIPT_VERSION` bewusst auf 1.3.23 gelassen (das Agent-Skript ist unverändert, kein Flotten-Restart nötig; Agents ziehen die neue `config_text` beim normalen Poll).
