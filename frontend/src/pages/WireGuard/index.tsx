@@ -649,6 +649,13 @@ function AgentSection({
 		);
 	};
 
+	const handleTogglePreserveLan = (agentId: number, value: boolean) => {
+		updateAgent.mutate(
+			{ id: agentId, data: { preserveLanSourceIp: value } },
+			{ onSuccess: (updated) => setActiveAgent(updated) },
+		);
+	};
+
 	// Use the resolved agent (either pre-existing or just created)
 	const agent = activeAgent ?? existingAgent ?? null;
 	const safeServices = (agent?.services ?? []).filter((svc) => isSafeServiceUrl(svc.url));
@@ -836,6 +843,30 @@ function AgentSection({
 							)}
 							<div className="form-text small">
 								{intl.formatMessage({ id: "wireguard.agent.allowed-networks-hint" })}
+							</div>
+						</div>
+					)}
+
+					{/* Preserve real client IP into the local LAN (no MASQUERADE) */}
+					{agent.status === "active" && (
+						<div className="mb-3">
+							<div className="form-check form-switch">
+								<input
+									className="form-check-input"
+									type="checkbox"
+									role="switch"
+									aria-checked={agent.preserveLanSourceIp}
+									id={`preserve-lan-${agent.id}`}
+									checked={agent.preserveLanSourceIp}
+									disabled={updateAgent.isPending}
+									onChange={(e) => handleTogglePreserveLan(agent.id, e.target.checked)}
+								/>
+								<label className="form-check-label small" htmlFor={`preserve-lan-${agent.id}`}>
+									{intl.formatMessage({ id: "wireguard.agent.preserve-lan" })}
+								</label>
+							</div>
+							<div className="form-text small">
+								{intl.formatMessage({ id: "wireguard.agent.preserve-lan-hint" })}
 							</div>
 						</div>
 					)}

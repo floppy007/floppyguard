@@ -7,7 +7,7 @@ import { convertBoolFieldsToInt, convertIntFieldsToBool } from "../lib/helpers.j
 
 Model.knex(db());
 
-const boolFields = ["is_deleted"];
+const boolFields = ["is_deleted", "preserve_lan_source_ip"];
 
 class Agent extends Model {
 	$beforeInsert() {

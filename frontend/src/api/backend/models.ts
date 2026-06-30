@@ -509,6 +509,8 @@ export interface Agent {
 	allowedNetworks: string[] | null;
 	/** Per-agent site ACL — link names whose networks are allowed (null = no restriction) */
 	allowedSites: string[] | null;
+	/** Site gateways: exempt the local LAN from MASQUERADE so VPN clients keep their real source IP (needs a return route). Default true. */
+	preserveLanSourceIp: boolean;
 	// UniFi mode fields
 	unifiUrl: string | null;
 	unifiUser: string | null;
@@ -540,6 +542,8 @@ export interface AgentUpdateData {
 	allowedNetworks?: string[];
 	/** Per-agent site ACL — link names whose networks are allowed */
 	allowedSites?: string[];
+	/** Site gateways: exempt the local LAN from MASQUERADE so VPN clients keep their real source IP (needs a return route). */
+	preserveLanSourceIp?: boolean;
 	// UniFi mode
 	unifiUrl?: string;
 	unifiUser?: string;

@@ -392,6 +392,8 @@
   "wireguard.agent.allowed-networks": "Erlaubte Netze:",
   "wireguard.agent.allowed-networks-all": "Alle (keine Einschränkung)",
   "wireguard.agent.allowed-networks-hint": "Komma-getrennte CIDRs, die dieser Agent über den Hub erreichen darf. Leer = Full-Mesh (alle anderen Sites).",
+  "wireguard.agent.preserve-lan": "Echte Client-IP im lokalen LAN erhalten",
+  "wireguard.agent.preserve-lan-hint": "Client-/Road-Warrior-Verkehr (Tunnel-Subnetz) ins eigene LAN dieses Gateways nicht maskieren, damit Hosts (z. B. AD) die echte Client-IP sehen. Site-to-Site bleibt maskiert. Setzt eine Rückroute ins Tunnel-Subnetz voraus — an Standorten ohne Rückroute aus lassen.",
   "wireguard.agent.change": "ändern",
   "wireguard.agent.copied": "Kopiert!",
   "wireguard.agent.copy": "Kopieren",
