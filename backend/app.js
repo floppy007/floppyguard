@@ -61,7 +61,7 @@ app.use("/", mainRoutes);
 
 // production error handler
 // no stacktraces leaked to user
-app.use((err, req, res, _) => {
+app.use((err, _req, res, _) => {
 	const payload = {
 		error: {
 			code: err.status,
@@ -73,7 +73,7 @@ app.use((err, req, res, _) => {
 		payload.error.message_i18n = err.message_i18n;
 	}
 
-	if (isDebugMode() || (req.baseUrl + req.path).includes("nginx/certificates")) {
+	if (isDebugMode()) {
 		payload.debug = {
 			stack: typeof err.stack !== "undefined" && err.stack ? err.stack.split("\n") : null,
 			previous: err.previous,

@@ -7,7 +7,7 @@
 > Nginx reverse proxy manager with integrated WireGuard VPN management, a visual topology map, remote agent support and a hardened host-based runtime.
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.3.25-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.3.26-blue.svg)](CHANGELOG.md)
 [![CI](https://github.com/floppy007/floppyguard/actions/workflows/ci.yml/badge.svg)](https://github.com/floppy007/floppyguard/actions/workflows/ci.yml)
 
 ---
@@ -21,33 +21,33 @@
 
 **Added by FloppyGuard**
 - WireGuard interface, peer and link management with visual topology map
-- WireGuard tunnel creation from the UI — name, type, DNS, platform (desktop/mobile), full tunnel toggle
-- WireGuard peer CRUD — create, update and delete peers live from the UI
+- WireGuard tunnel creation from the UI - name, type, DNS, platform (desktop/mobile), full tunnel toggle
+- WireGuard peer CRUD - create, update and delete peers live from the UI
 - Peer config export with QR code for mobile enrollment
 - DNS/nameserver auto-config per interface or link, with platform-aware AllowedIPs
 - Road warrior peers auto-inherit all remote site networks in AllowedIPs
-- Planning layer: links go through discover → shape → validate → ready stages
-- Remote agent system — push WireGuard configs to remote hosts (native Linux + UniFi-compatible mode)
-- Auto-MASQUERADE — cross-site LAN traffic gets NAT rules auto-generated and pushed to agents
+- Planning layer: links go through discover -> shape -> validate -> ready stages
+- Remote agent system - push WireGuard configs to remote hosts (native Linux + UniFi-compatible mode)
+- Auto-MASQUERADE - cross-site LAN traffic gets NAT rules auto-generated and pushed to agents
 - Live bandwidth monitoring with per-peer sparklines and donut gauges
-- Platform dashboard — proxy stats, WireGuard summary, gateway overview, fail2ban status in one view
-- Fail2Ban UI — view jails and banned IPs, unban with one click
+- Platform dashboard - proxy stats, WireGuard summary, gateway overview, fail2ban status in one view
+- Fail2Ban UI - view jails and banned IPs, unban with one click
 - nftables firewall hardening (strict INPUT policy, only required ports open)
-- Strict CIDR/IP validation on all WireGuard network inputs — network values flow into root-executed routing rules, so anything that is not a clean address/CIDR is rejected
-- Multilanguage UI — English, German, French
+- Strict CIDR/IP validation on all WireGuard network inputs - network values flow into root-executed routing rules, so anything that is not a clean address/CIDR is rejected
+- Multilanguage UI - English, German, French
 - Dark mode with compact glassmorphism header and theme toggle
 
 ---
 
 ## Architecture
 
-FloppyGuard runs **host-based** — no Docker container for the application itself.
+FloppyGuard runs **host-based** - no Docker container for the application itself.
 
 ```
-Internet → nginx (80/443) → proxy host configs in /data/nginx/
-                          → port 81 (admin UI)
+Internet -> nginx (80/443) -> proxy host configs in /data/nginx/
+                          -> port 81 (admin UI)
 
-Port 81   nginx serves frontend/dist (SPA) → /api/ → backend :3300
+Port 81   nginx serves frontend/dist (SPA) -> /api/ -> backend :3300
 Port 3300 FloppyGuard backend (Node.js, systemd unit: floppyguard-backend)
 ```
 
@@ -101,7 +101,7 @@ mkdir -p /data/nginx /opt/npm/letsencrypt
 
 # 4. Install systemd service
 cp docs/examples/floppyguard-backend.service /etc/systemd/system/
-# Edit the service file — set DB_MYSQL_* environment variables
+# Edit the service file - set DB_MYSQL_* environment variables
 systemctl daemon-reload
 systemctl enable --now floppyguard-backend
 
@@ -116,15 +116,15 @@ Set these in the systemd unit file (`/etc/systemd/system/floppyguard-backend.ser
 
 | Variable | Default | Description |
 |---|---|---|
-| `DB_MYSQL_HOST` | — | MySQL host |
+| `DB_MYSQL_HOST` | - | MySQL host |
 | `DB_MYSQL_PORT` | `3306` | MySQL port |
-| `DB_MYSQL_USER` | — | MySQL user |
-| `DB_MYSQL_PASSWORD` | — | MySQL password |
-| `DB_MYSQL_NAME` | — | MySQL database name |
-| `DB_SQLITE_FILE` | — | SQLite file path (alternative to MySQL, for dev/testing) |
+| `DB_MYSQL_USER` | - | MySQL user |
+| `DB_MYSQL_PASSWORD` | - | MySQL password |
+| `DB_MYSQL_NAME` | - | MySQL database name |
+| `DB_SQLITE_FILE` | - | SQLite file path (alternative to MySQL, for dev/testing) |
 | `WG_CONF_DIR` | `/etc/wireguard` | WireGuard config directory |
 | `WG_HUB_HOST` | OS hostname | Public domain or IP (IPv4, or bracketed/bare IPv6) for the WireGuard endpoint baked into peer and agent configs. The hub is authoritative: changing it re-propagates the endpoint to every agent on its next poll. |
-| `WG_DNS` | — | Default DNS for peer configs (comma-separated) |
+| `WG_DNS` | - | Default DNS for peer configs (comma-separated) |
 | `PORT` | `3300` | Backend listen port |
 
 ---
@@ -174,8 +174,8 @@ node --test internal/*.test.js  # unit tests
 ```bash
 cd frontend
 yarn install
-yarn dev        # Vite dev server → http://localhost:5173
-yarn build      # TypeScript check + production build → dist/
+yarn dev        # Vite dev server -> http://localhost:5173
+yarn build      # TypeScript check + production build -> dist/
 npx biome lint .  # Biome linting
 npx vitest run  # unit tests
 ```
@@ -202,7 +202,7 @@ See [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
-AGPL-3.0 — see [LICENSE](LICENSE).
+AGPL-3.0 - see [LICENSE](LICENSE).
 
 **Additional Term (§7 AGPL-3.0):** Any deployment of this software over a network must retain a visible "Powered by FloppyGuard" notice with a link to this repository in the UI footer.
 

@@ -9,6 +9,111 @@ import { debug, nginx as logger } from "../logger.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+/**
+ * Directives that must never appear in a user-supplied advanced_config, because
+ * this string is rendered verbatim into an nginx server{} block that is then
+ * loaded and reloaded by root. Each of these is a direct file-read / SSRF /
+ * key-exfiltration / RCE primitive on the OpenResty/lua-enabled nginx these
+ * images ship:
+ *   - *_by_lua* / *_by_perl* / perl* / js_*  -> code execution as root
+ *   - alias / root                            -> arbitrary filesystem read
+ *   - include                                 -> pull in arbitrary files / secrets
+ *   - ssl_certificate* / ssl_password_file    -> read/override TLS private keys
+ *   - load_module                             -> load arbitrary shared objects
+ * Directive names are matched as whole tokens at the start of a statement
+ * (line start, or immediately after `{` or `;`), case-insensitively. This does
+ * not block proxy_pass, which is a legitimate advanced_config primitive.
+ */
+const FORBIDDEN_ADVANCED_CONFIG_DIRECTIVES = [
+	"include",
+	"alias",
+	"root",
+	"load_module",
+	"ssl_certificate",
+	"ssl_certificate_key",
+	"ssl_password_file",
+	"perl",
+	"perl_set",
+	"perl_modules",
+	"perl_require",
+];
+
+// Any directive whose name contains "lua", "perl", or starts with "js_" (njs)
+// is a code-execution surface and is rejected regardless of the exact name.
+const FORBIDDEN_ADVANCED_CONFIG_DIRECTIVE_PATTERN = /(?:_by_lua\w*|lua_\w+|perl\w*|_by_perl\w*|^js_\w+)$/i;
+
+/**
+ * Validates a user-supplied advanced_config string before it is rendered into
+ * a root-loaded nginx config. Throws a ValidationError on the first forbidden
+ * directive found. Empty / non-string input is a no-op.
+ *
+ * @param   {String}  cfg
+ * @throws  {errs.ValidationError}
+ */
+const assertSafeAdvancedConfig = (cfg) => {
+	if (typeof cfg !== "string" || cfg === "") {
+		return;
+	}
+
+	// Strip out quoted strings and comments so a directive name appearing inside
+	// e.g. a log_format template or a `# comment` doesn't cause a false positive,
+	// while the actual leading directive token of every statement is preserved.
+	const withoutComments = cfg.replace(/#[^\n]*/g, "");
+
+	// Split into candidate statements on statement separators: `;`, `{`, `}`
+	// and newlines. The first whitespace-delimited token of each candidate is
+	// the directive name.
+	const statements = withoutComments.split(/[;{}\n]+/);
+
+	for (const statement of statements) {
+		const trimmed = statement.trim();
+		if (trimmed === "") {
+			continue;
+		}
+		// Directive name is the first token; may be preceded by nothing else.
+		const directive = trimmed.split(/\s+/)[0].toLowerCase();
+		if (directive === "") {
+			continue;
+		}
+
+		if (
+			FORBIDDEN_ADVANCED_CONFIG_DIRECTIVES.includes(directive) ||
+			FORBIDDEN_ADVANCED_CONFIG_DIRECTIVE_PATTERN.test(directive)
+		) {
+			throw new errs.ValidationError(`advanced_config contains a forbidden nginx directive: ${directive}`);
+		}
+	}
+};
+
+// Characters that, if present in a per-location forward_host / forward_path,
+// would break out of the `proxy_pass ...;` directive in templates/_location.conf
+// (that value is rendered UNQUOTED and the config is then loaded/reloaded by
+// root nginx). Any whitespace/newline or nginx metacharacter (`;` `{` `}`
+// quotes, backslash, backtick, `$`) is a directive-injection primitive, so we
+// reject anything that is not a plain host/path character. This mirrors the
+// schema patterns on forward_host / forward_path and acts as a hard gate right
+// at the render sink for defense in depth.
+const UNSAFE_FORWARD_FIELD_PATTERN = /[^A-Za-z0-9._:/%?#=&+~-]/;
+
+/**
+ * Validates a per-location forward_host / forward_path value before it is
+ * rendered verbatim (and unquoted) into a root-loaded nginx proxy_pass
+ * directive. Throws a ValidationError on the first unsafe character found.
+ * Empty / non-string input is a no-op (forward_path is optional).
+ *
+ * @param   {String}  value
+ * @param   {String}  fieldName
+ * @throws  {errs.ValidationError}
+ */
+const assertSafeForwardField = (value, fieldName) => {
+	if (typeof value !== "string" || value === "") {
+		return;
+	}
+	if (UNSAFE_FORWARD_FIELD_PATTERN.test(value)) {
+		throw new errs.ValidationError(`${fieldName} contains an invalid character`);
+	}
+};
+
 const internalNginx = {
 	/**
 	 * This will:
@@ -167,6 +272,16 @@ const internalNginx = {
 						host.locations[i],
 					);
 
+					// Per-location advanced_config is also rendered verbatim into
+					// the root-loaded config, so it must be validated too.
+					assertSafeAdvancedConfig(locationCopy.advanced_config);
+
+					// forward_host / forward_path are rendered UNQUOTED into the
+					// proxy_pass directive; validate before (and after) the split
+					// so no newline/nginx-metachar can break out of the directive.
+					assertSafeForwardField(locationCopy.forward_host, "forward_host");
+					assertSafeForwardField(locationCopy.forward_path, "forward_path");
+
 					if (locationCopy.forward_host.indexOf("/") > -1) {
 						const splitted = locationCopy.forward_host.split("/");
 
@@ -178,7 +293,12 @@ const internalNginx = {
 				}
 			};
 
-			locationRendering().then(() => resolve(renderedLocations));
+			// A throw inside locationRendering (e.g. a forbidden directive or an
+			// unsafe forward_host in a location) must reject this promise rather
+			// than leave it pending forever.
+			locationRendering()
+				.then(() => resolve(renderedLocations))
+				.catch(reject);
 		});
 	},
 
@@ -209,6 +329,27 @@ const internalNginx = {
 
 			let locationsPromise;
 			let origLocations;
+
+			// Reject dangerous nginx directives in user-supplied advanced_config
+			// before it is ever rendered into a root-loaded config file.
+			// Also gate host-level forwarding targets that are rendered UNQUOTED
+			// into a root-loaded config — redirection_host.conf `return ...;` and
+			// stream.conf `proxy_pass ...;`. Their schema domain pattern accepts
+			// interior newlines, so a newline + arbitrary nginx directives would
+			// otherwise inject into the http/stream block (bypassing
+			// assertSafeAdvancedConfig entirely).
+			try {
+				assertSafeAdvancedConfig(host.advanced_config);
+				if (nice_host_type === "redirection_host") {
+					assertSafeForwardField(host.forward_domain_name, "forward_domain_name");
+				}
+				if (nice_host_type === "stream") {
+					assertSafeForwardField(host.forwarding_host, "forwarding_host");
+				}
+			} catch (err) {
+				reject(err);
+				return;
+			}
 
 			// Manipulate the data a bit before sending it to the template
 			if (nice_host_type !== "default") {
@@ -246,23 +387,30 @@ const internalNginx = {
 			// Set the IPv6 setting for the host
 			host.ipv6 = internalNginx.ipv6Enabled();
 
-			locationsPromise.then(() => {
-				renderEngine
-					.parseAndRender(template, host)
-					.then((config_text) => {
-						fs.writeFileSync(filename, config_text, { encoding: "utf8" });
-						debug(logger, "Wrote config:", filename, config_text);
+			locationsPromise
+				.then(() => {
+					renderEngine
+						.parseAndRender(template, host)
+						.then((config_text) => {
+							fs.writeFileSync(filename, config_text, { encoding: "utf8" });
+							debug(logger, "Wrote config:", filename, config_text);
 
-						// Restore locations array
-						host.locations = origLocations;
+							// Restore locations array
+							host.locations = origLocations;
 
-						resolve(true);
-					})
-					.catch((err) => {
-						debug(logger, `Could not write ${filename}:`, err.message);
-						reject(new errs.ConfigurationError(err.message));
-					});
-			});
+							resolve(true);
+						})
+						.catch((err) => {
+							debug(logger, `Could not write ${filename}:`, err.message);
+							reject(new errs.ConfigurationError(err.message));
+						});
+				})
+				// A rejection from renderLocations (e.g. a forbidden advanced_config
+				// directive in a location) must reject the outer promise rather than
+				// leaving it pending forever.
+				.catch((err) => {
+					reject(err);
+				});
 		});
 	},
 
@@ -438,3 +586,9 @@ const internalNginx = {
 };
 
 export default internalNginx;
+
+// Exported for unit testing only
+export const _testExports = {
+	assertSafeAdvancedConfig,
+	assertSafeForwardField,
+};

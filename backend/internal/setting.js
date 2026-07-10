@@ -3,6 +3,25 @@ import errs from "../lib/error.js";
 import settingModel from "../models/setting.js";
 import internalNginx from "./nginx.js";
 
+// meta.redirect is written verbatim into the root nginx config
+// (`return 301 {{ meta.redirect }};`). Only a plain http(s) URL may pass:
+// no whitespace/newlines/semicolons/quotes/config-or-shell metacharacters, so
+// the value cannot close the location block and inject arbitrary directives.
+const REDIRECT_URL_PATTERN = /^https?:\/\/[^\s"'$`\\;|&(){}<>!#]+$/;
+
+/**
+ * Throws a ValidationError unless `redirect` is a safe plain http(s) URL.
+ * Used as the last gate before a 'redirect' default-site value is persisted
+ * and rendered as root.
+ *
+ * @param {*} redirect
+ */
+function assertSafeRedirect(redirect) {
+	if (typeof redirect !== "string" || redirect.length > 255 || !REDIRECT_URL_PATTERN.test(redirect)) {
+		throw new errs.ValidationError("meta.redirect must be a plain http(s) URL when value is 'redirect'");
+	}
+}
+
 const internalSetting = {
 	/**
 	 * @param  {Access}  access
@@ -28,6 +47,17 @@ const internalSetting = {
 				// Validate before persisting so a missing value can't half-apply the setting.
 				if (data.id === "default-site" && data.value === "html" && (!data.meta || typeof data.meta.html !== "string")) {
 					throw new errs.ValidationError("meta.html is required when value is 'html'");
+				}
+
+				// The 'redirect' default-site value writes meta.redirect verbatim into the
+				// root nginx config (`return 301 {{ meta.redirect }};`). Reject anything but a
+				// plain http(s) URL so newlines/semicolons/quotes/config metacharacters can't
+				// close the location block and inject arbitrary nginx directives. This mirrors
+				// the schema pattern but must live here too: the schema is only enforced at the
+				// route layer, while this is the last gate before the value is persisted and
+				// rendered as root.
+				if (data.id === "default-site" && data.value === "redirect") {
+					assertSafeRedirect(data.meta?.redirect);
 				}
 
 				return settingModel.query().where({ id: data.id }).patch(data);
@@ -131,3 +161,5 @@ const internalSetting = {
 };
 
 export default internalSetting;
+
+export const _testExports = { assertSafeRedirect };

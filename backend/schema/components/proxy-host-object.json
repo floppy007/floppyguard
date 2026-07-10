@@ -45,6 +45,7 @@
 			"type": "string",
 			"minLength": 1,
 			"maxLength": 255,
+			"pattern": "^[A-Za-z0-9._:/%?#=&+~-]+$",
 			"example": "127.0.0.1"
 		},
 		"forward_port": {
@@ -120,7 +121,8 @@
 						"$ref": "#/properties/forward_port"
 					},
 					"forward_path": {
-						"type": "string"
+						"type": "string",
+						"pattern": "^[A-Za-z0-9._~%/?#=&+-]*$"
 					},
 					"advanced_config": {
 						"type": "string"
