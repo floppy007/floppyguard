@@ -1,10 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import { getWireGuardBandwidth, type PeerBandwidth } from "src/api/backend";
+import { getWireGuardBandwidth, type BandwidthRange, type PeerBandwidth } from "src/api/backend";
 
-const useWireGuardBandwidth = () => {
+const useWireGuardBandwidth = (range: BandwidthRange = "live") => {
 	return useQuery<PeerBandwidth[], Error>({
-		queryKey: ["wireguard-bandwidth"],
-		queryFn: getWireGuardBandwidth,
+		queryKey: ["wireguard-bandwidth", range],
+		queryFn: () => getWireGuardBandwidth(range),
 		staleTime: 10_000,
 		refetchInterval: 10_000,
 	});

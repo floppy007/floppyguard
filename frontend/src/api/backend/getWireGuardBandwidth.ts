@@ -12,6 +12,8 @@ export interface PeerBandwidth {
 	history: BandwidthSample[];
 }
 
-export function getWireGuardBandwidth(): Promise<PeerBandwidth[]> {
-	return get({ url: "wireguard/bandwidth" }) as Promise<PeerBandwidth[]>;
+export type BandwidthRange = "live" | "24h" | "30d" | "12m";
+
+export function getWireGuardBandwidth(range: BandwidthRange = "live"): Promise<PeerBandwidth[]> {
+	return get({ url: `wireguard/bandwidth?range=${range}` }) as Promise<PeerBandwidth[]>;
 }

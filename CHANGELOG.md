@@ -5,6 +5,16 @@ This project diverges from upstream nginx-proxy-manager starting at v1.0.0.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0.1] - 2026-08-23
+
+### Added
+
+- **Persistent WireGuard traffic history.** The Traffic page now offers live, 24-hour, 30-day, and 12-month ranges. Per-peer traffic is stored in minute, 15-minute, and daily buckets with automatic retention.
+
+### Deutsch
+
+- **Persistente WireGuard-Traffic-Historie.** Die Traffic-Seite bietet nun Live-, 24-Stunden-, 30-Tage- und 12-Monats-Ansichten. Der Traffic je Peer wird in Minuten-, 15-Minuten- und Tageswerten mit automatischer Aufbewahrung gespeichert.
+
 ## [2.0.0] - 2026-08-23
 
 ### English

@@ -237,7 +237,9 @@ router
 	.all(requireAdmin())
 	.get(async (req, res, next) => {
 		try {
-			const data = await internalWireGuard.getBandwidth();
+			const range = typeof req.query.range === "string" ? req.query.range : "live";
+			if (!["live", "24h", "30d", "12m"].includes(range)) return next(new error.ValidationError("Invalid bandwidth range"));
+			const data = await internalWireGuard.getBandwidth(range);
 			res.status(200).send(data);
 		} catch (err) {
 			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);

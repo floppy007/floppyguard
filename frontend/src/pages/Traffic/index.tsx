@@ -1,6 +1,7 @@
 import { IconArrowDown, IconArrowRight, IconArrowUp, IconCircle, IconCircleCheck } from "@tabler/icons-react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import type { PeerBandwidth } from "src/api/backend";
+import type { BandwidthRange, PeerBandwidth } from "src/api/backend";
 import { DonutGauge, PeerSparkline } from "src/components";
 import { useWireGuardBandwidth, useWireGuardStatus } from "src/hooks";
 import { intl } from "src/locale/IntlProvider";
@@ -51,36 +52,57 @@ const PEER_COLORS = [
 interface ChartProps {
 	peers: PeerBandwidth[];
 	mode: "rx" | "tx";
+	range: BandwidthRange;
 	height?: number;
 }
 
-function LineChart({ peers, mode, height = 160 }: ChartProps) {
+const RANGE_DURATION_MS: Record<BandwidthRange, number> = {
+	live: 10 * 60 * 1000,
+	"24h": 24 * 60 * 60 * 1000,
+	"30d": 30 * 24 * 60 * 60 * 1000,
+	"12m": 365 * 24 * 60 * 60 * 1000,
+};
+
+function formatTimeTick(timestamp: number, range: BandwidthRange, position: number) {
+	if (range === "live") {
+		if (position === 1) return "Now";
+		return `${Math.round((1 - position) * 10)} min`;
+	}
+
+	const options: Intl.DateTimeFormatOptions =
+		range === "24h"
+			? { hour: "2-digit", minute: "2-digit" }
+			: range === "30d"
+				? { day: "2-digit", month: "short" }
+				: { month: "short" };
+	return new Intl.DateTimeFormat(undefined, options).format(new Date(timestamp));
+}
+
+function LineChart({ peers, mode, range, height = 180 }: ChartProps) {
 	const W = 600;
 	const H = height;
 	const PAD = { top: 8, right: 12, bottom: 24, left: 52 };
 	const innerW = W - PAD.left - PAD.right;
 	const innerH = H - PAD.top - PAD.bottom;
+	const endTime = Date.now();
+	const startTime = endTime - RANGE_DURATION_MS[range];
 
-	const allValues = peers.flatMap((p) => p.history.map((s) => (mode === "rx" ? s.rx : s.tx)));
+	const visibleSamples = (peer: PeerBandwidth) => peer.history.filter((sample) => sample.ts >= startTime && sample.ts <= endTime);
+	const allValues = peers.flatMap((peer) => visibleSamples(peer).map((sample) => (mode === "rx" ? sample.rx : sample.tx)));
 	const rawMax = allValues.length ? Math.max(...allValues) : 0;
 	const yMax = rawMax < 1024 ? 1024 : rawMax * 1.15;
 
-	const SLOTS = 60;
-
-	const toPath = (peer: PeerBandwidth) => {
-		if (!peer.history.length) return "";
-		// Pad with zeros on the left so the line is right-aligned (= "now")
-		const padded =
-			peer.history.length < SLOTS
-				? [...Array(SLOTS - peer.history.length).fill({ rx: 0, tx: 0 }), ...peer.history]
-				: peer.history.slice(-SLOTS);
-		const points = padded.map((s, i) => {
-			const x = PAD.left + (i / (SLOTS - 1)) * innerW;
-			const v = mode === "rx" ? s.rx : s.tx;
-			const y = PAD.top + innerH - (v / yMax) * innerH;
-			return `${x.toFixed(1)},${y.toFixed(1)}`;
+	const plotPoints = (peer: PeerBandwidth) =>
+		visibleSamples(peer).map((sample) => {
+			const x = PAD.left + ((sample.ts - startTime) / (endTime - startTime)) * innerW;
+			const value = mode === "rx" ? sample.rx : sample.tx;
+			const y = PAD.top + innerH - (value / yMax) * innerH;
+			return { x, y };
 		});
-		return `M ${points.join(" L ")}`;
+
+	const toPath = (points: Array<{ x: number; y: number }>) => {
+		if (!points.length) return "";
+		return `M ${points.map(({ x, y }) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" L ")}`;
 	};
 
 	const yTicks = [0, 0.25, 0.5, 0.75, 1].map((f) => ({
@@ -90,7 +112,7 @@ function LineChart({ peers, mode, height = 160 }: ChartProps) {
 
 	const xTicks = [0, 0.25, 0.5, 0.75, 1].map((f) => ({
 		x: PAD.left + f * innerW,
-		label: f === 1 ? "now" : `-${Math.round(((1 - f) * SLOTS * 10) / 60)}m`,
+		label: formatTimeTick(startTime + f * (endTime - startTime), range, f),
 	}));
 
 	return (
@@ -116,22 +138,25 @@ function LineChart({ peers, mode, height = 160 }: ChartProps) {
 				</g>
 			))}
 
-			{xTicks.map(({ x, label }) => (
-				<text key={label} x={x} y={H - 4} textAnchor="middle" fontSize={9} fill="var(--tblr-secondary)">
+			{xTicks.map(({ x, label }, index) => (
+				<text key={`${label}-${index}`} x={x} y={H - 4} textAnchor="middle" fontSize={9} fill="var(--tblr-secondary)">
 					{label}
 				</text>
 			))}
 
 			{peers.map((peer, idx) => {
-				const d = toPath(peer);
+				const points = plotPoints(peer);
+				const d = toPath(points);
 				if (!d) return null;
 				const color = PEER_COLORS[idx % PEER_COLORS.length];
+				const first = points[0];
+				const last = points[points.length - 1];
 				return (
 					<g key={peer.id}>
 						<path
-							d={`${d} L ${PAD.left + ((peer.history.length - 1) / (SLOTS - 1)) * innerW},${PAD.top + innerH} L ${PAD.left},${PAD.top + innerH} Z`}
+							d={`${d} L ${last.x.toFixed(1)},${PAD.top + innerH} L ${first.x.toFixed(1)},${PAD.top + innerH} Z`}
 							fill={color}
-							fillOpacity={0.08}
+							fillOpacity={0.1}
 						/>
 						<path
 							d={d}
@@ -141,14 +166,7 @@ function LineChart({ peers, mode, height = 160 }: ChartProps) {
 							strokeLinejoin="round"
 							strokeLinecap="round"
 						/>
-						{peer.history.length > 0 &&
-							(() => {
-								const last = peer.history[peer.history.length - 1];
-								const x = PAD.left + ((peer.history.length - 1) / (SLOTS - 1)) * innerW;
-								const v = mode === "rx" ? last.rx : last.tx;
-								const y = PAD.top + innerH - (v / yMax) * innerH;
-								return <circle cx={x} cy={y} r={3} fill={color} />;
-							})()}
+						<circle cx={last.x} cy={last.y} r={3} fill={color} />
 					</g>
 				);
 			})}
@@ -192,7 +210,8 @@ function Legend({ peers }: { peers: PeerBandwidth[] }) {
 
 const Traffic = () => {
 	const navigate = useNavigate();
-	const { data: bw = [], isLoading: bwLoading, dataUpdatedAt } = useWireGuardBandwidth();
+	const [range, setRange] = useState<BandwidthRange>("live");
+	const { data: bw = [], isLoading: bwLoading, dataUpdatedAt } = useWireGuardBandwidth(range);
 	const { data: wg } = useWireGuardStatus();
 
 	const links = wg?.links ?? [];
@@ -213,6 +232,16 @@ const Traffic = () => {
 
 	return (
 		<div className="platform-page">
+			<div className="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+				<h2 className="mb-0">Traffic</h2>
+				<div className="btn-group" role="group" aria-label="Traffic history range">
+					{(["live", "24h", "30d", "12m"] as BandwidthRange[]).map((value) => (
+						<button key={value} type="button" className={`btn btn-sm ${range === value ? "btn-primary" : "btn-outline-primary"}`} onClick={() => setRange(value)}>
+							{{ live: "Live", "24h": "24 h", "30d": "30 d", "12m": "12 m" }[value]}
+						</button>
+					))}
+				</div>
+			</div>
 			{/* ═══ Stat cards with donut gauges ═══ */}
 			<div className="row row-deck row-cards mb-3">
 				<div className="col-sm-6 col-xl-3">
@@ -341,15 +370,20 @@ const Traffic = () => {
 				</div>
 			</div>
 
-			{/* ═══ Live charts ═══ */}
+			{/* ═══ Bandwidth charts ═══ */}
 			<div className="row row-cards mb-3">
 				<div className="col-lg-6">
 					<div className="card h-100 platform-elevated-card">
 						<div className="card-header d-flex align-items-center justify-content-between">
-							<h3 className="card-title mb-0 d-flex align-items-center gap-2">
-								<IconArrowDown size={16} className="text-success" />
-								{intl.formatMessage({ id: "traffic.chart-rx" })}
-							</h3>
+							<div>
+								<h3 className="card-title mb-0 d-flex align-items-center gap-2">
+									<IconArrowDown size={16} className="text-success" />
+									{intl.formatMessage({ id: "traffic.chart-rx" })}
+								</h3>
+								<div className="text-secondary" style={{ fontSize: "0.72rem" }}>
+									{{ live: "Last 10 minutes", "24h": "Hourly view", "30d": "15-minute averages", "12m": "Daily averages" }[range]}
+								</div>
+							</div>
 							{dataUpdatedAt > 0 && (
 								<span className="text-secondary" style={{ fontSize: "0.72rem" }}>
 									{new Date(dataUpdatedAt).toLocaleTimeString()}
@@ -370,7 +404,7 @@ const Traffic = () => {
 							{!bwLoading && hasHistory && (
 								<>
 									<Legend peers={chartPeers} />
-									<LineChart peers={chartPeers} mode="rx" />
+									<LineChart peers={chartPeers} mode="rx" range={range} />
 								</>
 							)}
 						</div>
@@ -380,10 +414,15 @@ const Traffic = () => {
 				<div className="col-lg-6">
 					<div className="card h-100 platform-elevated-card">
 						<div className="card-header d-flex align-items-center justify-content-between">
-							<h3 className="card-title mb-0 d-flex align-items-center gap-2">
-								<IconArrowUp size={16} className="text-primary" />
-								{intl.formatMessage({ id: "traffic.chart-tx" })}
-							</h3>
+							<div>
+								<h3 className="card-title mb-0 d-flex align-items-center gap-2">
+									<IconArrowUp size={16} className="text-primary" />
+									{intl.formatMessage({ id: "traffic.chart-tx" })}
+								</h3>
+								<div className="text-secondary" style={{ fontSize: "0.72rem" }}>
+									{{ live: "Last 10 minutes", "24h": "Hourly view", "30d": "15-minute averages", "12m": "Daily averages" }[range]}
+								</div>
+							</div>
 							{dataUpdatedAt > 0 && (
 								<span className="text-secondary" style={{ fontSize: "0.72rem" }}>
 									{new Date(dataUpdatedAt).toLocaleTimeString()}
@@ -404,7 +443,7 @@ const Traffic = () => {
 							{!bwLoading && hasHistory && (
 								<>
 									<Legend peers={chartPeers} />
-									<LineChart peers={chartPeers} mode="tx" />
+									<LineChart peers={chartPeers} mode="tx" range={range} />
 								</>
 							)}
 						</div>

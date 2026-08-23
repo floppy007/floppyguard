@@ -3,6 +3,7 @@ import { promises as fs } from "node:fs";
 import { hostname, networkInterfaces } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import db from "../db.js";
 import error from "../lib/error.js";
 import { wireguard as logger } from "../logger.js";
 
@@ -1971,11 +1972,39 @@ async function _syncHubConfCore(metadata, ifaceName = "wg0") {
 
 const BW_HISTORY_SIZE = 60; // samples (= 10 min at 10 s interval)
 const BW_POLL_INTERVAL = 10_000; // ms
+const BW_BUCKETS = [
+	{ resolution: "1m", seconds: 60, retention: 24 * 60 * 60 },
+	{ resolution: "15m", seconds: 15 * 60, retention: 30 * 24 * 60 * 60 },
+	{ resolution: "1d", seconds: 24 * 60 * 60, retention: 365 * 24 * 60 * 60 },
+];
 
 /** Map<peerKey, Array<{ts: number, rx: number, tx: number}>> — rates in bytes/s */
 const _bwHistory = new Map();
 /** Map<peerKey, {ts: number, rxBytes: number, txBytes: number}> — previous raw counters */
 let _bwPrev = null;
+
+async function persistBandwidthDelta(peerKey, now, rxBytes, txBytes) {
+	const database = db();
+	for (const bucket of BW_BUCKETS) {
+		const bucketStart = Math.floor(now / 1000 / bucket.seconds) * bucket.seconds;
+		const where = { peer_key: peerKey, resolution: bucket.resolution, bucket_start: bucketStart };
+		const current = await database("wireguard_bandwidth_history").where(where).first();
+		if (current) {
+			await database("wireguard_bandwidth_history").where({ id: current.id }).update({
+				rx_bytes: Number(current.rx_bytes) + rxBytes,
+				tx_bytes: Number(current.tx_bytes) + txBytes,
+				samples: Number(current.samples) + 1,
+			});
+		} else {
+			await database("wireguard_bandwidth_history").insert({ ...where, rx_bytes: rxBytes, tx_bytes: txBytes, samples: 1 });
+		}
+	}
+}
+
+async function pruneBandwidthHistory(now) {
+	const database = db();
+	await Promise.all(BW_BUCKETS.map((bucket) => database("wireguard_bandwidth_history").where("resolution", bucket.resolution).where("bucket_start", "<", Math.floor(now / 1000) - bucket.retention).delete()));
+}
 
 async function _pollBandwidth() {
 	try {
@@ -1995,13 +2024,17 @@ async function _pollBandwidth() {
 				if (key === "__ts__") continue;
 				const prev = _bwPrev.get(key);
 				if (!prev) continue;
-				const rx = Math.max(0, curr.rxBytes - prev.rxBytes) / dt;
-				const tx = Math.max(0, curr.txBytes - prev.txBytes) / dt;
+				const rxDelta = Math.max(0, curr.rxBytes - prev.rxBytes);
+				const txDelta = Math.max(0, curr.txBytes - prev.txBytes);
+				const rx = rxDelta / dt;
+				const tx = txDelta / dt;
 				const history = _bwHistory.get(key) ?? [];
 				history.push({ ts: now, rx: Math.round(rx), tx: Math.round(tx) });
 				if (history.length > BW_HISTORY_SIZE) history.shift();
 				_bwHistory.set(key, history);
+				await persistBandwidthDelta(key, now, rxDelta, txDelta);
 			}
+			if (Math.floor(now / 1000) % 3600 < BW_POLL_INTERVAL / 1000) await pruneBandwidthHistory(now);
 		}
 		snap.set("__ts__", now);
 		_bwPrev = snap;
@@ -2024,9 +2057,22 @@ function _ensureBandwidthPolling() {
  * Returns the bandwidth ring buffer, annotated with link names from metadata.
  * Each entry: { id, name, history: [{ts, rx, tx}] }
  */
-async function getBandwidth() {
+async function getBandwidth(range = "live") {
 	_ensureBandwidthPolling();
 	const metadataStore = await readMetadataStore();
+	if (["24h", "30d", "12m"].includes(range)) {
+		const resolution = range === "24h" ? "1m" : range === "30d" ? "15m" : "1d";
+		const seconds = range === "24h" ? 60 : range === "30d" ? 900 : 86400;
+		const since = Math.floor(Date.now() / 1000) - (range === "24h" ? 86400 : range === "30d" ? 2592000 : 31536000);
+		const rows = await db()("wireguard_bandwidth_history").where({ resolution }).where("bucket_start", ">=", since).orderBy("bucket_start", "asc");
+		const peers = new Map();
+		for (const row of rows) {
+			const peer = peers.get(row.peer_key) ?? { id: row.peer_key, name: metadataStore.links?.[row.peer_key]?.name || row.peer_key, history: [] };
+			peer.history.push({ ts: Number(row.bucket_start) * 1000, rx: Math.round(Number(row.rx_bytes) / seconds), tx: Math.round(Number(row.tx_bytes) / seconds) });
+			peers.set(row.peer_key, peer);
+		}
+		return [...peers.values()];
+	}
 	const result = [];
 	for (const [key, history] of _bwHistory) {
 		const linkMeta = metadataStore.links?.[key] ?? {};
