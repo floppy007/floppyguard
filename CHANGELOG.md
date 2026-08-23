@@ -5,6 +5,49 @@ This project diverges from upstream nginx-proxy-manager starting at v1.0.0.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0.0] - 2026-08-23
+
+### English
+
+#### Added
+
+- **Controlled in-app updates for administrators.** The dashboard announces new releases, and an administrator can start the update under Settings after explicit confirmation. A separate systemd job fetches only the approved Git upstream and checked-out branch, installs the locked dependencies, builds the frontend, restarts the backend, and reports progress or errors in the app.
+
+#### Security
+
+- **Hardened the update path against unintended code and data loss.** The start and status endpoints are admin-only and recorded in the audit log. The script accepts only the approved Git remote, uses fast-forward merges only, and never resets over local changes.
+
+#### Changed
+
+- **Updated the toolchain to Node 22.22.2+, npm 12.0.2, and Yarn 1.22.22.** The installer and the manual installation instructions use the same versions and reproducibly install both committed lockfiles.
+- **Updated dependencies and lockfiles.** Runtime and build dependencies now use the current compatible major versions; the production check no longer reports npm audit findings.
+- **Migrated the Archiver integration to version 8.** Certificate archives use the new `ZipArchive` API.
+- **Refined the Proxy Host editor.** The expandable Advanced section in the SSL tab now has clear spacing from the SSL toggles. The Custom Nginx Configuration opens without an additional vertical offset.
+- **Improved Nginx configuration editing.** The editor reliably displays input, numbers lines, and can be focused through its label. The Proxy Host help now documents the Advanced tab in German and English.
+- **Made the footer version immediately current.** The health cache is versioned and refreshed on page load, so the app no longer shows a stale backend version for up to 15 minutes.
+- **Added Cloudflare DNS synchronisation for Proxy Hosts.** The Advanced tab can create targeted A/AAAA records and update them on changes, including Cloudflare proxy mode. Tokens come from the matching Cloudflare DNS certificate or optionally `CLOUDFLARE_API_TOKEN`; the README and built-in help explain the domain-specific token assignment. Wildcard and manually managed records are not overwritten.
+
+### Deutsch
+
+#### Hinzugefügt
+
+- **Kontrolliertes In-App-Update für Administratoren.** Das Dashboard weist auf neue Releases hin; unter Einstellungen kann ein Administrator das Update nach expliziter Bestätigung starten. Ein separater systemd-Job lädt ausschließlich den freigegebenen Git-Upstream und den ausgecheckten Branch, installiert die festgeschriebenen Abhängigkeiten, baut das Frontend, startet das Backend neu und zeigt Fortschritt bzw. Fehler in der App an.
+
+#### Sicherheit
+
+- **Updatepfad gegen unbeabsichtigten Code- und Datenverlust gehärtet.** Der Start- und Status-Endpunkt ist Admin-only und wird im Audit-Log festgehalten. Das Skript akzeptiert nur den freigegebenen Git-Remote, nutzt nur Fast-Forward-Merges und macht niemals einen Reset über lokale Änderungen.
+
+#### Geändert
+
+- **Toolchain auf Node 22.22.2+, npm 12.0.2 und Yarn 1.22.22 angehoben.** Installer und manuelle Installationsanleitung richten dieselben Versionen ein und installieren die beiden committed Lockfiles reproduzierbar.
+- **Abhängigkeiten und Lockfiles aktualisiert.** Die Laufzeit- und Build-Abhängigkeiten wurden auf die aktuellen kompatiblen Hauptversionen aktualisiert; die Produktionsprüfung meldet keine npm-Audit-Funde mehr.
+- **Archiver-Integration für Version 8 migriert.** Zertifikats-Archive verwenden die neue `ZipArchive`-API.
+
+- **Proxy-Host-Editor überarbeitet.** Der aufklappbare Advanced-Bereich im SSL-Tab hat nun einen klaren Abstand zu den SSL-Schaltern. Die Custom-Nginx-Konfiguration öffnet ohne zusätzlichen vertikalen Versatz.
+- **Nginx-Konfiguration komfortabler editieren.** Der Editor zeigt Eingaben zuverlässig an, nummeriert Zeilen und lässt sich über seine Beschriftung fokussieren. Die Hilfe für Proxy Hosts dokumentiert den Advanced-Tab jetzt auf Deutsch und Englisch.
+- **Fußzeilen-Version sofort aktuell.** Der Health-Cache ist versioniert und wird beim Laden einer Seite aktualisiert, damit die App nicht mehr bis zu 15 Minuten lang eine alte Backend-Version anzeigt.
+- **Cloudflare-DNS-Synchronisierung für Proxy Hosts.** Der Advanced-Tab kann gezielte A-/AAAA-Records erstellen und bei Änderungen aktualisieren, inklusive Cloudflare-Proxy-Modus. Tokens stammen aus dem passenden Cloudflare-DNS-Zertifikat oder optional aus `CLOUDFLARE_API_TOKEN`; README und integrierte Hilfe erklären die domaingenaue Token-Zuordnung. Wildcard- und manuell verwaltete Records werden nicht überschrieben.
+
 ---
 
 ## [1.3.26] - 2026-07-11

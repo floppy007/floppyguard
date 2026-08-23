@@ -9,9 +9,9 @@ import {
 import { useNavigate } from "react-router-dom";
 import type { PeerBandwidth } from "src/api/backend";
 import { DonutGauge, HasPermission, PeerSparkline } from "src/components";
-import { useFail2BanStatus, useHostReport, useUnbanIp, useWireGuardBandwidth, useWireGuardStatus } from "src/hooks";
+import { useCheckVersion, useFail2BanStatus, useHostReport, useUnbanIp, useWireGuardBandwidth, useWireGuardStatus } from "src/hooks";
 import { intl } from "src/locale/IntlProvider";
-import { DEAD_HOSTS, PROXY_HOSTS, REDIRECTION_HOSTS, STREAMS, VIEW } from "src/modules/Permissions";
+import { ADMIN, DEAD_HOSTS, PROXY_HOSTS, REDIRECTION_HOSTS, STREAMS, VIEW } from "src/modules/Permissions";
 
 const KNOWN_NEXT_ACTIONS = new Set([
 	"verify-return-path",
@@ -186,6 +186,23 @@ function MiniChart({ peers, mode }: { peers: PeerBandwidth[]; mode: "rx" | "tx" 
 	);
 }
 
+function UpdateNotice() {
+	const version = useCheckVersion();
+	const navigate = useNavigate();
+	if (!version.data?.updateAvailable) return null;
+	return (
+		<div className="alert alert-success d-flex align-items-center justify-content-between gap-3 mb-4" role="alert">
+			<div>
+				<strong>FloppyGuard update available: {version.data.latest}</strong>
+				<div className="small">Installed: {version.data.current}. The update starts only after your confirmation.</div>
+			</div>
+			<button type="button" className="btn btn-success btn-sm" onClick={() => navigate("/settings")}>
+				Update now
+			</button>
+		</div>
+	);
+}
+
 const Dashboard = () => {
 	const { data: hostReport } = useHostReport();
 	const { data: wireguard } = useWireGuardStatus();
@@ -211,6 +228,9 @@ const Dashboard = () => {
 
 	return (
 		<div className="platform-page">
+			<HasPermission section={ADMIN} permission={VIEW} hideError>
+				<UpdateNotice />
+			</HasPermission>
 			{/* ═══ Stat cards with donut gauges ═══ */}
 			<div className="row row-deck row-cards">
 				<HasPermission section={PROXY_HOSTS} permission={VIEW} hideError>

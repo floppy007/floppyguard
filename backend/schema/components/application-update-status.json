@@ -1,0 +1,20 @@
+{
+	"type": "object",
+	"description": "Status of a controlled FloppyGuard application update",
+	"additionalProperties": false,
+	"required": ["state", "step", "message"],
+	"properties": {
+		"state": {
+			"type": "string",
+			"enum": ["idle", "queued", "running", "restarting", "completed", "failed"]
+		},
+		"step": { "type": "string" },
+		"message": { "type": "string" },
+		"started_at": { "type": "string", "format": "date-time" },
+		"updated_at": { "type": "string", "format": "date-time" },
+		"finished_at": { "type": "string", "format": "date-time" },
+		"current": { "type": "string" },
+		"target": { "type": "string" },
+		"already_running": { "type": "boolean" }
+	}
+}

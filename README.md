@@ -7,8 +7,16 @@
 > Nginx reverse proxy manager with integrated WireGuard VPN management, a visual topology map, remote agent support and a hardened host-based runtime.
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.3.26-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](CHANGELOG.md)
 [![CI](https://github.com/floppy007/floppyguard/actions/workflows/ci.yml/badge.svg)](https://github.com/floppy007/floppyguard/actions/workflows/ci.yml)
+
+---
+
+## What FloppyGuard is for
+
+FloppyGuard is a self-hosted operations platform for administrators who run web services and WireGuard-connected sites on their own Linux infrastructure. It combines reverse-proxy and certificate management with a central view of VPN links, routes, gateways, and remote agents.
+
+Use it when you want one operational interface to publish services securely, manage a hub-and-spoke or site-to-site WireGuard network, and keep remote gateway configurations synchronized. It is designed for a trusted administrator-operated environment, not as a multi-tenant SaaS product or a replacement for a general-purpose network-management suite.
 
 ---
 
@@ -36,6 +44,8 @@
 - Strict CIDR/IP validation on all WireGuard network inputs - network values flow into root-executed routing rules, so anything that is not a clean address/CIDR is rejected
 - Multilanguage UI - English, German, French
 - Dark mode with compact glassmorphism header and theme toggle
+- Proxy Host advanced-config editor with visible input, line numbers and accessible label focus
+- Optional Cloudflare DNS sync for Proxy Hosts: targeted A/AAAA records, per-host proxy mode, and safe coexistence with manual or wildcard records
 
 ---
 
@@ -64,7 +74,7 @@ Port 3300 FloppyGuard backend (Node.js, systemd unit: floppyguard-backend)
 ### Prerequisites
 
 - Debian 12/13 or Ubuntu 22.04+
-- Node.js 22+ and Yarn
+- Node.js 22.22.2+ with npm 12.0.2 and Yarn 1.22.22
 - nginx (system package)
 - WireGuard tools (`wireguard-tools`)
 - nftables
@@ -81,9 +91,10 @@ The script will:
 1. Check and install missing prerequisites
 2. Clone the repository to `/var/www/floppyguard`
 3. Install Node.js dependencies and build the frontend
-4. Create the systemd unit `floppyguard-backend`
-5. Write an nginx config for the admin UI (port 81)
-6. Set up environment variables for DB access
+4. Install the controlled application-updater (`scripts/update.sh`)
+5. Create the systemd unit `floppyguard-backend`
+6. Write an nginx config for the admin UI (port 81)
+7. Set up environment variables for DB access
 
 ### Manual installation
 
@@ -93,6 +104,8 @@ git clone https://github.com/floppy007/floppyguard.git /var/www/floppyguard
 cd /var/www/floppyguard
 
 # 2. Install dependencies
+corepack enable
+npm install -g yarn@1.22.22
 cd backend && yarn install --frozen-lockfile && cd ..
 cd frontend && yarn install --frozen-lockfile && yarn build && cd ..
 
@@ -125,7 +138,22 @@ Set these in the systemd unit file (`/etc/systemd/system/floppyguard-backend.ser
 | `WG_CONF_DIR` | `/etc/wireguard` | WireGuard config directory |
 | `WG_HUB_HOST` | OS hostname | Public domain or IP (IPv4, or bracketed/bare IPv6) for the WireGuard endpoint baked into peer and agent configs. The hub is authoritative: changing it re-propagates the endpoint to every agent on its next poll. |
 | `WG_DNS` | - | Default DNS for peer configs (comma-separated) |
+| `CLOUDFLARE_API_TOKEN` | - | Optional global Cloudflare token (`Zone:Read` + `DNS:Edit`) for Proxy Host DNS synchronization; a Cloudflare DNS-challenge certificate token takes precedence. |
+| `CLOUDFLARE_DNS_IPV4` | detected public IPv4 | Optional explicit A-record target for Proxy Host DNS synchronization. |
+| `CLOUDFLARE_DNS_IPV6` | detected public IPv6 | Optional explicit AAAA-record target for Proxy Host DNS synchronization. |
 | `PORT` | `3300` | Backend listen port |
+
+### Cloudflare DNS synchronization
+
+For a domain-specific Cloudflare token, create a **Let's Encrypt via DNS** certificate in **Certificates**, select **Cloudflare**, and enter the token in **Credentials**:
+
+```ini
+dns_cloudflare_api_token = YOUR_CLOUDFLARE_TOKEN
+```
+
+Select that certificate in the Proxy Host's **SSL** tab, then enable **Manage DNS records automatically** in its **Advanced** tab. The selected certificate's token is used for that host, so separate DNS certificates provide separate permissions per domain or certificate group. The token needs `Zone:Read` and `DNS:Edit` for the relevant Cloudflare zone. `CLOUDFLARE_API_TOKEN` is only the optional server-wide fallback.
+
+FloppyGuard creates exact A and AAAA records from the host's public addresses (or `CLOUDFLARE_DNS_IPV4` / `CLOUDFLARE_DNS_IPV6`) and never overwrites wildcard or manually managed records. Enable **Proxy through Cloudflare** to use Cloudflare's orange-cloud proxy. In the Proxy Hosts table, a green Cloudflare icon means DNS sync is active without the proxy; an orange icon means the Cloudflare proxy is enabled.
 
 ---
 
@@ -150,13 +178,19 @@ nginx -t && nginx -s reload
 
 See [docs/OPERATIONS.md](docs/OPERATIONS.md) for the full runbook.
 
+### Application updates
+
+Administrators see an available FloppyGuard release on the dashboard and in **Settings → Application update**. Starting an update always requires an explicit confirmation. The updater fetches only the configured branch of the approved `floppy007/floppyguard` repository, performs a fast-forward merge (never a reset), installs both committed Yarn lockfiles, builds the frontend, restarts the backend and verifies its local health endpoint.
+
+The progress is displayed in the Settings page and persisted in `/var/lib/floppyguard/update-status.json`; the detailed log is `/var/lib/floppyguard/update.log`. If local Git changes prevent a safe fast-forward merge, the updater stops without discarding them.
+
 ---
 
 ## Development
 
 ### Prerequisites
 
-- Node.js 22+ and Yarn
+- Node.js 22.22.2+ with npm 12.0.2 and Yarn 1.22.22
 - MySQL (or SQLite for quick local dev)
 
 ### Backend

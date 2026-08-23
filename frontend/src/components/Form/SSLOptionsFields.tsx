@@ -141,7 +141,7 @@ export function SSLOptionsFields({
 	);
 
 	const getHttpAdvancedOptions = () => (
-		<div>
+		<div className="mt-3">
 			<details>
 				<summary className="mb-1">
 					<T id="domains.advanced" />

@@ -5,6 +5,7 @@ import utils from "../lib/utils.js";
 import proxyHostModel from "../models/proxy_host.js";
 import internalAuditLog from "./audit-log.js";
 import internalCertificate from "./certificate.js";
+import cloudflareDns from "./cloudflare-dns.js";
 import internalHost from "./host.js";
 import internalNginx from "./nginx.js";
 
@@ -86,7 +87,7 @@ const internalProxyHost = {
 			.then((row) => {
 				// Configure nginx
 				return internalNginx.configure(proxyHostModel, "proxy_host", row).then(() => {
-					return row;
+					return cloudflareDns.syncProxyHost(row);
 				});
 			})
 			.then((row) => {
@@ -216,7 +217,9 @@ const internalProxyHost = {
 						// Configure nginx
 						return internalNginx.configure(proxyHostModel, "proxy_host", row).then((new_meta) => {
 							row.meta = new_meta;
-							return _.omit(internalHost.cleanRowCertificateMeta(row), omissions());
+							return cloudflareDns.syncProxyHost(row).then((syncedRow) => {
+								return _.omit(internalHost.cleanRowCertificateMeta(syncedRow), omissions());
+							});
 						});
 					});
 			});

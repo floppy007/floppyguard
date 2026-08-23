@@ -1,6 +1,6 @@
 # FloppyGuard Technical Roadmap
 
-Stand: 2026-06-07
+Stand: 2026-08-23
 
 ## Was bereits fertig ist
 
@@ -37,31 +37,35 @@ Stand: 2026-06-07
 - **Hub-URL-Propagation + Agent-ACL-Editor** (v1.3.15) — `GET /api/agent/config` liefert die Hub-URLs aus dem Setting `agent-hub-url`; der Agent uebernimmt sie in `config.env` erst nach `reach`-Check (Typo brickt keinen Agent); `allowed_networks` pro Agent in der UI editierbar (loest `syncAgentConfigs` aus); strikte ACL-CIDR-Validierung (jedes `/0` abgelehnt); `sanitizeHubUrl`
 - **Zentrale Hub-URL-Einstellung** (v1.3.16) — der pro-Agent-Hub-URL-Editor aus v1.3.15 ist jetzt ein einziges globales Steuerelement oben im WireGuard-Tab „Overview" (reine UI-Umstellung)
 - **Hub→Agent-Sync gehaertet** (v1.3.21) — REMOVE/DELETE/RENAME propagieren zuverlaessig: `deletePeer`/`deleteInterface`/Link-Rename/`createPeer`/`wg_link_name`-Rebind triggern jetzt `syncAgentConfigs`, plus ein 5-Min-Reconciler als Defense-in-Depth; alle Metadaten-Store-Mutationen + Reconciler unter `withWriteLock` (kein Lost-Write); Hub autoritativ fuer Hub-Peer-AllowedIPs; Per-Agent-Fehlerisolierung im Sync-Loop; `%i`→`$iface` vor `eval` (MASQUERADE/FORWARD); Site-Netze strikt IPv4 + kanonisch (IPv6 abgelehnt, Host-Bits maskiert); Root-Command-Injection im Install-Skript geschlossen; `last_server_url` im Heartbeat fuer Hub-Move-Sichtbarkeit. (Konsolidiert die Tages-Releases v1.3.17–v1.3.20.)
+- **Sicherheits- und Stabilitaets-Audit** (v1.3.22–v1.3.26) — die bestaetigten Root-RCE-, Injection-, Berechtigungs-, Routing- und Konfigurations-Risiken wurden geschlossen; der Hub-Endpoint wird an bestehende Agents propagiert und der Agent-PostUp-Fix verhindert ungewolltes MASQUERADE von Tunnel-zu-Tunnel-Verkehr.
+- **Platform + Capabilities** — die Platform-Ansicht nutzt die vom WireGuard-Status gelieferten Capabilities und naechsten Schritte; Statuskarten zeigen unter anderem Metadata-Write, Planer, Peer-CRUD und Agent-Anbindung. Die Audit-Historie ist im Frontend unter `/audit-log` verfuegbar.
+- **Agent- und WireGuard-Testabdeckung** — Backend-Suiten fuer Agent, WireGuard und WireGuard-Plan sowie Frontend-Tests fuer `/wireguard` sind vorhanden und werden in der CI ausgefuehrt.
+- **Cloudflare-DNS-Synchronisierung fuer Proxy Hosts** (v2.0.0) — FloppyGuard verwaltet gezielte A- und AAAA-Records beim Anlegen oder Aendern eines Proxy Hosts, inklusive Cloudflare-Proxy-Status. Tokens werden pro Zertifikat oder global bezogen; manuell verwaltete und Wildcard-Records bleiben unveraendert.
+- **Kontrolliertes Anwendungsupdate** (v2.0.0) — Administratoren sehen neue Releases im Dashboard und starten ein pruefbares Update aus dem freigegebenen Git-Branch. Der Update-Job verwendet nur Fast-Forward-Merges, verwirft keine lokalen Aenderungen und meldet den Fortschritt in der App.
 
-## Noch offen
+## Weiterhin offen
 
-### P2 — Platform + Capabilities (mittlere Prioritaet)
+### P2 — Betriebsansicht (mittlere Prioritaet)
 
-- Platform-Feld auf reale Capabilities und naechste Schritte ausrichten
-- Statuskarten an `capabilities` koppeln (z.B. "Agent connected", "Config synced", "Routes OK")
-- Audit-Historienansicht im Frontend ausbauen (Backend-Route existiert bereits)
+- Statuskarten um explizite Live-Signale wie „Agent verbunden“, „Config synchronisiert“ und „Routen OK“ erweitern
+- Audit-Historie um WireGuard-spezifische Filter und den Apply-Kontext erweitern
 
 ### P3 — Tests (hohe Prioritaet)
 
-- **Backend-Tests Agent-System** — register, heartbeat, token-reset, config-sync, masquerade-gen
-- **Frontend-Tests /wireguard** — Link-Karten, Agent-Modal, Tunnel-Erstellung, Netz-Auswahl
+- **E2E-Test-Suite modernisieren** — Cypress-/Lint-Kette und verbleibende Test-Abhaengigkeiten gezielt aktualisieren, ohne die produktive Toolchain zu beeinflussen
+- **Regressionen aus Produktionsvorfaellen** weiterhin als Backend- und Frontend-Tests ergaenzen
 
 ### P4 — Betriebshaertung (laufend)
 
 - Monitoring-Dashboard (Prometheus/Grafana-Export oder eigene Metriken-Route)
 - Alerting bei fehlendem Agent-Heartbeat (> 5 min)
-- Automatisches Backup der DB vor Plan-Apply
+- Vollstaendiges Datenbank-Backup vor Plan-Apply (Metadaten-Backups existieren bereits)
 
 ---
 
 ## GitHub Issues (offen)
 
-- **#1** DNS Auto-Provisioning (Cloudflare/IPv64) — automatisch DNS-Records bei Proxy Host Erstellung
+- **#1** DNS Auto-Provisioning — Cloudflare-A/AAAA-Synchronisierung ist umgesetzt; IPv64-Unterstuetzung steht noch aus
 - **#3** Tunnel Failure Alerting — Notification bei fehlendem Handshake
 - **#4** Long-term Bandwidth Metrics — History in DB statt nur 10-Min Ring-Buffer
 - **#5** Zero-Touch Enrollment — Peer bekommt ID+Secret, zieht Config automatisch

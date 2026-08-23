@@ -1,4 +1,4 @@
-import { IconDotsVertical, IconEdit, IconPower, IconTrash } from "@tabler/icons-react";
+import { IconBrandCloudflare, IconDotsVertical, IconEdit, IconPower, IconTrash } from "@tabler/icons-react";
 import { createColumnHelper, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import { useMemo } from "react";
 import type { ProxyHost } from "src/api/backend";
@@ -43,7 +43,20 @@ export default function Table({ data, isFetching, onEdit, onDelete, onDisableTog
 				header: intl.formatMessage({ id: "column.source" }),
 				cell: (info: any) => {
 					const value = info.getValue();
-					return <DomainsFormatter domains={value.domainNames} createdOn={value.createdOn} />;
+					const cloudflareDns = value.meta?.cloudflareDns || value.meta?.cloudflare_dns;
+					return (
+						<span className="d-inline-flex align-items-center gap-2">
+							<DomainsFormatter domains={value.domainNames} createdOn={value.createdOn} />
+							{cloudflareDns?.enabled ? (
+								<span title={cloudflareDns.proxied ? "Cloudflare proxy enabled" : "Cloudflare DNS sync enabled"}>
+									<IconBrandCloudflare
+										size={19}
+										className={cloudflareDns.proxied ? "text-orange" : "text-green"}
+									/>
+								</span>
+							) : null}
+						</span>
+					);
 				},
 			}),
 			columnHelper.accessor((row: any) => row, {

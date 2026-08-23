@@ -1,0 +1,16 @@
+{
+	"operationId": "getApplicationUpdateStatus",
+	"summary": "Returns the status of the controlled application updater",
+	"tags": ["updates"],
+	"security": [{ "bearerAuth": [] }],
+	"responses": {
+		"200": {
+			"description": "Current update status",
+			"content": {
+				"application/json": {
+					"schema": { "$ref": "../../../components/application-update-status.json" }
+				}
+			}
+		}
+	}
+}

@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { getHealth, type HealthResponse } from "src/api/backend";
 
 const fetchHealth = () => getHealth();
-const HEALTH_CACHE_KEY = "floppyguard.health-cache";
+const HEALTH_CACHE_KEY = "floppyguard.health-cache-v2";
 const HEALTH_CACHE_TTL_MS = 15 * 60 * 1000;
 
 interface CachedHealthPayload {
@@ -45,7 +45,7 @@ const useHealth = () => {
 		queryKey: ["health"],
 		queryFn: fetchHealth,
 		refetchOnWindowFocus: false,
-		refetchOnMount: cached ? false : "always",
+		refetchOnMount: "always",
 		retry: 1,
 		retryDelay: 750,
 		refetchOnReconnect: false,

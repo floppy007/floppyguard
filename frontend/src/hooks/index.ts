@@ -1,5 +1,6 @@
 export * from "./useAccessList";
 export * from "./useAccessLists";
+export * from "./useApplicationUpdate";
 export * from "./useAgents";
 export * from "./useAuditLog";
 export * from "./useAuditLogs";

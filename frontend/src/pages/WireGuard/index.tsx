@@ -2398,7 +2398,7 @@ const WireGuard = () => {
 									{intl.formatMessage({ id: "wireguard.create.success" }, { name: newName, ip: createResult.tunnelAddress })}
 								</div>
 								<div className="mb-3">
-									<label className="form-label fw-bold">Client-Config zum Download:</label>
+									<label className="form-label fw-bold">Client configuration for download:</label>
 									<pre
 										className="bg-dark text-light p-3 rounded"
 										style={{ fontSize: "0.78rem", maxHeight: 300, overflow: "auto" }}

@@ -1,6 +1,6 @@
 # FloppyGuard Operations Runbook
 
-Stand: 2026-05-27
+Stand: 2026-08-23
 
 ## Daily Commands
 
@@ -52,6 +52,38 @@ cd /var/www/floppyguard/frontend
 corepack yarn build
 # nginx serves dist/ immediately — no reload needed
 ```
+
+## Release-Version erhöhen
+
+Bei jedem Versionsbump müssen `backend/package.json`, `frontend/package.json`, das README-Badge und `CHANGELOG.md` dieselbe Version enthalten. Alle Änderungen eines Kalendertags werden in einer gemeinsamen Version und einem gemeinsamen Commit gebündelt. Anschließend den Produktions-Build erzeugen, damit die neue Frontend-Version ausgeliefert wird:
+
+```bash
+cd /var/www/floppyguard/frontend
+corepack yarn build
+```
+
+Die Backend-Version wird beim Start eingelesen. Deshalb danach den Dienst neu starten und den laufenden API-Wert prüfen:
+
+```bash
+systemctl restart floppyguard-backend
+curl -fsS http://127.0.0.1:3300/api/
+```
+
+Erst abschließen, wenn `version.major`, `version.minor` und `version.revision` die erhöhte Version ergeben.
+
+## Installationspfad bei Abhängigkeitsupdates
+
+Bei Änderungen an Abhängigkeiten, Lockfiles, dem Paketmanager oder den Node-Anforderungen muss vor dem Release immer der Installationspfad geprüft werden. Falls nötig, `scripts/install.sh` und die manuellen Schritte im README gemeinsam anpassen. Neue Installationen müssen Node 22.22.2+, npm 12.0.2 und Yarn 1.22.22 verwenden, die committed `yarn.lock`-Dateien mit `yarn install --frozen-lockfile` installieren und anschließend einen frischen Installationslauf sowie den Frontend-Build verifizieren.
+
+## Kontrolliertes Anwendungsupdate
+
+Im Dashboard erscheint für Administratoren ein Hinweis, sobald die Versionsprüfung ein neues GitHub-Release erkennt. Das Update wird anschließend bewusst unter **Settings → Anwendungsupdate** gestartet; es gibt keine automatische Installation.
+
+`POST /api/version/update` ist ausschließlich für Administratoren verfügbar. Es startet `scripts/update.sh` in einer separaten transienten systemd-Unit, damit der Backend-Neustart den laufenden Updateprozess nicht beendet. Das Script akzeptiert nur den fest hinterlegten Upstream `floppy007/floppyguard`, lädt den aktuell ausgecheckten Branch, verwendet ausschließlich einen Fast-Forward-Merge und verwirft daher niemals lokale Änderungen. Danach installiert es beide Lockfiles, baut das Frontend, startet `floppyguard-backend` neu und prüft `http://127.0.0.1:3300/api/`.
+
+Fortschritt: `/var/lib/floppyguard/update-status.json` · Log: `/var/lib/floppyguard/update.log`
+
+Bei einem fehlgeschlagenen Merge zuerst den lokalen Git-Status prüfen und die Änderungen bewusst sichern oder bereinigen. Nicht mit `git reset --hard` im Produktivverzeichnis arbeiten.
 
 ## Check Health Manually
 

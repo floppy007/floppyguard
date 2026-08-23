@@ -6,7 +6,8 @@ import { type ReactNode, useState } from "react";
 import { Alert } from "react-bootstrap";
 import Modal from "react-bootstrap/Modal";
 import {
-	AccessField,
+		AccessField,
+		CloudflareDnsFields,
 	Button,
 	DomainNamesField,
 	HasPermission,
@@ -346,6 +347,7 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 											</div>
 											<div className="tab-pane" id="tab-advanced" role="tabpanel">
 												<NginxConfigField />
+												<CloudflareDnsFields />
 											</div>
 										</div>
 									</div>

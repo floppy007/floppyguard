@@ -26,6 +26,16 @@ certificate. Nor do you need to have your _Proxy Host_ configured for HTTP acces
 
 This process _does_ support wildcard domains.
 
+#### Cloudflare API token for Proxy Host DNS
+
+When creating a DNS certificate, select **Cloudflare** as the DNS provider and enter an API token in **Credentials** using this format:
+
+```ini
+dns_cloudflare_api_token = YOUR_CLOUDFLARE_TOKEN
+```
+
+The token belongs to that certificate. Select the certificate in a Proxy Host's SSL tab and its enabled Cloudflare DNS automation will use that token. For separate permissions, create a separate DNS certificate for each domain or certificate group. The token needs at least the Cloudflare **Zone:Read** and **DNS:Edit** permissions for the relevant zone.
+
 ### Custom Certificate
 
 Use this option to upload your own SSL Certificate, as provided by your own

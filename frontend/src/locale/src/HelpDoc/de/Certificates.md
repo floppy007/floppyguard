@@ -26,6 +26,16 @@ Sie müssen Ihren _Proxy-Host_ auch nicht für den HTTP-Zugriff konfigurieren.
 
 Dieser Prozess unterstützt Wildcard-Domains.
 
+#### Cloudflare-API-Token für Proxy-Host-DNS
+
+Wählen Sie beim Anlegen eines DNS-Zertifikats den DNS-Provider **Cloudflare** und tragen Sie im Feld **Zugangsdaten** einen API-Token im folgenden Format ein:
+
+```ini
+dns_cloudflare_api_token = IHR_CLOUDFLARE_TOKEN
+```
+
+Der Token gehört zu diesem Zertifikat. Wählen Sie das Zertifikat anschließend im SSL-Tab eines Proxy Hosts aus; dessen aktivierte Cloudflare-DNS-Automatik verwendet dann genau diesen Token. Für getrennte Berechtigungen erstellen Sie je Domain oder Zertifikatsgruppe ein eigenes DNS-Zertifikat. Der Token benötigt mindestens die Cloudflare-Berechtigungen **Zone:Read** und **DNS:Edit** für die jeweilige Zone.
+
 ### Benutzerdefiniertes Zertifikat
 
 Verwenden Sie diese Option, um Ihr eigenes SSL-Zertifikat hochzuladen, das Ihnen von Ihrer eigenen

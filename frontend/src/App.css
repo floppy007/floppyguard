@@ -230,7 +230,43 @@ body:not(.auth) {
 	background: transparent !important;
 }
 
+.platform-code-editor .w-tc-editor-text {
+	color: var(--tblr-body-color) !important;
+	-webkit-text-fill-color: var(--tblr-body-color) !important;
+	caret-color: var(--tblr-body-color);
+}
+
+.platform-code-editor .w-tc-editor-text,
+.platform-code-editor .w-tc-editor-preview {
+	padding-left: 3rem !important;
+}
+
+.platform-code-editor .w-tc-editor {
+	line-height: 1.5;
+}
+
+.platform-code-editor-gutter {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	left: 0;
+	z-index: 1;
+	display: flex;
+	width: 2.4rem;
+	flex-direction: column;
+	align-items: flex-end;
+	padding: 15px 0.55rem 15px 0;
+	overflow: hidden;
+	border-right: 1px solid rgba(var(--tblr-border-color-rgb), 0.55);
+	color: var(--tblr-secondary);
+	font-family: var(--tblr-font-monospace);
+	font-size: 12px;
+	line-height: 1.5;
+	pointer-events: none;
+}
+
 .platform-code-editor {
+	position: relative;
 	border: 1px solid rgba(var(--tblr-border-color-rgb), 0.82);
 	border-radius: 1rem;
 	overflow: hidden;

@@ -13,6 +13,9 @@ SERVICE_NAME="floppyguard-backend"
 NGINX_SITE="floppyguard"
 BACKEND_PORT=3300
 ADMIN_PORT=81
+NODE_MIN_VERSION="22.22.2"
+NPM_VERSION="12.0.2"
+YARN_VERSION="1.22.22"
 DOMAIN="${FG_DOMAIN:-}"
 SSL="${FG_SSL:-false}"
 
@@ -26,6 +29,10 @@ info()    { echo -e "${CYAN}[*]${NC} $*"; }
 ok()      { echo -e "${GREEN}[✓]${NC} $*"; }
 warn()    { echo -e "${YELLOW}[!]${NC} $*"; }
 die()     { echo -e "${RED}[✗]${NC} $*" >&2; exit 1; }
+
+version_at_least() {
+    [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -n 1)" = "$2" ]
+}
 
 require_root() {
     [ "$(id -u)" -eq 0 ] || die "This script must be run as root (sudo)."
@@ -111,19 +118,30 @@ install_prereqs() {
         DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${pkgs[@]}"
     fi
 
-    # Node.js 20+
-    if ! command -v node >/dev/null 2>&1 || \
-       [ "$(node -e 'process.stdout.write(process.version.slice(1).split(".")[0])')" -lt 20 ]; then
-        info "Installing Node.js 20 LTS..."
-        curl -fsSL https://deb.nodesource.com/setup_20.x | bash - >/dev/null 2>&1
+    # Node.js 22.22.2+ is required by npm 12 and the current dependency set.
+    local node_version=""
+    if command -v node >/dev/null 2>&1; then
+        node_version="$(node -p 'process.versions.node')"
+    fi
+    if [ -z "${node_version}" ] || ! version_at_least "${node_version}" "${NODE_MIN_VERSION}"; then
+        info "Installing Node.js 22 LTS (minimum ${NODE_MIN_VERSION})..."
+        curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >/dev/null 2>&1
         DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nodejs
     fi
+    node_version="$(node -p 'process.versions.node')"
+    version_at_least "${node_version}" "${NODE_MIN_VERSION}" || die "Node.js ${NODE_MIN_VERSION}+ is required; found ${node_version}"
     ok "Node $(node --version)"
 
-    # Yarn
-    if ! command -v yarn >/dev/null 2>&1; then
-        info "Installing Yarn..."
-        npm install -g yarn --silent
+    if [ "$(npm --version)" != "${NPM_VERSION}" ]; then
+        info "Installing npm ${NPM_VERSION}..."
+        npm install -g "npm@${NPM_VERSION}" --silent
+    fi
+    ok "npm $(npm --version)"
+
+    # Yarn Classic is pinned because the committed lockfiles use Yarn v1 format.
+    if ! command -v yarn >/dev/null 2>&1 || [ "$(yarn --version)" != "${YARN_VERSION}" ]; then
+        info "Installing Yarn ${YARN_VERSION}..."
+        npm install -g "yarn@${YARN_VERSION}" --silent
     fi
     ok "Yarn $(yarn --version)"
 }

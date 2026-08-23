@@ -1,0 +1,16 @@
+{
+	"operationId": "startApplicationUpdate",
+	"summary": "Queues a controlled application update",
+	"tags": ["updates"],
+	"security": [{ "bearerAuth": [] }],
+	"responses": {
+		"202": {
+			"description": "Update queued",
+			"content": {
+				"application/json": {
+					"schema": { "$ref": "../../../components/application-update-status.json" }
+				}
+			}
+		}
+	}
+}

@@ -26,6 +26,18 @@ export interface VersionCheckResponse {
 	updateAvailable: boolean;
 }
 
+export interface ApplicationUpdateStatus {
+	state: "idle" | "queued" | "running" | "restarting" | "completed" | "failed";
+	step: string;
+	message: string;
+	startedAt?: string;
+	updatedAt?: string;
+	finishedAt?: string;
+	current?: string;
+	target?: string;
+	alreadyRunning?: boolean;
+}
+
 export interface TwoFactorChallengeResponse {
 	requires2fa: boolean;
 	challengeToken: string;
