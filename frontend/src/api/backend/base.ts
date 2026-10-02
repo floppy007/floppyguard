@@ -69,12 +69,17 @@ function buildBody(data?: Record<string, any>): string | undefined {
 	}
 }
 
-async function processResponse(response: Response) {
+/**
+ * @param logoutOn401  Only requests sent with the user's token may log the
+ *   user out on 401. An unauthenticated call (noAuth, e.g. the SSO exchange)
+ *   must report its own error instead of reloading the page.
+ */
+async function processResponse(response: Response, logoutOn401 = true) {
 	let payload: any;
 	try {
 		payload = await response.json();
 	} catch {
-		if (response.status === 401) {
+		if (response.status === 401 && logoutOn401) {
 			AuthStore.clear();
 			queryClient.clear();
 			window.location.reload();
@@ -82,14 +87,16 @@ async function processResponse(response: Response) {
 		throw new Error(`HTTP ${response.status} ${response.statusText}`);
 	}
 	if (!response.ok) {
-		if (response.status === 401) {
+		if (response.status === 401 && logoutOn401) {
 			// Force logout user and reload the page if Unauthorized
 			AuthStore.clear();
 			queryClient.clear();
 			window.location.reload();
 		}
 		throw new Error(
-			typeof payload.error.messageI18n !== "undefined" ? payload.error.messageI18n : payload.error.message,
+			typeof payload?.error?.messageI18n !== "undefined"
+			? payload.error.messageI18n
+			: (payload?.error?.message ?? `HTTP ${response.status} ${response.statusText}`),
 		);
 	}
 	return camelizeKeys(payload) as any;
@@ -162,7 +169,7 @@ export async function post({ url, params, data, noAuth, rawBody }: PostArgs, abo
 
 	const signal = abortController?.signal;
 	const response = await fetch(apiUrl, { method, headers, body, signal });
-	return processResponse(response);
+	return processResponse(response, !noAuth);
 }
 
 interface PutArgs {

@@ -5,6 +5,84 @@ This project diverges from upstream nginx-proxy-manager starting at v1.0.0.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.2.1] - 2026-10-02
+
+Company-account sign-in (OpenID Connect) with in-app SSO settings, plus the fixes from a two-pass multi-agent audit (find, adversarially verify, fix: 43 confirmed findings, 36 fixed). Hub-side only: the agent script is unchanged, `AGENT_SCRIPT_VERSION` stays 1.3.23. Two migrations run on startup (traffic history indexes and BIGINT id).
+
+### English
+
+#### Added
+
+- **Sign in with a company account (OpenID Connect).** The login page offers a second button next to the password form. Access is governed by a single group in the directory: whoever is a member may sign in and is an administrator, and the account is created on first sign-in. Accounts created this way have no password and can therefore only sign in through the provider. A locally configured second factor is not requested in addition - the provider owns authentication.
+- **SSO settings in the app.** Settings > Sign-in (SSO) configures issuer, client, redirect URI, authorized group, groups claim, scopes, session lifetime and button label, with a provider connection test and a live button preview. Admin only; the client secret is never sent back to the browser, an empty field keeps it, and changes are audit-logged and take effect without a restart.
+- **Account source in the user list.** A new column shows whether an account is local or SSO. SSO accounts are marked on every SSO login (auth type `oidc`, without a secret); password and 2FA checks only read `password` records.
+- **Default SSO button label** is now "Mit Firmenkonto anmelden".
+
+#### Fixed
+
+- **Corrected the declared type of a token's expiry.** `TokenResponse.expires` is an ISO timestamp, not a number; the stored value was always read as text.
+- **Login and WireGuard pages showed raw message IDs.** 50 translation keys (login form, 2FA, WireGuard create form, agent settings, routing matrix) existed only in the compiled locale files and were lost on recompilation; they now live in `locale/src`.
+- **Traffic history on MySQL/MariaDB.** The history migration failed on its 67-character index name and was then marked as applied without indexes. Index names are now short, and a repair migration merges duplicate buckets and adds the missing indexes. Buckets are written with an atomic upsert.
+- **Traffic history accuracy.** Recording starts at backend boot instead of on the first page visit; a database error no longer double-counts an interval; overlapping polls are skipped; traffic after a WireGuard counter reset is counted; daily buckets follow local midnight; the still-open bucket is averaged over the time elapsed so far.
+- **Application updates.** A failed install, build or health check now rolls back to the previous commit (keeping local changes) and rebuilds it. A status stuck at "running" after a killed updater or reboot is detected and turned into "failed". Concurrent update requests no longer overwrite a running update's status.
+- **WireGuard metadata save** re-reads metadata under the write lock before syncing agents, so a concurrent peer delete cannot be undone fleet-wide.
+- **OIDC requests to the provider** time out after 10 seconds.
+- **Row action menus were clipped** at the bottom of table cards. Menus now use a fixed Popper strategy, and table cards no longer use `backdrop-filter`, which had trapped the fixed menus inside the card.
+- **Proxy host editor:** the scheme select lost its dropdown chevron and truncated "https". The chevron is back and the column is wider.
+
+#### Security
+
+- **SSO login is bound to the browser that started it.** `state` and the PKCE verifier live in an encrypted HttpOnly cookie instead of a global in-memory table (no login CSRF, no eviction of other users' pending logins). The token is collected once via `POST /api/oidc/exchange`; the login page no longer accepts a token or free error text from the URL.
+- **SSO sessions end with the provider session.** Refreshing an SSO token never extends it past the original lifetime, so group removal at the provider takes effect. `GET /api/tokens` also refuses 2FA challenge tokens and disabled/deleted accounts.
+- **Rate limits could be bypassed** via a spoofed `X-Forwarded-For` (`trust proxy` was effectively `true`); only loopback is trusted now. The 5-minute limiter's cleanup no longer wipes the 15-minute login/2FA/agent/SSO counters.
+- **Agent registration:** non-string tokens (e.g. JSON numbers, which MySQL compares numerically against the hex token) are rejected before any lookup.
+- **nginx directive injection:** custom location paths are validated (schema and render time). The `advanced_config` gate now tokenizes like nginx (quoted directive names, `#` inside a word) and also blocks `access_log`/`error_log` (except `access_log off`), temp/store paths and certificate/password/user files.
+- **Startup DNS credential restore** no longer builds a shell command from user data.
+- **`DEBUG=false` no longer enables debug mode**; stack traces are never sent to clients in production.
+- The initial admin password is no longer written to the log; provider error codes are sanitized before logging.
+- **Cloudflare DNS:** non-admins can no longer make the hub use the global or another user's Cloudflare token, and record IDs are no longer taken from client-supplied meta.
+- **Certificates:** `POST /api/nginx/certificates/validate` requires authentication and uploads are size-limited. Route53 credentials are written without `credential_process`, so they cannot run commands as root.
+- **ReDoS:** the domain/host patterns of redirection hosts no longer backtrack catastrophically.
+- **Update rollback** also rolls back database migrations, so the restored version can start again.
+- **Traffic history** uses a BIGINT id; removed or rotated peers are dropped from the live view; SSO session lifetime units `M`/`Q` are rejected.
+
+### Deutsch
+
+#### Hinzugefügt
+
+- **Anmeldung mit dem Firmenkonto (OpenID Connect).** Die Anmeldeseite bietet neben dem Passwortformular einen zweiten Knopf. Wer hereinkommt, entscheidet eine einzige Gruppe im Verzeichnis: Wer darin ist, darf sich anmelden und ist Administrator, das Konto wird bei der ersten Anmeldung selbst angelegt. So angelegte Konten haben kein Passwort und können sich daher ausschließlich über den Anbieter anmelden. Eine lokal eingerichtete zweite Stufe wird nicht zusätzlich abgefragt - die Faktoren verwaltet der Anbieter.
+- **SSO-Einstellungen in der App.** Einstellungen > Anmeldung (SSO) für Issuer, Client, Redirect-URI, berechtigte Gruppe, Gruppen-Claim, Scopes, Sitzungsdauer und Button-Text, mit Verbindungstest und Live-Vorschau des Buttons. Nur für Admins; das Client-Secret geht nie zurück an den Browser, ein leeres Feld behält es, Änderungen landen im Audit-Log und gelten ohne Neustart.
+- **Herkunft in der Benutzerliste.** Eine neue Spalte zeigt, ob ein Konto lokal oder per SSO angelegt ist. SSO-Konten werden bei jeder SSO-Anmeldung markiert (Auth-Typ `oidc`, ohne Secret); Passwort- und 2FA-Prüfungen lesen nur `password`-Einträge.
+- **Standard-Beschriftung des SSO-Buttons** ist jetzt „Mit Firmenkonto anmelden“.
+
+#### Behoben
+
+- **Typangabe der Token-Gültigkeit korrigiert.** `TokenResponse.expires` ist ein ISO-Zeitstempel und keine Zahl; gelesen wurde der Wert ohnehin immer als Text.
+- **Anmelde- und WireGuard-Seite zeigten rohe Text-IDs.** 50 Übersetzungsschlüssel standen nur in den kompilierten Sprachdateien und gingen beim Neukompilieren verloren; sie liegen jetzt in `locale/src`.
+- **Traffic-Historie unter MySQL/MariaDB.** Die Migration scheiterte am 67 Zeichen langen Indexnamen und galt danach ohne Indizes als erledigt. Die Namen sind jetzt kurz, eine Reparatur-Migration führt doppelte Buckets zusammen und legt fehlende Indizes an. Geschrieben wird per atomarem Upsert.
+- **Genauigkeit der Traffic-Historie.** Aufzeichnung ab Backend-Start statt erst beim ersten Seitenaufruf; ein DB-Fehler zählt kein Intervall doppelt; überlappende Abfragen werden übersprungen; Traffic nach einem Zähler-Reset wird gezählt; Tageswerte beginnen um lokale Mitternacht; der offene Bucket wird über die bisher vergangene Zeit gemittelt.
+- **Anwendungs-Updates.** Scheitern Installation, Build oder Health-Check, wird auf den vorherigen Commit zurückgerollt (lokale Änderungen bleiben) und neu gebaut. Ein nach Abbruch oder Neustart hängender Status „running“ wird erkannt und auf „failed“ gesetzt. Gleichzeitige Update-Anfragen überschreiben den Status eines laufenden Updates nicht mehr.
+- **Speichern der WireGuard-Metadaten** liest vor dem Agent-Abgleich frisch unter der Schreibsperre, damit ein gleichzeitiges Löschen nicht flottenweit rückgängig gemacht wird.
+- **OIDC-Anfragen an den Anbieter** brechen nach 10 Sekunden ab.
+- **Aktionsmenüs in Tabellen wurden abgeschnitten.** Menüs nutzen jetzt eine feste Popper-Positionierung, und Tabellenkarten verwenden kein `backdrop-filter` mehr, das die Menüs in der Karte eingesperrt hat.
+- **Proxy-Host-Editor:** Das Schema-Feld hatte keinen Dropdown-Pfeil und schnitt „https“ ab. Der Pfeil ist zurück, die Spalte ist breiter.
+
+#### Sicherheit
+
+- **SSO-Anmeldung ist an den startenden Browser gebunden.** `state` und PKCE-Prüfwert liegen verschlüsselt in einem HttpOnly-Cookie statt in einer globalen Tabelle (kein Login-CSRF, kein Verdrängen fremder Anmeldungen). Das Token wird einmalig per `POST /api/oidc/exchange` abgeholt; Token oder freier Fehlertext aus der URL werden nicht mehr übernommen.
+- **SSO-Sitzungen enden mit der Anbieter-Sitzung.** Verlängerungen reichen nie über die ursprüngliche Laufzeit hinaus; das Entfernen aus der Gruppe wirkt damit. `GET /api/tokens` lehnt außerdem 2FA-Challenge-Tokens sowie deaktivierte/gelöschte Konten ab.
+- **Rate-Limits waren umgehbar** über ein gefälschtes `X-Forwarded-For` (`trust proxy` war faktisch `true`); vertraut wird nur noch Loopback. Das Aufräumen des 5-Minuten-Limiters löscht nicht mehr die 15-Minuten-Zähler für Login/2FA/Agent/SSO.
+- **Agent-Registrierung:** Tokens, die keine Zeichenkette sind (z. B. JSON-Zahlen, die MySQL numerisch mit dem Hex-Token vergleicht), werden vor jeder Abfrage abgewiesen.
+- **nginx-Direktiven-Injektion:** Pfade eigener Locations werden geprüft (Schema und beim Rendern). Die `advanced_config`-Prüfung zerlegt jetzt wie nginx (Direktivnamen in Anführungszeichen, `#` im Wort) und sperrt zusätzlich `access_log`/`error_log` (außer `access_log off`), Temp-/Store-Pfade sowie Zertifikats-, Passwort- und Benutzerdateien.
+- **Wiederherstellen der DNS-Zugangsdaten beim Start** baut keinen Shell-Befehl mehr aus Benutzerdaten.
+- **`DEBUG=false` schaltet den Debug-Modus nicht mehr ein**; Stacktraces gehen in Produktion nie an Clients.
+- Das initiale Admin-Passwort wird nicht mehr protokolliert; Fehlercodes des Anbieters werden vor dem Loggen bereinigt.
+- **Cloudflare-DNS:** Nicht-Admins können den Hub nicht mehr mit dem globalen oder einem fremden Cloudflare-Token arbeiten lassen; Record-IDs kommen nicht mehr aus Client-Daten.
+- **Zertifikate:** `POST /api/nginx/certificates/validate` erfordert eine Anmeldung, Uploads sind größenbegrenzt. Route53-Zugangsdaten werden ohne `credential_process` geschrieben und können keine Befehle als root ausführen.
+- **ReDoS:** Die Domain-/Host-Muster von Weiterleitungen backtracken nicht mehr katastrophal.
+- **Update-Rollback** setzt auch Datenbank-Migrationen zurück, damit die wiederhergestellte Version wieder startet.
+- **Traffic-Historie** nutzt eine BIGINT-ID; entfernte oder rotierte Peers verschwinden aus der Live-Ansicht; Einheiten `M`/`Q` für die SSO-Sitzungsdauer werden abgelehnt.
+
 ## [2.0.1] - 2026-08-23
 
 ### Added

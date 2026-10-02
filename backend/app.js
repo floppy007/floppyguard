@@ -1,7 +1,6 @@
 import bodyParser from "body-parser";
 import compression from "compression";
 import express from "express";
-import fileUpload from "express-fileupload";
 import { isDebugMode } from "./lib/config.js";
 import cors from "./lib/express/cors.js";
 import jwt from "./lib/express/jwt.js";
@@ -12,7 +11,8 @@ import mainRoutes from "./routes/main.js";
  * App
  */
 const app = express();
-app.use(fileUpload());
+// Datei-Uploads werden nur in den jeweiligen Routen (nach der Anmeldung und
+// mit Größengrenzen) angenommen, siehe lib/express/file-upload.js.
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
@@ -24,7 +24,10 @@ app.use(compression());
  */
 
 app.disable("x-powered-by");
-app.enable("trust proxy", ["loopback", "linklocal", "uniquelocal"]);
+// Only the local nginx is a real proxy. NOTE: app.enable() ignores a value
+// argument and would set trust proxy = true, letting any client choose req.ip
+// (and therefore its rate-limit bucket) via X-Forwarded-For.
+app.set("trust proxy", "loopback");
 app.enable("strict routing");
 
 // pretty print JSON when not live
@@ -73,7 +76,7 @@ app.use((err, _req, res, _) => {
 		payload.error.message_i18n = err.message_i18n;
 	}
 
-	if (isDebugMode()) {
+	if (isDebugMode() && process.env.NODE_ENV !== "production") {
 		payload.debug = {
 			stack: typeof err.stack !== "undefined" && err.stack ? err.stack.split("\n") : null,
 			previous: err.previous,

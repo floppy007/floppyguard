@@ -389,6 +389,24 @@
 	"loading": {
 		"defaultMessage": "加载中···"
 	},
+	"login.sso-error-denied": {
+		"defaultMessage": "The sign-in was cancelled at the provider."
+	},
+	"login.sso-error-failed": {
+		"defaultMessage": "Signing in through the provider failed."
+	},
+	"login.sso-error-invalid": {
+		"defaultMessage": "The provider's response was incomplete."
+	},
+	"login.sso-error-rejected": {
+		"defaultMessage": "This account is not permitted to use FloppyGuard."
+	},
+	"login.sso-error-unconfigured": {
+		"defaultMessage": "Signing in through a provider is not configured."
+	},
+	"login.sso-or": {
+		"defaultMessage": "or"
+	},
 	"login.title": {
 		"defaultMessage": "登录您的账户"
 	},

@@ -1,12 +1,20 @@
-import { T } from "src/locale";
 import { useState } from "react";
+import { T } from "src/locale";
 import ApplicationUpdate from "./ApplicationUpdate";
 import DefaultSite from "./DefaultSite";
+import SsoSettings from "./SsoSettings";
+
+type Tab = "default-site" | "sso" | "application-update";
+
+const initialTab = (): Tab => {
+	const hash = window.location.hash.replace("#", "");
+	return hash === "sso" || hash === "application-update" ? hash : "default-site";
+};
 
 export default function Layout() {
 	// Taken from https://preview.tabler.io/settings.html
 	// Refer to that when updating this content
-	const [activeTab, setActiveTab] = useState<"default-site" | "application-update">("default-site");
+	const [activeTab, setActiveTab] = useState<Tab>(initialTab);
 
 	return (
 		<div className="card platform-admin-card">
@@ -34,6 +42,16 @@ export default function Layout() {
 									<T id="settings.default-site" />
 								</a>
 								<a
+									href="#sso"
+									className={`list-group-item list-group-item-action d-flex align-items-center ${activeTab === "sso" ? "active" : ""}`}
+									onClick={(e) => {
+										e.preventDefault();
+										setActiveTab("sso");
+									}}
+								>
+									<T id="settings.sso" />
+								</a>
+								<a
 									href="#application-update"
 									className={`list-group-item list-group-item-action d-flex align-items-center ${activeTab === "application-update" ? "active" : ""}`}
 									onClick={(e) => {
@@ -41,13 +59,19 @@ export default function Layout() {
 										setActiveTab("application-update");
 									}}
 								>
-									Anwendungsupdate
+									<T id="settings.application-update" />
 								</a>
 							</div>
 						</div>
 					</div>
 					<div className="col-12 col-md-9 d-flex flex-column">
-						{activeTab === "default-site" ? <DefaultSite /> : <ApplicationUpdate />}
+						{activeTab === "default-site" ? (
+							<DefaultSite />
+						) : activeTab === "sso" ? (
+							<SsoSettings />
+						) : (
+							<ApplicationUpdate />
+						)}
 					</div>
 				</div>
 			</div>

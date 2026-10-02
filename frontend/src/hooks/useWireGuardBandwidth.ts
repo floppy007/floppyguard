@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { getWireGuardBandwidth, type BandwidthRange, type PeerBandwidth } from "src/api/backend";
+import { type BandwidthRange, getWireGuardBandwidth, type PeerBandwidth } from "src/api/backend";
 
 const useWireGuardBandwidth = (range: BandwidthRange = "live") => {
 	return useQuery<PeerBandwidth[], Error>({

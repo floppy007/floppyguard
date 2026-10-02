@@ -13,6 +13,7 @@ import {
 import { TableLayout } from "src/components/Table/TableLayout";
 import { intl, T } from "src/locale";
 import { showCustomCertificateModal, showDNSCertificateModal, showHTTPCertificateModal } from "src/modals";
+import { POPPER_FIXED } from "src/modules/Dropdown";
 import { CERTIFICATES, MANAGE } from "src/modules/Permissions";
 
 interface Props {
@@ -105,6 +106,7 @@ export default function Table({ data, isFetching, onDelete, onRenew, onDownload,
 								className="btn dropdown-toggle btn-action btn-sm px-1"
 								data-bs-boundary="viewport"
 								data-bs-toggle="dropdown"
+								data-bs-popper-config={POPPER_FIXED}
 							>
 								<IconDotsVertical />
 							</button>
@@ -177,7 +179,12 @@ export default function Table({ data, isFetching, onDelete, onRenew, onDownload,
 
 	const customAddBtn = (
 		<div className="dropdown">
-			<button type="button" className="btn dropdown-toggle btn-pink my-3" data-bs-toggle="dropdown">
+			<button
+				type="button"
+				className="btn dropdown-toggle btn-pink my-3"
+				data-bs-toggle="dropdown"
+				data-bs-popper-config={POPPER_FIXED}
+			>
 				<T id="object.add" tData={{ object: "certificate" }} />
 			</button>
 			<div className="dropdown-menu">

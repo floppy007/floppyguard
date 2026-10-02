@@ -1,5 +1,5 @@
 import express from "express";
-import internalWireGuard from "../internal/wireguard.js";
+import internalWireGuard, { withWriteLock } from "../internal/wireguard.js";
 import internalWireGuardPlan from "../internal/wireguard-plan.js";
 import error from "../lib/error.js";
 import jwtdecode from "../lib/express/jwt-decode.js";
@@ -88,7 +88,6 @@ router
 			}
 
 			// ── Post-save sync: apply changes to live WG config + agents ──
-			const metadata = (await internalWireGuard.readMetadataStore());
 			let hubSync = null;
 			let agentSync = null;
 			// `name` must trigger a resync too: agents bind to a link by its (mutable)
@@ -105,7 +104,12 @@ router
 					// Sync all WG interfaces that have conf files
 					const confNames = (preStatus.interfaces || []).map((i) => i.name);
 					for (const ifName of confNames) {
-						const result = await internalWireGuard.syncHubConf(metadata, ifName);
+						// Fresh snapshot per sync, never one read before other
+						// writers had a chance to change the store.
+						const result = await internalWireGuard.syncHubConf(
+							await internalWireGuard.readMetadataStore(),
+							ifName,
+						);
 						if (!hubSync) hubSync = {};
 						hubSync[ifName] = result;
 					}
@@ -114,7 +118,12 @@ router
 				}
 				try {
 					const { default: internalAgent } = await import("../internal/agent.js");
-					agentSync = await internalAgent.syncAgentConfigs(metadata);
+					// Read + sync under the same write lock every other
+					// syncAgentConfigs caller holds: an unlocked, older snapshot that
+					// lands last would re-advertise a just-deleted network fleet-wide.
+					agentSync = await withWriteLock(async () =>
+						internalAgent.syncAgentConfigs(await internalWireGuard.readMetadataStore()),
+					);
 				} catch (err) {
 					agentSync = { error: err.message };
 				}

@@ -104,9 +104,6 @@
 	"action.close": {
 		"defaultMessage": "Close"
 	},
-	"action.open": {
-		"defaultMessage": "Open"
-	},
 	"action.delete": {
 		"defaultMessage": "Delete"
 	},
@@ -125,6 +122,9 @@
 	"action.enable": {
 		"defaultMessage": "Enable"
 	},
+	"action.open": {
+		"defaultMessage": "Open"
+	},
 	"action.permissions": {
 		"defaultMessage": "Permissions"
 	},
@@ -133,6 +133,9 @@
 	},
 	"action.view-details": {
 		"defaultMessage": "View Details"
+	},
+	"agents": {
+		"defaultMessage": "Agents"
 	},
 	"auditlogs": {
 		"defaultMessage": "Audit Logs"
@@ -323,6 +326,54 @@
 	"dashboard": {
 		"defaultMessage": "Dashboard"
 	},
+	"dashboard.gateway-overview": {
+		"defaultMessage": "Gateway Overview"
+	},
+	"dashboard.hub-interface": {
+		"defaultMessage": "Hub Interface"
+	},
+	"dashboard.link-preview": {
+		"defaultMessage": "Link Preview"
+	},
+	"dashboard.missing-return-hint": {
+		"defaultMessage": "{count} missing return route(s)"
+	},
+	"dashboard.nat-candidate-hint": {
+		"defaultMessage": "{count} NAT candidate(s)"
+	},
+	"dashboard.next-steps": {
+		"defaultMessage": "Next Steps"
+	},
+	"dashboard.no-addresses": {
+		"defaultMessage": "No addresses reported"
+	},
+	"dashboard.no-hints": {
+		"defaultMessage": "No immediate hints from runtime."
+	},
+	"dashboard.no-links": {
+		"defaultMessage": "No WireGuard routes available."
+	},
+	"dashboard.no-route-risks": {
+		"defaultMessage": "No route risks detected"
+	},
+	"dashboard.stat.logical-links": {
+		"defaultMessage": "Logical Links"
+	},
+	"dashboard.topology": {
+		"defaultMessage": "Topology"
+	},
+	"dashboard.total-traffic": {
+		"defaultMessage": "Total Traffic"
+	},
+	"dashboard.view-routing": {
+		"defaultMessage": "Routing details"
+	},
+	"dashboard.view-traffic": {
+		"defaultMessage": "Traffic details"
+	},
+	"dashboard.wg-routes": {
+		"defaultMessage": "{count} WG routes"
+	},
 	"dead-host": {
 		"defaultMessage": "404 Host"
 	},
@@ -422,11 +473,161 @@
 	"expires.on": {
 		"defaultMessage": "Expires: {date}"
 	},
+	"f2b.active": {
+		"defaultMessage": "active"
+	},
+	"f2b.col-banned": {
+		"defaultMessage": "Banned"
+	},
+	"f2b.col-banned-ips": {
+		"defaultMessage": "Banned IPs"
+	},
+	"f2b.col-failed": {
+		"defaultMessage": "Failed attempts"
+	},
+	"f2b.col-jail": {
+		"defaultMessage": "Jail"
+	},
+	"f2b.loading": {
+		"defaultMessage": "Loading…"
+	},
+	"f2b.no-jails": {
+		"defaultMessage": "No jails configured."
+	},
+	"f2b.unavailable": {
+		"defaultMessage": "fail2ban not available."
+	},
+	"f2b.unban": {
+		"defaultMessage": "Unban"
+	},
 	"footer.github-fork": {
 		"defaultMessage": "Fork me on Github"
 	},
 	"gateway": {
 		"defaultMessage": "Gateway"
+	},
+	"gateway.col-destination": {
+		"defaultMessage": "Destination"
+	},
+	"gateway.col-device": {
+		"defaultMessage": "Device"
+	},
+	"gateway.col-direct": {
+		"defaultMessage": "direct"
+	},
+	"gateway.col-na": {
+		"defaultMessage": "n/a"
+	},
+	"gateway.col-network": {
+		"defaultMessage": "Network"
+	},
+	"gateway.col-role": {
+		"defaultMessage": "Role"
+	},
+	"gateway.col-via": {
+		"defaultMessage": "Via"
+	},
+	"gateway.error": {
+		"defaultMessage": "Failed to load gateway status: {error}"
+	},
+	"gateway.gap.mgmt-undefined": {
+		"defaultMessage": "Remote management path is still undefined."
+	},
+	"gateway.gap.missing-route": {
+		"defaultMessage": "At least one imported network has no matching live WireGuard route."
+	},
+	"gateway.gap.nat-required": {
+		"defaultMessage": "Gateway runtime suggests NAT may still be required."
+	},
+	"gateway.gap.no-blocking": {
+		"defaultMessage": "Current gateway view does not show a blocking routing gap for this link."
+	},
+	"gateway.gap.no-exported": {
+		"defaultMessage": "No local exported networks are defined for this link yet."
+	},
+	"gateway.gap.no-imported": {
+		"defaultMessage": "No remote imported networks are defined for this link yet."
+	},
+	"gateway.gap.return-undecided": {
+		"defaultMessage": "Return path mode is still undecided."
+	},
+	"gateway.kicker": {
+		"defaultMessage": "Network View"
+	},
+	"gateway.link.active": {
+		"defaultMessage": "active"
+	},
+	"gateway.link.endpoint-unknown": {
+		"defaultMessage": "endpoint unknown"
+	},
+	"gateway.link.idle": {
+		"defaultMessage": "idle"
+	},
+	"gateway.missing-return.none": {
+		"defaultMessage": "No missing return routes detected right now."
+	},
+	"gateway.missing-return.title": {
+		"defaultMessage": "Missing Return Routes"
+	},
+	"gateway.nat-candidates.none": {
+		"defaultMessage": "No obvious NAT candidates detected right now."
+	},
+	"gateway.nat-candidates.title": {
+		"defaultMessage": "NAT Candidates"
+	},
+	"gateway.no-links": {
+		"defaultMessage": "No derived links available yet."
+	},
+	"gateway.no-observations": {
+		"defaultMessage": "No additional route observations available."
+	},
+	"gateway.no-peer-networks": {
+		"defaultMessage": "No peer networks detected from current WireGuard configs."
+	},
+	"gateway.no-private-routes": {
+		"defaultMessage": "No private route inventory available yet."
+	},
+	"gateway.observations.title": {
+		"defaultMessage": "Observations"
+	},
+	"gateway.peer-networks.title": {
+		"defaultMessage": "Peer Network Inventory"
+	},
+	"gateway.private-routes.title": {
+		"defaultMessage": "Private Route Inventory"
+	},
+	"gateway.reach.check-nat": {
+		"defaultMessage": "Check NAT"
+	},
+	"gateway.reach.reachable": {
+		"defaultMessage": "Reachable"
+	},
+	"gateway.reach.return-missing": {
+		"defaultMessage": "Return path missing"
+	},
+	"gateway.reachability.title": {
+		"defaultMessage": "Gateway Reachability Map"
+	},
+	"gateway.routing-hints.title": {
+		"defaultMessage": "Routing Hints"
+	},
+	"gateway.stat.logical-links": {
+		"defaultMessage": "Logical Links"
+	},
+	"gateway.stat.peer-networks": {
+		"defaultMessage": "Peer Networks"
+	},
+	"gateway.stat.private-routes": {
+		"defaultMessage": "Private Routes"
+	},
+	"gateway.stat.wireguard-routes": {
+		"defaultMessage": "WireGuard Routes"
+	},
+	"gateway.subtitle": {
+		"defaultMessage": "Reachability, return-path risk and link readiness for the emerging FloppyGuard control plane."
+	},
+	"gateway.unavailable": {
+		"defaultMessage": "Gateway data is not available in this runtime yet."
 	},
 	"host.flags.block-exploits": {
 		"defaultMessage": "Block Common Exploits"
@@ -467,6 +668,9 @@
 	"loading": {
 		"defaultMessage": "Loading…"
 	},
+	"login.2fa-back": {
+		"defaultMessage": "Back"
+	},
 	"login.2fa-code": {
 		"defaultMessage": "Verification Code"
 	},
@@ -476,11 +680,62 @@
 	"login.2fa-description": {
 		"defaultMessage": "Enter the code from your authenticator app"
 	},
+	"login.2fa-error": {
+		"defaultMessage": "2FA failed: {error}"
+	},
+	"login.2fa-prompt": {
+		"defaultMessage": "Enter the code from your authenticator app."
+	},
 	"login.2fa-title": {
 		"defaultMessage": "Two-Factor Authentication"
 	},
 	"login.2fa-verify": {
 		"defaultMessage": "Verify"
+	},
+	"login.2fa-verifying": {
+		"defaultMessage": "Verifying…"
+	},
+	"login.email": {
+		"defaultMessage": "Email"
+	},
+	"login.error": {
+		"defaultMessage": "Login failed: {error}"
+	},
+	"login.password": {
+		"defaultMessage": "Password"
+	},
+	"login.sign-in": {
+		"defaultMessage": "Sign in"
+	},
+	"login.signing-in": {
+		"defaultMessage": "Signing in…"
+	},
+	"login.sso-error-denied": {
+		"defaultMessage": "The sign-in was cancelled at the provider."
+	},
+	"login.sso-error-expired": {
+		"defaultMessage": "The sign-in expired or was started in a different browser. Please try again."
+	},
+	"login.sso-error-failed": {
+		"defaultMessage": "Signing in through the provider failed."
+	},
+	"login.sso-error-invalid": {
+		"defaultMessage": "The provider's response was incomplete."
+	},
+	"login.sso-error-rejected": {
+		"defaultMessage": "This account is not permitted to use FloppyGuard."
+	},
+	"login.sso-error-rejected-disabled": {
+		"defaultMessage": "This account is disabled."
+	},
+	"login.sso-error-rejected-noemail": {
+		"defaultMessage": "The provider did not return an email address."
+	},
+	"login.sso-error-unconfigured": {
+		"defaultMessage": "Signing in through a provider is not configured."
+	},
+	"login.sso-or": {
+		"defaultMessage": "or"
 	},
 	"login.title": {
 		"defaultMessage": "Login to your account"
@@ -602,6 +857,99 @@
 	"platform": {
 		"defaultMessage": "Platform"
 	},
+	"platform.btn.open-gateway": {
+		"defaultMessage": "Open Gateway View"
+	},
+	"platform.btn.open-proxy": {
+		"defaultMessage": "Open Proxy Hosts"
+	},
+	"platform.btn.open-wireguard": {
+		"defaultMessage": "Open WireGuard Module"
+	},
+	"platform.cap.title": {
+		"defaultMessage": "Capability Map"
+	},
+	"platform.gateway-snapshot.title": {
+		"defaultMessage": "Gateway Snapshot"
+	},
+	"platform.hero.kicker": {
+		"defaultMessage": "Platform Overview"
+	},
+	"platform.hero.subtitle": {
+		"defaultMessage": "FloppyGuard combines proxy, gateway and WireGuard management into one operational platform."
+	},
+	"platform.hub-interface": {
+		"defaultMessage": "Hub Interface"
+	},
+	"platform.link-readiness.title": {
+		"defaultMessage": "Link Readiness"
+	},
+	"platform.link-type.client": {
+		"defaultMessage": "Client"
+	},
+	"platform.link-type.hub": {
+		"defaultMessage": "Hub"
+	},
+	"platform.link-type.other": {
+		"defaultMessage": "Other"
+	},
+	"platform.link-type.site": {
+		"defaultMessage": "Site"
+	},
+	"platform.missing-return.none": {
+		"defaultMessage": "No missing return routes detected right now."
+	},
+	"platform.missing-return.some": {
+		"defaultMessage": "{count} imported network(s) still lack a matching live route."
+	},
+	"platform.missing-return.title": {
+		"defaultMessage": "Missing Return Routes"
+	},
+	"platform.nat-candidates.none": {
+		"defaultMessage": "No obvious NAT candidates detected right now."
+	},
+	"platform.nat-candidates.some": {
+		"defaultMessage": "{count} network(s) still look like NAT candidates."
+	},
+	"platform.nat-candidates.title": {
+		"defaultMessage": "NAT Candidates"
+	},
+	"platform.no-addresses": {
+		"defaultMessage": "No addresses"
+	},
+	"platform.no-links": {
+		"defaultMessage": "No logical links configured."
+	},
+	"platform.observations.none": {
+		"defaultMessage": "No additional route observations available right now."
+	},
+	"platform.observations.title": {
+		"defaultMessage": "Observations"
+	},
+	"platform.plan.discover": {
+		"defaultMessage": "Discover"
+	},
+	"platform.plan.ready": {
+		"defaultMessage": "Ready"
+	},
+	"platform.plan.shaping": {
+		"defaultMessage": "Shaping"
+	},
+	"platform.plan.unplanned": {
+		"defaultMessage": "Unplanned"
+	},
+	"platform.plan.validate": {
+		"defaultMessage": "Validate"
+	},
+	"platform.runtime-risks.title": {
+		"defaultMessage": "Runtime Risks"
+	},
+	"platform.stat.logical-links": {
+		"defaultMessage": "Logical Links"
+	},
+	"platform.write-cap.title": {
+		"defaultMessage": "Write Capability"
+	},
 	"proxy-host": {
 		"defaultMessage": "Proxy Host"
 	},
@@ -665,6 +1013,9 @@
 	"settings": {
 		"defaultMessage": "Settings"
 	},
+	"settings.application-update": {
+		"defaultMessage": "Application update"
+	},
 	"settings.default-site": {
 		"defaultMessage": "Default Site"
 	},
@@ -688,6 +1039,90 @@
 	},
 	"settings.default-site.redirect": {
 		"defaultMessage": "Redirect"
+	},
+	"settings.sso": {
+		"defaultMessage": "Sign-in (SSO)"
+	},
+	"settings.sso.client-id": {
+		"defaultMessage": "Client ID"
+	},
+	"settings.sso.client-secret": {
+		"defaultMessage": "Client secret"
+	},
+	"settings.sso.client-secret.keep": {
+		"defaultMessage": "Leave empty to keep the stored secret"
+	},
+	"settings.sso.client-secret.stored": {
+		"defaultMessage": "A secret is stored. It is never shown again."
+	},
+	"settings.sso.description": {
+		"defaultMessage": "Single sign-on through an OpenID Connect provider such as Authentik, Keycloak or Entra ID."
+	},
+	"settings.sso.enabled": {
+		"defaultMessage": "Enable sign-in with company account"
+	},
+	"settings.sso.enabled.hint": {
+		"defaultMessage": "Shows an additional button on the login page. Local accounts keep working."
+	},
+	"settings.sso.expiry": {
+		"defaultMessage": "Session lifetime"
+	},
+	"settings.sso.expiry.hint": {
+		"defaultMessage": "For example 8h, 1d or 1w."
+	},
+	"settings.sso.groups-claim": {
+		"defaultMessage": "Groups claim"
+	},
+	"settings.sso.issuer": {
+		"defaultMessage": "Issuer URL"
+	},
+	"settings.sso.issuer.hint": {
+		"defaultMessage": "Base URL of the provider. /.well-known/openid-configuration is appended automatically."
+	},
+	"settings.sso.label": {
+		"defaultMessage": "Button label"
+	},
+	"settings.sso.preview": {
+		"defaultMessage": "Preview"
+	},
+	"settings.sso.redirect-uri": {
+		"defaultMessage": "Redirect URI"
+	},
+	"settings.sso.redirect-uri.hint": {
+		"defaultMessage": "Must be registered at the provider exactly like this and end with /api/oidc/callback."
+	},
+	"settings.sso.redirect-uri.use-current": {
+		"defaultMessage": "Use this address"
+	},
+	"settings.sso.required-group": {
+		"defaultMessage": "Authorized group"
+	},
+	"settings.sso.required-group.hint": {
+		"defaultMessage": "Members of this group may sign in and become administrators."
+	},
+	"settings.sso.scopes": {
+		"defaultMessage": "Scopes"
+	},
+	"settings.sso.section.access": {
+		"defaultMessage": "Access"
+	},
+	"settings.sso.section.login": {
+		"defaultMessage": "Login page"
+	},
+	"settings.sso.section.provider": {
+		"defaultMessage": "Provider"
+	},
+	"settings.sso.security-note": {
+		"defaultMessage": "Two-factor authentication is handled by the provider for SSO logins. Changes take effect immediately, no restart required."
+	},
+	"settings.sso.status-active": {
+		"defaultMessage": "Active"
+	},
+	"settings.sso.status-inactive": {
+		"defaultMessage": "Inactive"
+	},
+	"settings.sso.test": {
+		"defaultMessage": "Test connection"
 	},
 	"setup.preamble": {
 		"defaultMessage": "Get started by creating your admin account."
@@ -728,6 +1163,69 @@
 	"test": {
 		"defaultMessage": "Test"
 	},
+	"traffic": {
+		"defaultMessage": "Traffic"
+	},
+	"traffic.active-links": {
+		"defaultMessage": "Active Links"
+	},
+	"traffic.chart-rx": {
+		"defaultMessage": "Received (bytes/s)"
+	},
+	"traffic.chart-tx": {
+		"defaultMessage": "Sent (bytes/s)"
+	},
+	"traffic.col-handshake": {
+		"defaultMessage": "Last Handshake"
+	},
+	"traffic.col-peer": {
+		"defaultMessage": "Peer"
+	},
+	"traffic.col-rx": {
+		"defaultMessage": "Received"
+	},
+	"traffic.col-status": {
+		"defaultMessage": "Status"
+	},
+	"traffic.col-tx": {
+		"defaultMessage": "Sent"
+	},
+	"traffic.col-type": {
+		"defaultMessage": "Type"
+	},
+	"traffic.combined-rate": {
+		"defaultMessage": "Combined Rate"
+	},
+	"traffic.current-rx": {
+		"defaultMessage": "Receiving"
+	},
+	"traffic.current-tx": {
+		"defaultMessage": "Sending"
+	},
+	"traffic.no-links": {
+		"defaultMessage": "No WireGuard links found."
+	},
+	"traffic.peers": {
+		"defaultMessage": "peers"
+	},
+	"traffic.routing-details": {
+		"defaultMessage": "Routing details"
+	},
+	"traffic.status-active": {
+		"defaultMessage": "Active"
+	},
+	"traffic.status-idle": {
+		"defaultMessage": "Idle"
+	},
+	"traffic.table-title": {
+		"defaultMessage": "Link Details"
+	},
+	"traffic.total": {
+		"defaultMessage": "total"
+	},
+	"traffic.warming-up": {
+		"defaultMessage": "Collecting data — updates every 10 s…"
+	},
 	"update-available": {
 		"defaultMessage": "Update Available: {latestVersion}"
 	},
@@ -767,6 +1265,12 @@
 	"user.set-permissions": {
 		"defaultMessage": "Set Permissions for {name}"
 	},
+	"user.source.local": {
+		"defaultMessage": "Local"
+	},
+	"user.source.sso": {
+		"defaultMessage": "SSO"
+	},
 	"user.switch-dark": {
 		"defaultMessage": "Switch to Dark mode"
 	},
@@ -785,8 +1289,14 @@
 	"wireguard": {
 		"defaultMessage": "WireGuard"
 	},
-	"agents": {
-		"defaultMessage": "Agents"
+	"wireguard.agent.allowed-networks": {
+		"defaultMessage": "Allowed Networks:"
+	},
+	"wireguard.agent.allowed-networks-all": {
+		"defaultMessage": "All (no restriction)"
+	},
+	"wireguard.agent.allowed-networks-hint": {
+		"defaultMessage": "Comma-separated CIDRs this agent may reach via the hub. Empty = full mesh (all other sites)."
 	},
 	"wireguard.agent.change": {
 		"defaultMessage": "Change"
@@ -799,6 +1309,18 @@
 	},
 	"wireguard.agent.creating": {
 		"defaultMessage": "Creating agent…"
+	},
+	"wireguard.agent.host": {
+		"defaultMessage": "Host"
+	},
+	"wireguard.agent.hub-url": {
+		"defaultMessage": "Hub (global):"
+	},
+	"wireguard.agent.hub-url-hint": {
+		"defaultMessage": "Primary / fallback URL all agents use to reach the hub. Pushed to every agent on its next poll — change it here when the hub domain moves."
+	},
+	"wireguard.agent.hub-url-invalid": {
+		"defaultMessage": "Must be a valid http(s) URL"
 	},
 	"wireguard.agent.last-seen": {
 		"defaultMessage": "Last seen"
@@ -815,11 +1337,26 @@
 	"wireguard.agent.not-installed": {
 		"defaultMessage": "Not yet installed — run the install script on the remote gateway."
 	},
+	"wireguard.agent.preserve-lan": {
+		"defaultMessage": "Preserve real client IP in local LAN"
+	},
+	"wireguard.agent.preserve-lan-hint": {
+		"defaultMessage": "Don't MASQUERADE client/road-warrior traffic (tunnel subnet) into this gateway's own LAN, so hosts (e.g. AD) see the real client IP. Site-to-site stays masqueraded. Requires a return route to the tunnel subnet — leave off at sites without one."
+	},
+	"wireguard.agent.public-url-label": {
+		"defaultMessage": "Public URL (Fallback)"
+	},
 	"wireguard.agent.reinstall": {
 		"defaultMessage": "Reinstall"
 	},
 	"wireguard.agent.renewing-token": {
 		"defaultMessage": "Renewing token…"
+	},
+	"wireguard.agent.tunnel-url-label": {
+		"defaultMessage": "Tunnel URL (WireGuard VPN)"
+	},
+	"wireguard.agent.version": {
+		"defaultMessage": "Agent"
 	},
 	"wireguard.apply.agents": {
 		"defaultMessage": "Agents:"
@@ -842,14 +1379,101 @@
 	"wireguard.apply.skipped": {
 		"defaultMessage": "skipped"
 	},
+	"wireguard.create.allowed-ips": {
+		"defaultMessage": "Allowed Networks (AllowedIPs)"
+	},
+	"wireguard.create.allowed-ips-hint": {
+		"defaultMessage": "Comma-separated. Empty = tunnel subnet only."
+	},
+	"wireguard.create.button": {
+		"defaultMessage": "New Tunnel"
+	},
+	"wireguard.create.cancel": {
+		"defaultMessage": "Cancel"
+	},
+	"wireguard.create.close": {
+		"defaultMessage": "Close"
+	},
+	"wireguard.create.dns": {
+		"defaultMessage": "DNS"
+	},
+	"wireguard.create.download": {
+		"defaultMessage": "Download Config"
+	},
+	"wireguard.create.error": {
+		"defaultMessage": "Failed to create tunnel"
+	},
+	"wireguard.create.full-tunnel": {
+		"defaultMessage": "Full Tunnel"
+	},
+	"wireguard.create.interface": {
+		"defaultMessage": "Interface"
+	},
+	"wireguard.create.name": {
+		"defaultMessage": "Name *"
+	},
+	"wireguard.create.name-placeholder": {
+		"defaultMessage": "e.g. iPhone, Office, Homelab"
+	},
+	"wireguard.create.pending": {
+		"defaultMessage": "Creating..."
+	},
+	"wireguard.create.platform": {
+		"defaultMessage": "Platform"
+	},
+	"wireguard.create.platform-desktop": {
+		"defaultMessage": "Desktop (Win/Linux/Mac)"
+	},
+	"wireguard.create.platform-mobile": {
+		"defaultMessage": "Mobile (iOS/Android)"
+	},
+	"wireguard.create.submit": {
+		"defaultMessage": "Create Tunnel"
+	},
+	"wireguard.create.success": {
+		"defaultMessage": "Tunnel {name} created — IP: {ip}"
+	},
+	"wireguard.create.title": {
+		"defaultMessage": "New WireGuard Tunnel"
+	},
+	"wireguard.create.type": {
+		"defaultMessage": "Type"
+	},
+	"wireguard.field.dns": {
+		"defaultMessage": "DNS"
+	},
+	"wireguard.field.full-tunnel": {
+		"defaultMessage": "Full Tunnel"
+	},
 	"wireguard.hub.unknown": {
 		"defaultMessage": "Hub interface unknown"
+	},
+	"wireguard.iface.address": {
+		"defaultMessage": "Address"
+	},
+	"wireguard.iface.create": {
+		"defaultMessage": "New Interface"
+	},
+	"wireguard.iface.created": {
+		"defaultMessage": "Interface {name} created and active."
+	},
+	"wireguard.iface.delete-confirm": {
+		"defaultMessage": "Are you sure you want to delete interface {name}? This will shut down the interface, remove the config file and all associated metadata. This action cannot be undone."
+	},
+	"wireguard.iface.delete-title": {
+		"defaultMessage": "Delete Interface"
 	},
 	"wireguard.iface.editor-title": {
 		"defaultMessage": "Interface Editor"
 	},
 	"wireguard.iface.key": {
 		"defaultMessage": "Key"
+	},
+	"wireguard.iface.name": {
+		"defaultMessage": "Name"
+	},
+	"wireguard.iface.name-hint": {
+		"defaultMessage": "Leave empty for auto-assign"
 	},
 	"wireguard.iface.no-addresses": {
 		"defaultMessage": "no addresses"
@@ -866,11 +1490,20 @@
 	"wireguard.iface.placeholder-routes": {
 		"defaultMessage": "e.g. 10.10.0.0/16"
 	},
+	"wireguard.iface.port": {
+		"defaultMessage": "Listen Port"
+	},
+	"wireguard.iface.port-hint": {
+		"defaultMessage": "auto"
+	},
 	"wireguard.iface.preview": {
 		"defaultMessage": "Preview"
 	},
 	"wireguard.iface.preview-loading": {
 		"defaultMessage": "Previewing…"
+	},
+	"wireguard.iface.public-key": {
+		"defaultMessage": "Public Key:"
 	},
 	"wireguard.iface.role": {
 		"defaultMessage": "Role"
@@ -887,38 +1520,14 @@
 	"wireguard.iface.unknown": {
 		"defaultMessage": "unknown"
 	},
-	"wireguard.iface.create": {
-		"defaultMessage": "New Interface"
-	},
-	"wireguard.iface.created": {
-		"defaultMessage": "Interface {name} created and active."
-	},
-	"wireguard.iface.name": {
-		"defaultMessage": "Name"
-	},
-	"wireguard.iface.name-hint": {
-		"defaultMessage": "Leave empty for auto-assign"
-	},
-	"wireguard.iface.address": {
-		"defaultMessage": "Address"
-	},
-	"wireguard.iface.port": {
-		"defaultMessage": "Listen Port"
-	},
-	"wireguard.iface.port-hint": {
-		"defaultMessage": "auto"
-	},
-	"wireguard.iface.delete-title": {
-		"defaultMessage": "Delete Interface"
-	},
-	"wireguard.iface.delete-confirm": {
-		"defaultMessage": "Are you sure you want to delete interface {name}? This will shut down the interface, remove the config file and all associated metadata. This action cannot be undone."
-	},
 	"wireguard.interfaces.none": {
 		"defaultMessage": "No interfaces detected."
 	},
 	"wireguard.link.active": {
 		"defaultMessage": "active"
+	},
+	"wireguard.link.apps": {
+		"defaultMessage": "Apps"
 	},
 	"wireguard.link.close-agent": {
 		"defaultMessage": "Close agent"
@@ -932,6 +1541,15 @@
 	"wireguard.link.connection-type": {
 		"defaultMessage": "Connection Type"
 	},
+	"wireguard.link.delete": {
+		"defaultMessage": "Delete"
+	},
+	"wireguard.link.delete-confirm": {
+		"defaultMessage": "Are you sure you want to delete peer {name}? This will remove the peer from the live WireGuard interface and config file. This action cannot be undone."
+	},
+	"wireguard.link.delete-title": {
+		"defaultMessage": "Delete Peer"
+	},
 	"wireguard.link.display-name": {
 		"defaultMessage": "Display Name"
 	},
@@ -940,12 +1558,6 @@
 	},
 	"wireguard.link.download-config": {
 		"defaultMessage": "Download Config"
-	},
-	"wireguard.link.show-qr": {
-		"defaultMessage": "Show QR"
-	},
-	"wireguard.link.qr-hint": {
-		"defaultMessage": "Scan with WireGuard app (iOS / Android)"
 	},
 	"wireguard.link.edit-metadata": {
 		"defaultMessage": "Edit metadata"
@@ -989,6 +1601,9 @@
 	"wireguard.link.metadata-editor": {
 		"defaultMessage": "Metadata Editor"
 	},
+	"wireguard.link.mgmt-none": {
+		"defaultMessage": "none"
+	},
 	"wireguard.link.missing-return": {
 		"defaultMessage": "Return path missing"
 	},
@@ -1000,6 +1615,9 @@
 	},
 	"wireguard.link.planner": {
 		"defaultMessage": "Link Planner"
+	},
+	"wireguard.link.qr-hint": {
+		"defaultMessage": "Scan with WireGuard app (iOS / Android)"
 	},
 	"wireguard.link.remote-management": {
 		"defaultMessage": "Remote Management"
@@ -1016,20 +1634,14 @@
 	"wireguard.link.save-plan": {
 		"defaultMessage": "Save plan"
 	},
+	"wireguard.link.show-qr": {
+		"defaultMessage": "Show QR"
+	},
 	"wireguard.link.traffic": {
 		"defaultMessage": "Traffic"
 	},
 	"wireguard.link.tunnel": {
 		"defaultMessage": "Tunnel"
-	},
-	"wireguard.link.delete": {
-		"defaultMessage": "Delete"
-	},
-	"wireguard.link.delete-title": {
-		"defaultMessage": "Delete Peer"
-	},
-	"wireguard.link.delete-confirm": {
-		"defaultMessage": "Are you sure you want to delete peer {name}? This will remove the peer from the live WireGuard interface and config file. This action cannot be undone."
 	},
 	"wireguard.links.clients": {
 		"defaultMessage": "Clients"
@@ -1040,8 +1652,35 @@
 	"wireguard.links.no-links": {
 		"defaultMessage": "No WireGuard links detected yet."
 	},
+	"wireguard.links.site-to-site": {
+		"defaultMessage": "Site-to-Site"
+	},
 	"wireguard.links.unclassified": {
 		"defaultMessage": "Unclassified"
+	},
+	"wireguard.next.decide-nat-or-static-route": {
+		"defaultMessage": "Decide: NAT or static route"
+	},
+	"wireguard.next.define-remote-management-mode": {
+		"defaultMessage": "Define remote management mode"
+	},
+	"wireguard.next.define-return-path-mode": {
+		"defaultMessage": "Define return path mode"
+	},
+	"wireguard.next.fix-return-path": {
+		"defaultMessage": "Fix return path"
+	},
+	"wireguard.next.model-exported-networks": {
+		"defaultMessage": "Model exported networks"
+	},
+	"wireguard.next.mount-wireguard-config-directory": {
+		"defaultMessage": "Mount WireGuard config directory"
+	},
+	"wireguard.next.verify-live-tunnel-state": {
+		"defaultMessage": "Verify live tunnel state"
+	},
+	"wireguard.next.verify-return-path": {
+		"defaultMessage": "Verify return path"
 	},
 	"wireguard.overview.backups-title": {
 		"defaultMessage": "Metadata Backups"
@@ -1069,6 +1708,9 @@
 	},
 	"wireguard.overview.topology-title": {
 		"defaultMessage": "Network Topology"
+	},
+	"wireguard.page.kicker": {
+		"defaultMessage": "Tunnel Inventory"
 	},
 	"wireguard.plan.check": {
 		"defaultMessage": "Check"
@@ -1100,8 +1742,32 @@
 	"wireguard.routing.col-allowed-ips": {
 		"defaultMessage": "Allowed IPs"
 	},
+	"wireguard.routing.col-endpoint": {
+		"defaultMessage": "Endpoint"
+	},
+	"wireguard.routing.col-interface": {
+		"defaultMessage": "Interface"
+	},
 	"wireguard.routing.col-last-handshake": {
 		"defaultMessage": "Last Handshake"
+	},
+	"wireguard.routing.col-peer": {
+		"defaultMessage": "Peer"
+	},
+	"wireguard.routing.col-public-key": {
+		"defaultMessage": "Public Key"
+	},
+	"wireguard.routing.matrix-exports": {
+		"defaultMessage": "exports"
+	},
+	"wireguard.routing.matrix-hint": {
+		"defaultMessage": "Shows which networks each peer exports and imports."
+	},
+	"wireguard.routing.matrix-no-networks": {
+		"defaultMessage": "No exported or imported networks configured yet."
+	},
+	"wireguard.routing.matrix-title": {
+		"defaultMessage": "Routing Matrix"
 	},
 	"wireguard.routing.missing-return-title": {
 		"defaultMessage": "Missing Return Routes"
@@ -1142,23 +1808,17 @@
 	"wireguard.tab.routing": {
 		"defaultMessage": "Routing"
 	},
-	"wireguard.topo.this": {
-		"defaultMessage": "This"
-	},
-	"wireguard.topo.hub": {
-		"defaultMessage": "Hub"
-	},
-	"wireguard.topo.site-to-site": {
-		"defaultMessage": "Site to Site"
-	},
-	"wireguard.topo.hub-link": {
-		"defaultMessage": "Hub Link"
+	"wireguard.time.never": {
+		"defaultMessage": "never"
 	},
 	"wireguard.topo.client": {
 		"defaultMessage": "Client"
 	},
-	"wireguard.topo.legend-inactive": {
-		"defaultMessage": "inactive"
+	"wireguard.topo.hub": {
+		"defaultMessage": "Hub"
+	},
+	"wireguard.topo.hub-link": {
+		"defaultMessage": "Hub Link"
 	},
 	"wireguard.topo.legend-active": {
 		"defaultMessage": "active"
@@ -1169,427 +1829,37 @@
 	"wireguard.topo.legend-imported": {
 		"defaultMessage": "imported networks"
 	},
-	"wireguard.agent.host": {
-		"defaultMessage": "Host"
+	"wireguard.topo.legend-inactive": {
+		"defaultMessage": "inactive"
 	},
-	"wireguard.agent.public-url-label": {
-		"defaultMessage": "Public URL (Fallback)"
+	"wireguard.topo.site-to-site": {
+		"defaultMessage": "Site to Site"
 	},
-	"wireguard.agent.tunnel-url-label": {
-		"defaultMessage": "Tunnel URL (WireGuard VPN)"
+	"wireguard.topo.this": {
+		"defaultMessage": "This"
 	},
-	"wireguard.link.apps": {
-		"defaultMessage": "Apps"
-	},
-	"wireguard.link.mgmt-none": {
-		"defaultMessage": "none"
-	},
-	"wireguard.routing.col-interface": {
-		"defaultMessage": "Interface"
-	},
-	"wireguard.routing.col-public-key": {
-		"defaultMessage": "Public Key"
-	},
-	"wireguard.routing.col-endpoint": {
-		"defaultMessage": "Endpoint"
-	},
-	"f2b.active": {
-		"defaultMessage": "active"
-	},
-	"f2b.loading": {
-		"defaultMessage": "Loading…"
-	},
-	"f2b.unavailable": {
-		"defaultMessage": "fail2ban not available."
-	},
-	"f2b.no-jails": {
-		"defaultMessage": "No jails configured."
-	},
-	"f2b.col-jail": {
-		"defaultMessage": "Jail"
-	},
-	"f2b.col-failed": {
-		"defaultMessage": "Failed attempts"
-	},
-	"f2b.col-banned": {
-		"defaultMessage": "Banned"
-	},
-	"f2b.col-banned-ips": {
-		"defaultMessage": "Banned IPs"
-	},
-	"f2b.unban": {
-		"defaultMessage": "Unban"
-	},
-	"platform.plan.ready": {
-		"defaultMessage": "Ready"
-	},
-	"platform.plan.validate": {
-		"defaultMessage": "Validate"
-	},
-	"platform.plan.shaping": {
-		"defaultMessage": "Shaping"
-	},
-	"platform.plan.discover": {
-		"defaultMessage": "Discover"
-	},
-	"platform.plan.unplanned": {
-		"defaultMessage": "Unplanned"
-	},
-	"platform.link-type.client": {
-		"defaultMessage": "Client"
-	},
-	"platform.link-type.site": {
-		"defaultMessage": "Site"
-	},
-	"platform.link-type.hub": {
-		"defaultMessage": "Hub"
-	},
-	"platform.link-type.other": {
-		"defaultMessage": "Other"
-	},
-	"gateway.reach.return-missing": {
-		"defaultMessage": "Return path missing"
-	},
-	"gateway.reach.check-nat": {
-		"defaultMessage": "Check NAT"
-	},
-	"gateway.reach.reachable": {
-		"defaultMessage": "Reachable"
-	},
-	"dashboard.stat.logical-links": {
-		"defaultMessage": "Logical Links"
-	},
-	"dashboard.gateway-overview": {
-		"defaultMessage": "Gateway Overview"
-	},
-	"dashboard.hub-interface": {
-		"defaultMessage": "Hub Interface"
-	},
-	"dashboard.total-traffic": {
-		"defaultMessage": "Total Traffic"
-	},
-	"dashboard.topology": {
-		"defaultMessage": "Topology"
-	},
-	"dashboard.next-steps": {
-		"defaultMessage": "Next Steps"
-	},
-	"dashboard.link-preview": {
-		"defaultMessage": "Link Preview"
-	},
-	"dashboard.no-addresses": {
-		"defaultMessage": "No addresses reported"
-	},
-	"dashboard.no-hints": {
-		"defaultMessage": "No immediate hints from runtime."
-	},
-	"dashboard.no-links": {
-		"defaultMessage": "No WireGuard routes available."
-	},
-	"dashboard.no-route-risks": {
-		"defaultMessage": "No route risks detected"
-	},
-	"dashboard.missing-return-hint": {
-		"defaultMessage": "{count} missing return route(s)"
-	},
-	"dashboard.nat-candidate-hint": {
-		"defaultMessage": "{count} NAT candidate(s)"
-	},
-	"dashboard.wg-routes": {
-		"defaultMessage": "{count} WG routes"
-	},
-	"platform.hero.kicker": {
-		"defaultMessage": "Platform Overview"
-	},
-	"platform.hero.subtitle": {
-		"defaultMessage": "FloppyGuard combines proxy, gateway and WireGuard management into one operational platform."
-	},
-	"platform.btn.open-wireguard": {
-		"defaultMessage": "Open WireGuard Module"
-	},
-	"platform.btn.open-gateway": {
-		"defaultMessage": "Open Gateway View"
-	},
-	"platform.btn.open-proxy": {
-		"defaultMessage": "Open Proxy Hosts"
-	},
-	"platform.cap.title": {
-		"defaultMessage": "Capability Map"
-	},
-	"platform.link-readiness.title": {
-		"defaultMessage": "Link Readiness"
-	},
-	"platform.gateway-snapshot.title": {
-		"defaultMessage": "Gateway Snapshot"
-	},
-	"platform.runtime-risks.title": {
-		"defaultMessage": "Runtime Risks"
-	},
-	"platform.hub-interface": {
-		"defaultMessage": "Hub Interface"
-	},
-	"platform.no-addresses": {
-		"defaultMessage": "No addresses"
-	},
-	"platform.no-links": {
-		"defaultMessage": "No logical links configured."
-	},
-	"platform.missing-return.title": {
-		"defaultMessage": "Missing Return Routes"
-	},
-	"platform.missing-return.none": {
-		"defaultMessage": "No missing return routes detected right now."
-	},
-	"platform.missing-return.some": {
-		"defaultMessage": "{count} imported network(s) still lack a matching live route."
-	},
-	"platform.nat-candidates.title": {
-		"defaultMessage": "NAT Candidates"
-	},
-	"platform.nat-candidates.none": {
-		"defaultMessage": "No obvious NAT candidates detected right now."
-	},
-	"platform.nat-candidates.some": {
-		"defaultMessage": "{count} network(s) still look like NAT candidates."
-	},
-	"platform.write-cap.title": {
-		"defaultMessage": "Write Capability"
-	},
-	"platform.observations.title": {
-		"defaultMessage": "Observations"
-	},
-	"platform.observations.none": {
-		"defaultMessage": "No additional route observations available right now."
-	},
-	"platform.stat.logical-links": {
-		"defaultMessage": "Logical Links"
-	},
-	"gateway.kicker": {
-		"defaultMessage": "Network View"
-	},
-	"gateway.subtitle": {
-		"defaultMessage": "Reachability, return-path risk and link readiness for the emerging FloppyGuard control plane."
-	},
-	"gateway.stat.wireguard-routes": {
-		"defaultMessage": "WireGuard Routes"
-	},
-	"gateway.stat.private-routes": {
-		"defaultMessage": "Private Routes"
-	},
-	"gateway.stat.peer-networks": {
-		"defaultMessage": "Peer Networks"
-	},
-	"gateway.stat.logical-links": {
-		"defaultMessage": "Logical Links"
-	},
-	"gateway.reachability.title": {
-		"defaultMessage": "Gateway Reachability Map"
-	},
-	"gateway.no-links": {
-		"defaultMessage": "No derived links available yet."
-	},
-	"gateway.link.endpoint-unknown": {
-		"defaultMessage": "endpoint unknown"
-	},
-	"gateway.link.active": {
-		"defaultMessage": "active"
-	},
-	"gateway.link.idle": {
-		"defaultMessage": "idle"
-	},
-	"gateway.private-routes.title": {
-		"defaultMessage": "Private Route Inventory"
-	},
-	"gateway.col-destination": {
-		"defaultMessage": "Destination"
-	},
-	"gateway.col-device": {
-		"defaultMessage": "Device"
-	},
-	"gateway.col-via": {
-		"defaultMessage": "Via"
-	},
-	"gateway.col-na": {
-		"defaultMessage": "n/a"
-	},
-	"gateway.col-direct": {
-		"defaultMessage": "direct"
-	},
-	"gateway.no-private-routes": {
-		"defaultMessage": "No private route inventory available yet."
-	},
-	"gateway.peer-networks.title": {
-		"defaultMessage": "Peer Network Inventory"
-	},
-	"gateway.col-network": {
-		"defaultMessage": "Network"
-	},
-	"gateway.col-role": {
-		"defaultMessage": "Role"
-	},
-	"gateway.no-peer-networks": {
-		"defaultMessage": "No peer networks detected from current WireGuard configs."
-	},
-	"gateway.routing-hints.title": {
-		"defaultMessage": "Routing Hints"
-	},
-	"gateway.missing-return.title": {
-		"defaultMessage": "Missing Return Routes"
-	},
-	"gateway.missing-return.none": {
-		"defaultMessage": "No missing return routes detected right now."
-	},
-	"gateway.nat-candidates.title": {
-		"defaultMessage": "NAT Candidates"
-	},
-	"gateway.nat-candidates.none": {
-		"defaultMessage": "No obvious NAT candidates detected right now."
-	},
-	"gateway.observations.title": {
-		"defaultMessage": "Observations"
-	},
-	"gateway.no-observations": {
-		"defaultMessage": "No additional route observations available."
-	},
-	"gateway.error": {
-		"defaultMessage": "Failed to load gateway status: {error}"
-	},
-	"gateway.unavailable": {
-		"defaultMessage": "Gateway data is not available in this runtime yet."
-	},
-	"gateway.gap.no-exported": {
-		"defaultMessage": "No local exported networks are defined for this link yet."
-	},
-	"gateway.gap.no-imported": {
-		"defaultMessage": "No remote imported networks are defined for this link yet."
-	},
-	"gateway.gap.mgmt-undefined": {
-		"defaultMessage": "Remote management path is still undefined."
-	},
-	"gateway.gap.return-undecided": {
-		"defaultMessage": "Return path mode is still undecided."
-	},
-	"gateway.gap.missing-route": {
-		"defaultMessage": "At least one imported network has no matching live WireGuard route."
-	},
-	"gateway.gap.nat-required": {
-		"defaultMessage": "Gateway runtime suggests NAT may still be required."
-	},
-	"gateway.gap.no-blocking": {
-		"defaultMessage": "Current gateway view does not show a blocking routing gap for this link."
-	},
-	"wireguard.warning.remote-endpoint-missing": {
-		"defaultMessage": "Remote endpoint not set"
-	},
-	"wireguard.warning.imported-network-missing-live-route": {
-		"defaultMessage": "Imported network missing live route"
-	},
-	"wireguard.warning.nat-likely-needed": {
-		"defaultMessage": "NAT likely needed"
+	"wireguard.warning.allowedips-conflict": {
+		"defaultMessage": "Subnet {subnet} is claimed by multiple peers: {peers}. Only one peer can route each subnet."
 	},
 	"wireguard.warning.exported-networks-missing": {
 		"defaultMessage": "No exported networks defined"
 	},
-	"wireguard.warning.return-path-mode-undefined": {
-		"defaultMessage": "Return path mode not set"
-	},
-	"wireguard.warning.remote-management-mode-undefined": {
-		"defaultMessage": "Remote management mode not set"
+	"wireguard.warning.imported-network-missing-live-route": {
+		"defaultMessage": "Imported network missing live route"
 	},
 	"wireguard.warning.link-not-currently-active": {
 		"defaultMessage": "Link not currently active"
 	},
-	"wireguard.next.verify-return-path": {
-		"defaultMessage": "Verify return path"
+	"wireguard.warning.nat-likely-needed": {
+		"defaultMessage": "NAT likely needed"
 	},
-	"wireguard.next.model-exported-networks": {
-		"defaultMessage": "Model exported networks"
+	"wireguard.warning.remote-endpoint-missing": {
+		"defaultMessage": "Remote endpoint not set"
 	},
-	"wireguard.next.define-remote-management-mode": {
-		"defaultMessage": "Define remote management mode"
+	"wireguard.warning.remote-management-mode-undefined": {
+		"defaultMessage": "Remote management mode not set"
 	},
-	"wireguard.next.fix-return-path": {
-		"defaultMessage": "Fix return path"
-	},
-	"wireguard.next.decide-nat-or-static-route": {
-		"defaultMessage": "Decide: NAT or static route"
-	},
-	"wireguard.next.define-return-path-mode": {
-		"defaultMessage": "Define return path mode"
-	},
-	"wireguard.next.verify-live-tunnel-state": {
-		"defaultMessage": "Verify live tunnel state"
-	},
-	"wireguard.next.mount-wireguard-config-directory": {
-		"defaultMessage": "Mount WireGuard config directory"
-	},
-	"dashboard.view-routing": {
-		"defaultMessage": "Routing details"
-	},
-	"dashboard.view-traffic": {
-		"defaultMessage": "Traffic details"
-	},
-	"traffic": {
-		"defaultMessage": "Traffic"
-	},
-	"traffic.current-rx": {
-		"defaultMessage": "Receiving"
-	},
-	"traffic.current-tx": {
-		"defaultMessage": "Sending"
-	},
-	"traffic.total": {
-		"defaultMessage": "total"
-	},
-	"traffic.active-links": {
-		"defaultMessage": "Active Links"
-	},
-	"traffic.combined-rate": {
-		"defaultMessage": "Combined Rate"
-	},
-	"traffic.peers": {
-		"defaultMessage": "peers"
-	},
-	"traffic.chart-rx": {
-		"defaultMessage": "Received (bytes/s)"
-	},
-	"traffic.chart-tx": {
-		"defaultMessage": "Sent (bytes/s)"
-	},
-	"traffic.warming-up": {
-		"defaultMessage": "Collecting data — updates every 10 s…"
-	},
-	"traffic.table-title": {
-		"defaultMessage": "Link Details"
-	},
-	"traffic.routing-details": {
-		"defaultMessage": "Routing details"
-	},
-	"traffic.no-links": {
-		"defaultMessage": "No WireGuard links found."
-	},
-	"traffic.col-peer": {
-		"defaultMessage": "Peer"
-	},
-	"traffic.col-type": {
-		"defaultMessage": "Type"
-	},
-	"traffic.col-rx": {
-		"defaultMessage": "Received"
-	},
-	"traffic.col-tx": {
-		"defaultMessage": "Sent"
-	},
-	"traffic.col-handshake": {
-		"defaultMessage": "Last Handshake"
-	},
-	"traffic.col-status": {
-		"defaultMessage": "Status"
-	},
-	"traffic.status-active": {
-		"defaultMessage": "Active"
-	},
-	"traffic.status-idle": {
-		"defaultMessage": "Idle"
+	"wireguard.warning.return-path-mode-undefined": {
+		"defaultMessage": "Return path mode not set"
 	}
 }

@@ -72,8 +72,7 @@ const fmtWarning = (w: string) => (KNOWN_WARNINGS.has(w) ? intl.formatMessage({ 
 
 // Structured warning from the backend (e.g. allowedips-conflict)
 type StructuredWarning = { code: string; subnet: string; peers: string[]; message: string };
-const isStructuredWarning = (w: unknown): w is StructuredWarning =>
-	typeof w === "object" && w !== null && "code" in w;
+const isStructuredWarning = (w: unknown): w is StructuredWarning => typeof w === "object" && w !== null && "code" in w;
 
 const fmtGlobalWarning = (w: string | StructuredWarning): string => {
 	if (isStructuredWarning(w)) {
@@ -544,15 +543,7 @@ function PreviewResult({ preview, current }: { preview: WireGuardPlanPreviewResp
 
 // ── Agent Section ──────────────────────────────────────────────────────────────
 
-function AgentSection({
-	link,
-	agents,
-	agentsReady,
-}: {
-	link: WireGuardLink;
-	agents: Agent[];
-	agentsReady: boolean;
-}) {
+function AgentSection({ link, agents, agentsReady }: { link: WireGuardLink; agents: Agent[]; agentsReady: boolean }) {
 	const existingAgent =
 		agents.find((a) => a.wgLinkName === link.name) ??
 		agents.find((a) => a.name === link.name) ??
@@ -924,9 +915,7 @@ function AgentSection({
 									</div>
 									{oneliner ? (
 										<div className="d-flex align-items-center gap-2">
-											<code
-												className="flex-grow-1 text-truncate small bg-dark text-white px-2 py-1 rounded"
-											>
+											<code className="flex-grow-1 text-truncate small bg-dark text-white px-2 py-1 rounded">
 												{oneliner}
 											</code>
 											<button
@@ -980,7 +969,14 @@ interface LinkCardProps {
 	agentsReady: boolean;
 }
 
-function LinkCard({ link, missingReturnRoutes, natCandidates, planningInterfaces, agents, agentsReady }: LinkCardProps) {
+function LinkCard({
+	link,
+	missingReturnRoutes,
+	natCandidates,
+	planningInterfaces,
+	agents,
+	agentsReady,
+}: LinkCardProps) {
 	const [editorOpen, setEditorOpen] = useState(false);
 	const [plannerOpen, setPlannerOpen] = useState(false);
 	const [agentOpen, setAgentOpen] = useState(false);
@@ -1194,7 +1190,10 @@ function LinkCard({ link, missingReturnRoutes, natCandidates, planningInterfaces
 
 				{matchedAgent?.status === "active" && matchedAgent.agentVersion && (
 					<div className="d-flex flex-wrap gap-2 align-items-center mt-2">
-						<span className="badge bg-secondary-lt" title={intl.formatMessage({ id: "wireguard.agent.version" })}>
+						<span
+							className="badge bg-secondary-lt"
+							title={intl.formatMessage({ id: "wireguard.agent.version" })}
+						>
 							Agent v{matchedAgent.agentVersion}
 						</span>
 					</div>
@@ -1436,8 +1435,12 @@ function LinkCard({ link, missingReturnRoutes, natCandidates, planningInterfaces
 										value={draftPlatform}
 										onChange={(e) => setDraftPlatform(e.target.value as "desktop" | "mobile")}
 									>
-										<option value="desktop">{intl.formatMessage({ id: "wireguard.create.platform-desktop" })}</option>
-										<option value="mobile">{intl.formatMessage({ id: "wireguard.create.platform-mobile" })}</option>
+										<option value="desktop">
+											{intl.formatMessage({ id: "wireguard.create.platform-desktop" })}
+										</option>
+										<option value="mobile">
+											{intl.formatMessage({ id: "wireguard.create.platform-mobile" })}
+										</option>
 									</select>
 								</label>
 							</div>
@@ -1451,7 +1454,9 @@ function LinkCard({ link, missingReturnRoutes, natCandidates, planningInterfaces
 										checked={draftFullTunnel}
 										onChange={(e) => setDraftFullTunnel(e.target.checked)}
 									/>
-									<span className="form-check-label">{intl.formatMessage({ id: "wireguard.field.full-tunnel" })}</span>
+									<span className="form-check-label">
+										{intl.formatMessage({ id: "wireguard.field.full-tunnel" })}
+									</span>
 								</label>
 							</div>
 						)}
@@ -1671,17 +1676,16 @@ function InterfaceCard({ iface, allLinks }: { iface: EnhancedInterface; allLinks
 				</div>
 			</div>
 
-			<div className={styles.ifaceCardBody} style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+			<div
+				className={styles.ifaceCardBody}
+				style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.5rem" }}
+			>
 				<div className="small">
-					<span className="text-secondary me-1">
-						{intl.formatMessage({ id: "wireguard.iface.peers" })}
-					</span>
+					<span className="text-secondary me-1">{intl.formatMessage({ id: "wireguard.iface.peers" })}</span>
 					{iface.activePeerCount} {intl.formatMessage({ id: "wireguard.link.active" })} / {iface.peerCount}
 				</div>
 				<div className="small">
-					<span className="text-secondary me-1">
-						{intl.formatMessage({ id: "wireguard.link.traffic" })}
-					</span>
+					<span className="text-secondary me-1">{intl.formatMessage({ id: "wireguard.link.traffic" })}</span>
 					{byteFmt(iface.rxBytes)} rx / {byteFmt(iface.txBytes)} tx
 				</div>
 				<div className="small">
@@ -1693,9 +1697,7 @@ function InterfaceCard({ iface, allLinks }: { iface: EnhancedInterface; allLinks
 					{shortKey(iface.publicKey)}
 				</div>
 				<div className="small">
-					<span className="text-secondary me-1">
-						{intl.formatMessage({ id: "wireguard.link.export" })}
-					</span>
+					<span className="text-secondary me-1">{intl.formatMessage({ id: "wireguard.link.export" })}</span>
 					{iface.exportedNetworks.length > 0
 						? iface.exportedNetworks.slice(0, 4).map((n) => (
 								<span key={n} className="badge bg-azure-lt text-azure me-1">
@@ -1705,9 +1707,7 @@ function InterfaceCard({ iface, allLinks }: { iface: EnhancedInterface; allLinks
 						: "—"}
 				</div>
 				<div className="small">
-					<span className="text-secondary me-1">
-						{intl.formatMessage({ id: "wireguard.tab.links" })}
-					</span>
+					<span className="text-secondary me-1">{intl.formatMessage({ id: "wireguard.tab.links" })}</span>
 					{ifaceLinks.length > 0
 						? ifaceLinks.map((l) => (
 								<span key={l.id} className={`badge ${typeBadge(l.type).cls} me-1`}>
@@ -1744,11 +1744,7 @@ function InterfaceCard({ iface, allLinks }: { iface: EnhancedInterface; allLinks
 								onConfirm: async () => {
 									await deleteWireGuardInterface({ name: iface.name });
 								},
-								invalidations: [
-									["wireguard-status"],
-									["wireguard-metadata"],
-									["wireguard-bandwidth"],
-								],
+								invalidations: [["wireguard-status"], ["wireguard-metadata"], ["wireguard-bandwidth"]],
 								children: intl.formatMessage(
 									{ id: "wireguard.iface.delete-confirm" },
 									{ name: iface.name },
@@ -1789,7 +1785,10 @@ function InterfaceCard({ iface, allLinks }: { iface: EnhancedInterface; allLinks
 								className="btn btn-sm btn-primary"
 								type="button"
 								disabled={
-									applyMetadata.isPending || !preview?.valid || !preview.apply.canApply || !previewCurrent
+									applyMetadata.isPending ||
+									!preview?.valid ||
+									!preview.apply.canApply ||
+									!previewCurrent
 								}
 								onClick={() => {
 									applyMetadata.mutate(patch, {
@@ -1817,7 +1816,8 @@ function InterfaceCard({ iface, allLinks }: { iface: EnhancedInterface; allLinks
 					<div className={styles.editorGrid}>
 						<div className={styles.editorGroupWide}>
 							<div className={styles.editorGroupLabel}>
-								{intl.formatMessage({ id: "wireguard.iface.role" })} &amp; {intl.formatMessage({ id: "wireguard.link.management" })}
+								{intl.formatMessage({ id: "wireguard.iface.role" })} &amp;{" "}
+								{intl.formatMessage({ id: "wireguard.link.management" })}
 							</div>
 							<div className="d-flex gap-3">
 								<div style={{ flex: 1 }}>
@@ -1829,13 +1829,13 @@ function InterfaceCard({ iface, allLinks }: { iface: EnhancedInterface; allLinks
 										value={draftRole}
 										onChange={(e) => setDraftRole(parseIfaceRole(e.target.value))}
 									>
-										{(["client-hub", "site-to-site", "hub-link", "auxiliary", "unknown"] as const).map(
-											(o) => (
-												<option key={o} value={o}>
-													{o}
-												</option>
-											),
-										)}
+										{(
+											["client-hub", "site-to-site", "hub-link", "auxiliary", "unknown"] as const
+										).map((o) => (
+											<option key={o} value={o}>
+												{o}
+											</option>
+										))}
 									</select>
 								</div>
 								<div style={{ flex: 1 }}>
@@ -1859,7 +1859,8 @@ function InterfaceCard({ iface, allLinks }: { iface: EnhancedInterface; allLinks
 
 						<div className={styles.editorGroupWide}>
 							<div className={styles.editorGroupLabel}>
-								{intl.formatMessage({ id: "wireguard.link.exported-networks" })} / {intl.formatMessage({ id: "wireguard.link.imported-networks" })}
+								{intl.formatMessage({ id: "wireguard.link.exported-networks" })} /{" "}
+								{intl.formatMessage({ id: "wireguard.link.imported-networks" })}
 							</div>
 							<div className="d-flex gap-3">
 								<div style={{ flex: 1 }}>
@@ -2224,7 +2225,11 @@ function HubUrlEditor() {
 							>
 								{intl.formatMessage({ id: "save" })}
 							</button>
-							<button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => setEdit(null)}>
+							<button
+								type="button"
+								className="btn btn-sm btn-outline-secondary"
+								onClick={() => setEdit(null)}
+							>
 								{intl.formatMessage({ id: "cancel" })}
 							</button>
 							{invalid && (
@@ -2395,7 +2400,10 @@ const WireGuard = () => {
 						{createResult ? (
 							<div>
 								<div className="alert alert-success mb-3">
-									{intl.formatMessage({ id: "wireguard.create.success" }, { name: newName, ip: createResult.tunnelAddress })}
+									{intl.formatMessage(
+										{ id: "wireguard.create.success" },
+										{ name: newName, ip: createResult.tunnelAddress },
+									)}
 								</div>
 								<div className="mb-3">
 									<label className="form-label fw-bold">Client configuration for download:</label>
@@ -2441,7 +2449,9 @@ const WireGuard = () => {
 						) : (
 							<div className="row g-4">
 								<div className="col-md-3">
-									<label className="form-label mb-1">{intl.formatMessage({ id: "wireguard.create.name" })}</label>
+									<label className="form-label mb-1">
+										{intl.formatMessage({ id: "wireguard.create.name" })}
+									</label>
 									<input
 										type="text"
 										className="form-control"
@@ -2451,7 +2461,9 @@ const WireGuard = () => {
 									/>
 								</div>
 								<div className="col-md-3">
-									<label className="form-label mb-1">{intl.formatMessage({ id: "wireguard.create.type" })}</label>
+									<label className="form-label mb-1">
+										{intl.formatMessage({ id: "wireguard.create.type" })}
+									</label>
 									<select
 										className="form-select"
 										value={newType}
@@ -2463,7 +2475,9 @@ const WireGuard = () => {
 									</select>
 								</div>
 								<div className="col-md-3">
-									<label className="form-label mb-1">{intl.formatMessage({ id: "wireguard.create.interface" })}</label>
+									<label className="form-label mb-1">
+										{intl.formatMessage({ id: "wireguard.create.interface" })}
+									</label>
 									<select
 										className="form-select"
 										value={newIfaceName}
@@ -2477,7 +2491,9 @@ const WireGuard = () => {
 									</select>
 								</div>
 								<div className="col-md-3">
-									<label className="form-label mb-1">{intl.formatMessage({ id: "wireguard.create.dns" })}</label>
+									<label className="form-label mb-1">
+										{intl.formatMessage({ id: "wireguard.create.dns" })}
+									</label>
 									<input
 										type="text"
 										className="form-control"
@@ -2488,19 +2504,28 @@ const WireGuard = () => {
 								</div>
 								{newType === "client" && (
 									<div className="col-md-3">
-										<label className="form-label mb-1">{intl.formatMessage({ id: "wireguard.create.platform" })}</label>
+										<label className="form-label mb-1">
+											{intl.formatMessage({ id: "wireguard.create.platform" })}
+										</label>
 										<select
 											className="form-select"
 											value={newPlatform}
 											onChange={(e) => setNewPlatform(e.target.value as "desktop" | "mobile")}
 										>
-											<option value="desktop">{intl.formatMessage({ id: "wireguard.create.platform-desktop" })}</option>
-											<option value="mobile">{intl.formatMessage({ id: "wireguard.create.platform-mobile" })}</option>
+											<option value="desktop">
+												{intl.formatMessage({ id: "wireguard.create.platform-desktop" })}
+											</option>
+											<option value="mobile">
+												{intl.formatMessage({ id: "wireguard.create.platform-mobile" })}
+											</option>
 										</select>
 									</div>
 								)}
 								{newType === "client" && (
-									<div className="col-md-3 d-flex align-items-center" style={{ paddingTop: "0.25rem" }}>
+									<div
+										className="col-md-3 d-flex align-items-center"
+										style={{ paddingTop: "0.25rem" }}
+									>
 										<label className="form-check form-switch mb-0">
 											<input
 												type="checkbox"
@@ -2508,13 +2533,17 @@ const WireGuard = () => {
 												checked={newFullTunnel}
 												onChange={(e) => setNewFullTunnel(e.target.checked)}
 											/>
-											<span className="form-check-label">{intl.formatMessage({ id: "wireguard.create.full-tunnel" })}</span>
+											<span className="form-check-label">
+												{intl.formatMessage({ id: "wireguard.create.full-tunnel" })}
+											</span>
 										</label>
 									</div>
 								)}
 								{!newFullTunnel && (
 									<div className="col-12">
-										<label className="form-label mb-1">{intl.formatMessage({ id: "wireguard.create.allowed-ips" })}</label>
+										<label className="form-label mb-1">
+											{intl.formatMessage({ id: "wireguard.create.allowed-ips" })}
+										</label>
 										<div className="row g-2 mb-1">
 											{(() => {
 												const selectedNets = new Set(splitCsv(newImported));
@@ -2545,10 +2574,14 @@ const WireGuard = () => {
 																	<input
 																		type="checkbox"
 																		className="form-check-input"
-																		checked={site.nets.every((n) => selectedNets.has(n))}
+																		checked={site.nets.every((n) =>
+																			selectedNets.has(n),
+																		)}
 																		onChange={() => toggleSite(site.nets)}
 																	/>
-																	<span className="form-check-label fw-bold small">{site.name}</span>
+																	<span className="form-check-label fw-bold small">
+																		{site.name}
+																	</span>
 																</label>
 																{site.nets.map((net) => (
 																	<label key={net} className="form-check ms-3">
@@ -2558,7 +2591,9 @@ const WireGuard = () => {
 																			checked={selectedNets.has(net)}
 																			onChange={() => toggleNet(net)}
 																		/>
-																		<span className="form-check-label small text-secondary">{net}</span>
+																		<span className="form-check-label small text-secondary">
+																			{net}
+																		</span>
 																	</label>
 																))}
 															</div>
@@ -2574,7 +2609,9 @@ const WireGuard = () => {
 											onChange={(e) => setNewImported(e.target.value)}
 											placeholder="10.10.0.0/24, 192.168.10.0/24"
 										/>
-										<div className="form-hint mt-1">{intl.formatMessage({ id: "wireguard.create.allowed-ips-hint" })}</div>
+										<div className="form-hint mt-1">
+											{intl.formatMessage({ id: "wireguard.create.allowed-ips-hint" })}
+										</div>
 									</div>
 								)}
 								<div className="col-12">
@@ -2608,7 +2645,9 @@ const WireGuard = () => {
 												);
 											}}
 										>
-											{createPeer.isPending ? intl.formatMessage({ id: "wireguard.create.pending" }) : intl.formatMessage({ id: "wireguard.create.submit" })}
+											{createPeer.isPending
+												? intl.formatMessage({ id: "wireguard.create.pending" })
+												: intl.formatMessage({ id: "wireguard.create.submit" })}
 										</button>
 										<button
 											type="button"
@@ -2620,7 +2659,8 @@ const WireGuard = () => {
 									</div>
 									{createPeer.isError && (
 										<div className="alert alert-danger mt-2 mb-0">
-											{createPeer.error?.message || intl.formatMessage({ id: "wireguard.create.error" })}
+											{createPeer.error?.message ||
+												intl.formatMessage({ id: "wireguard.create.error" })}
 										</div>
 									)}
 								</div>
@@ -2854,7 +2894,11 @@ const WireGuard = () => {
 							{intl.formatMessage({ id: "wireguard.links.no-links" })}
 						</div>
 					)}
-					{renderLinks(groupedLinks.site, intl.formatMessage({ id: "wireguard.links.site-to-site" }), "bg-indigo-lt text-indigo")}
+					{renderLinks(
+						groupedLinks.site,
+						intl.formatMessage({ id: "wireguard.links.site-to-site" }),
+						"bg-indigo-lt text-indigo",
+					)}
 					{renderLinks(
 						groupedLinks.hub,
 						intl.formatMessage({ id: "wireguard.links.hub-links" }),

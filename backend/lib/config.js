@@ -219,11 +219,12 @@ const isPostgres = () => {
 };
 
 /**
- * Are we running in debug mdoe?
+ * Are we running in debug mode? Parsed strictly: DEBUG=false (as set by the
+ * production start scripts) must NOT enable debug output.
  *
  * @returns {boolean}
  */
-const isDebugMode = () => !!process.env.DEBUG;
+const isDebugMode = () => ["1", "true", "yes", "on"].includes(String(process.env.DEBUG || "").trim().toLowerCase());
 
 /**
  * Are we running in CI?

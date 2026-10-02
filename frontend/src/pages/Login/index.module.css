@@ -43,3 +43,12 @@
 	color: var(--tblr-secondary);
 	text-align: right;
 }
+
+.ssoSeparator {
+	margin: 1rem 0 0.75rem;
+	text-align: center;
+	font-size: 0.8125rem;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	opacity: 0.6;
+}

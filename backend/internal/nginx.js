@@ -42,6 +42,91 @@ const FORBIDDEN_ADVANCED_CONFIG_DIRECTIVES = [
 // is a code-execution surface and is rejected regardless of the exact name.
 const FORBIDDEN_ADVANCED_CONFIG_DIRECTIVE_PATTERN = /(?:_by_lua\w*|lua_\w+|perl\w*|_by_perl\w*|^js_\w+)$/i;
 
+// Directives that read or write arbitrary files as the root nginx master:
+// TLS key/cert/CRL/password files, htpasswd files, temp/store paths, and logs.
+const FORBIDDEN_FILE_DIRECTIVE_PATTERN =
+	/(?:_certificate|_certificate_key|_certificate_cache|_password_file|_crl|_dhparam|_temp_path|_user_file|_store|_ticket_key|_stapling_file)$/i;
+
+/**
+ * Splits an nginx config fragment into statements the same way nginx's own
+ * tokenizer (ngx_conf_read_token) does, so the gate sees exactly the directive
+ * names nginx will see:
+ *   - `#` starts a comment ONLY at the start of a token (`a#b` is one word),
+ *   - a token starting with `"` or `'` is a quoted string (quotes removed),
+ *   - a backslash escapes the next character,
+ *   - `;`, `{` and `}` end a statement outside of quotes.
+ *
+ * @param   {String} cfg
+ * @returns {Array<{ name: String, raw: String, args: String[] }>}
+ */
+const tokenizeNginxStatements = (cfg) => {
+	const statements = [];
+	let words = [];
+	let rawFirst = null;
+	let i = 0;
+	const len = cfg.length;
+
+	const endStatement = () => {
+		if (words.length) {
+			statements.push({ name: words[0], raw: rawFirst, args: words.slice(1) });
+		}
+		words = [];
+		rawFirst = null;
+	};
+
+	while (i < len) {
+		const ch = cfg[i];
+		if (/\s/.test(ch)) {
+			i++;
+			continue;
+		}
+		if (ch === "#") {
+			while (i < len && cfg[i] !== "\n") i++;
+			continue;
+		}
+		if (ch === ";" || ch === "{" || ch === "}") {
+			endStatement();
+			i++;
+			continue;
+		}
+
+		const startIdx = i;
+		let word = "";
+		if (ch === '"' || ch === "'") {
+			const quote = ch;
+			i++;
+			while (i < len && cfg[i] !== quote) {
+				if (cfg[i] === "\\" && i + 1 < len) {
+					word += cfg[i + 1];
+					i += 2;
+					continue;
+				}
+				word += cfg[i];
+				i++;
+			}
+			i++; // closing quote
+		} else {
+			while (i < len) {
+				const c = cfg[i];
+				if (/\s/.test(c) || c === ";" || c === "{" || c === "}") break;
+				if (c === "\\" && i + 1 < len) {
+					word += cfg[i + 1];
+					i += 2;
+					continue;
+				}
+				word += c;
+				i++;
+			}
+		}
+		if (!words.length) {
+			rawFirst = cfg.slice(startIdx, i);
+		}
+		words.push(word);
+	}
+	endStatement();
+	return statements;
+};
+
 /**
  * Validates a user-supplied advanced_config string before it is rendered into
  * a root-loaded nginx config. Throws a ValidationError on the first forbidden
@@ -55,33 +140,54 @@ const assertSafeAdvancedConfig = (cfg) => {
 		return;
 	}
 
-	// Strip out quoted strings and comments so a directive name appearing inside
-	// e.g. a log_format template or a `# comment` doesn't cause a false positive,
-	// while the actual leading directive token of every statement is preserved.
-	const withoutComments = cfg.replace(/#[^\n]*/g, "");
+	for (const statement of tokenizeNginxStatements(cfg)) {
+		const directive = statement.name.toLowerCase();
 
-	// Split into candidate statements on statement separators: `;`, `{`, `}`
-	// and newlines. The first whitespace-delimited token of each candidate is
-	// the directive name.
-	const statements = withoutComments.split(/[;{}\n]+/);
-
-	for (const statement of statements) {
-		const trimmed = statement.trim();
-		if (trimmed === "") {
-			continue;
+		// nginx strips quotes/escapes from directive names too ("alias" == alias).
+		// A legitimate directive name is never quoted or escaped, so refuse it
+		// outright instead of trying to reason about it.
+		if (/["'\\]/.test(statement.raw || "")) {
+			throw new errs.ValidationError(
+				`advanced_config contains a quoted or escaped nginx directive name: ${directive.slice(0, 64)}`,
+			);
 		}
-		// Directive name is the first token; may be preceded by nothing else.
-		const directive = trimmed.split(/\s+/)[0].toLowerCase();
 		if (directive === "") {
 			continue;
 		}
 
 		if (
 			FORBIDDEN_ADVANCED_CONFIG_DIRECTIVES.includes(directive) ||
-			FORBIDDEN_ADVANCED_CONFIG_DIRECTIVE_PATTERN.test(directive)
+			FORBIDDEN_ADVANCED_CONFIG_DIRECTIVE_PATTERN.test(directive) ||
+			FORBIDDEN_FILE_DIRECTIVE_PATTERN.test(directive)
 		) {
 			throw new errs.ValidationError(`advanced_config contains a forbidden nginx directive: ${directive}`);
 		}
+
+		// access_log/error_log create or append files as root. Only switching
+		// the access log off is allowed.
+		if (
+			directive === "error_log" ||
+			(directive === "access_log" && !(statement.args.length === 1 && statement.args[0] === "off"))
+		) {
+			throw new errs.ValidationError(`advanced_config contains a forbidden nginx directive: ${directive}`);
+		}
+	}
+};
+
+// A custom location path is rendered unquoted as `location {{ path }} {`.
+// Allowed: an optional modifier (=, ~, ~*, ^~) followed by ONE token without
+// whitespace or nginx metacharacters (; { } quotes # backtick). Regex
+// locations keep working (\.php$, (a|b), [0-9] ...), but nothing can close the
+// location block or start another directive.
+const SAFE_LOCATION_PATH_PATTERN = /^(?:(?:=|~|~\*|\^~) +)?[^\s;{}"'#`]*[^\s;{}"'#`\\]$/;
+
+/**
+ * @param   {String} value
+ * @throws  {errs.ValidationError}
+ */
+const assertSafeLocationPath = (value) => {
+	if (typeof value !== "string" || !SAFE_LOCATION_PATH_PATTERN.test(value)) {
+		throw new errs.ValidationError("location path contains an invalid character");
 	}
 };
 
@@ -275,6 +381,9 @@ const internalNginx = {
 					// Per-location advanced_config is also rendered verbatim into
 					// the root-loaded config, so it must be validated too.
 					assertSafeAdvancedConfig(locationCopy.advanced_config);
+
+					// path is rendered UNQUOTED as `location {{ path }} {`.
+					assertSafeLocationPath(locationCopy.path);
 
 					// forward_host / forward_path are rendered UNQUOTED into the
 					// proxy_pass directive; validate before (and after) the split
@@ -590,5 +699,7 @@ export default internalNginx;
 // Exported for unit testing only
 export const _testExports = {
 	assertSafeAdvancedConfig,
+	assertSafeLocationPath,
+	tokenizeNginxStatements,
 	assertSafeForwardField,
 };

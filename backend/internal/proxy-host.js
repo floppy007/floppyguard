@@ -27,8 +27,13 @@ const internalProxyHost = {
 			delete thisData.certificate_id;
 		}
 
+		if (thisData.meta !== undefined) {
+			thisData.meta = cloudflareDns.sanitizeMeta(thisData.meta, undefined);
+		}
+
 		return access
 			.can("proxy_hosts:create", thisData)
+			.then(() => internalHost.assertCertificateAccess(access, thisData.certificate_id))
 			.then(() => {
 				// Get a list of the domain names and check each of them against existing records
 				const domain_name_check_promises = [];
@@ -86,8 +91,8 @@ const internalProxyHost = {
 			})
 			.then((row) => {
 				// Configure nginx
-				return internalNginx.configure(proxyHostModel, "proxy_host", row).then(() => {
-					return cloudflareDns.syncProxyHost(row);
+				return internalNginx.configure(proxyHostModel, "proxy_host", row).then(async () => {
+					return cloudflareDns.syncProxyHost(row, await cloudflareDns.resolveActor(access));
 				});
 			})
 			.then((row) => {
@@ -156,6 +161,10 @@ const internalProxyHost = {
 					);
 				}
 
+				if (data.meta !== undefined) {
+					data.meta = cloudflareDns.sanitizeMeta(data.meta, row.meta);
+				}
+
 				if (createCertificate) {
 					return internalCertificate
 						.createQuickCertificate(access, {
@@ -169,6 +178,9 @@ const internalProxyHost = {
 						.then(() => {
 							return row;
 						});
+				}
+				if (thisData.certificate_id !== undefined && thisData.certificate_id !== row.certificate_id) {
+					return internalHost.assertCertificateAccess(access, thisData.certificate_id).then(() => row);
 				}
 				return row;
 			})
@@ -215,9 +227,10 @@ const internalProxyHost = {
 							return row;
 						}
 						// Configure nginx
-						return internalNginx.configure(proxyHostModel, "proxy_host", row).then((new_meta) => {
+						return internalNginx.configure(proxyHostModel, "proxy_host", row).then(async (new_meta) => {
 							row.meta = new_meta;
-							return cloudflareDns.syncProxyHost(row).then((syncedRow) => {
+							const actor = await cloudflareDns.resolveActor(access);
+							return cloudflareDns.syncProxyHost(row, actor).then((syncedRow) => {
 								return _.omit(internalHost.cleanRowCertificateMeta(syncedRow), omissions());
 							});
 						});

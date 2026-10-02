@@ -87,8 +87,11 @@ function LineChart({ peers, mode, range, height = 180 }: ChartProps) {
 	const endTime = Date.now();
 	const startTime = endTime - RANGE_DURATION_MS[range];
 
-	const visibleSamples = (peer: PeerBandwidth) => peer.history.filter((sample) => sample.ts >= startTime && sample.ts <= endTime);
-	const allValues = peers.flatMap((peer) => visibleSamples(peer).map((sample) => (mode === "rx" ? sample.rx : sample.tx)));
+	const visibleSamples = (peer: PeerBandwidth) =>
+		peer.history.filter((sample) => sample.ts >= startTime && sample.ts <= endTime);
+	const allValues = peers.flatMap((peer) =>
+		visibleSamples(peer).map((sample) => (mode === "rx" ? sample.rx : sample.tx)),
+	);
 	const rawMax = allValues.length ? Math.max(...allValues) : 0;
 	const yMax = rawMax < 1024 ? 1024 : rawMax * 1.15;
 
@@ -139,7 +142,14 @@ function LineChart({ peers, mode, range, height = 180 }: ChartProps) {
 			))}
 
 			{xTicks.map(({ x, label }, index) => (
-				<text key={`${label}-${index}`} x={x} y={H - 4} textAnchor="middle" fontSize={9} fill="var(--tblr-secondary)">
+				<text
+					key={`${label}-${index}`}
+					x={x}
+					y={H - 4}
+					textAnchor="middle"
+					fontSize={9}
+					fill="var(--tblr-secondary)"
+				>
 					{label}
 				</text>
 			))}
@@ -236,7 +246,12 @@ const Traffic = () => {
 				<h2 className="mb-0">Traffic</h2>
 				<div className="btn-group" role="group" aria-label="Traffic history range">
 					{(["live", "24h", "30d", "12m"] as BandwidthRange[]).map((value) => (
-						<button key={value} type="button" className={`btn btn-sm ${range === value ? "btn-primary" : "btn-outline-primary"}`} onClick={() => setRange(value)}>
+						<button
+							key={value}
+							type="button"
+							className={`btn btn-sm ${range === value ? "btn-primary" : "btn-outline-primary"}`}
+							onClick={() => setRange(value)}
+						>
 							{{ live: "Live", "24h": "24 h", "30d": "30 d", "12m": "12 m" }[value]}
 						</button>
 					))}
@@ -381,7 +396,14 @@ const Traffic = () => {
 									{intl.formatMessage({ id: "traffic.chart-rx" })}
 								</h3>
 								<div className="text-secondary" style={{ fontSize: "0.72rem" }}>
-									{{ live: "Last 10 minutes", "24h": "Hourly view", "30d": "15-minute averages", "12m": "Daily averages" }[range]}
+									{
+										{
+											live: "Last 10 minutes",
+											"24h": "Hourly view",
+											"30d": "15-minute averages",
+											"12m": "Daily averages",
+										}[range]
+									}
 								</div>
 							</div>
 							{dataUpdatedAt > 0 && (
@@ -420,7 +442,14 @@ const Traffic = () => {
 									{intl.formatMessage({ id: "traffic.chart-tx" })}
 								</h3>
 								<div className="text-secondary" style={{ fontSize: "0.72rem" }}>
-									{{ live: "Last 10 minutes", "24h": "Hourly view", "30d": "15-minute averages", "12m": "Daily averages" }[range]}
+									{
+										{
+											live: "Last 10 minutes",
+											"24h": "Hourly view",
+											"30d": "15-minute averages",
+											"12m": "Daily averages",
+										}[range]
+									}
 								</div>
 							</div>
 							{dataUpdatedAt > 0 && (

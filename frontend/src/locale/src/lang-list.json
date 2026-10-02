@@ -1,11 +1,11 @@
 {
-  "locale-en-US": {
-    "defaultMessage": "English"
-  },
-  "locale-de-DE": {
-    "defaultMessage": "German"
-  },
-  "locale-fr-FR": {
-    "defaultMessage": "Français"
-  }
+	"locale-de-DE": {
+		"defaultMessage": "German"
+	},
+	"locale-en-US": {
+		"defaultMessage": "English"
+	},
+	"locale-fr-FR": {
+		"defaultMessage": "Français"
+	}
 }

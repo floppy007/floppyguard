@@ -2,11 +2,15 @@ import express from "express";
 import dnsPlugins from "../../certbot/dns-plugins.json" with { type: "json" };
 import internalCertificate from "../../internal/certificate.js";
 import errs from "../../lib/error.js";
+import limitedFileUpload from "../../lib/express/file-upload.js";
 import jwtdecode from "../../lib/express/jwt-decode.js";
 import apiValidator from "../../lib/validator/api.js";
 import validator from "../../lib/validator/index.js";
 import { debug, express as logger } from "../../logger.js";
 import { getValidationSchema } from "../../schema/index.js";
+
+// Zertifikat, Schlüssel, Zwischenzertifikat: je höchstens 1 MiB.
+const CERT_UPLOAD_LIMITS = { fileSize: 1024 * 1024, files: 4 };
 
 const router = express.Router({
 	caseSensitive: true,
@@ -154,22 +158,35 @@ router
 	 *
 	 * Validate certificates
 	 */
-	.post(async (req, res, next) => {
-		if (!req.files) {
-			res.status(400).send({ error: "No files were uploaded" });
-			return;
-		}
+	.post(
+		async (_req, res, next) => {
+			// Vor dem Annehmen der Dateien prüfen: openssl soll nicht für
+			// anonyme Anfragen laufen.
+			try {
+				await res.locals.access.can("certificates:create");
+				next();
+			} catch (err) {
+				next(err);
+			}
+		},
+		limitedFileUpload(CERT_UPLOAD_LIMITS),
+		async (req, res, next) => {
+			if (!req.files) {
+				res.status(400).send({ error: "No files were uploaded" });
+				return;
+			}
 
-		try {
-			const result = await internalCertificate.validate({
-				files: req.files,
-			});
-			res.status(200).send(result);
-		} catch (err) {
-			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
-			next(err);
-		}
-	});
+			try {
+				const result = await internalCertificate.validate({
+					files: req.files,
+				});
+				res.status(200).send(result);
+			} catch (err) {
+				debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
+				next(err);
+			}
+		},
+	);
 
 /**
  * Specific certificate
@@ -253,23 +270,34 @@ router
 	 *
 	 * Upload certificates
 	 */
-	.post(async (req, res, next) => {
-		if (!req.files) {
-			res.status(400).send({ error: "No files were uploaded" });
-			return;
-		}
+	.post(
+		async (req, res, next) => {
+			try {
+				await res.locals.access.can("certificates:update", Number.parseInt(req.params.certificate_id, 10));
+				next();
+			} catch (err) {
+				next(err);
+			}
+		},
+		limitedFileUpload(CERT_UPLOAD_LIMITS),
+		async (req, res, next) => {
+			if (!req.files) {
+				res.status(400).send({ error: "No files were uploaded" });
+				return;
+			}
 
-		try {
-			const result = await internalCertificate.upload(res.locals.access, {
-				id: Number.parseInt(req.params.certificate_id, 10),
-				files: req.files,
-			});
-			res.status(200).send(result);
-		} catch (err) {
-			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
-			next(err);
-		}
-	});
+			try {
+				const result = await internalCertificate.upload(res.locals.access, {
+					id: Number.parseInt(req.params.certificate_id, 10),
+					files: req.files,
+				});
+				res.status(200).send(result);
+			} catch (err) {
+				debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
+				next(err);
+			}
+		},
+	);
 
 /**
  * Renew LE Certs

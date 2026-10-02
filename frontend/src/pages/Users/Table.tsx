@@ -11,6 +11,7 @@ import { createColumnHelper, getCoreRowModel, useReactTable } from "@tanstack/re
 import { useMemo } from "react";
 import type { User } from "src/api/backend";
 import {
+	AuthSourceFormatter,
 	EmailFormatter,
 	EmptyData,
 	GravatarFormatter,
@@ -20,6 +21,7 @@ import {
 } from "src/components";
 import { TableLayout } from "src/components/Table/TableLayout";
 import { intl, T } from "src/locale";
+import { POPPER_FIXED } from "src/modules/Dropdown";
 
 interface Props {
 	data: User[];
@@ -89,6 +91,13 @@ export default function Table({
 					return <RolesFormatter roles={info.getValue()} />;
 				},
 			}),
+			columnHelper.accessor((row: any) => row.authSources, {
+				id: "authSources",
+				header: intl.formatMessage({ id: "column.source" }),
+				cell: (info: any) => {
+					return <AuthSourceFormatter sources={info.getValue()} />;
+				},
+			}),
 			columnHelper.accessor((row: any) => row.isDisabled, {
 				id: "isDisabled",
 				header: intl.formatMessage({ id: "column.status" }),
@@ -106,6 +115,7 @@ export default function Table({
 								className="btn dropdown-toggle btn-action btn-sm px-1"
 								data-bs-boundary="viewport"
 								data-bs-toggle="dropdown"
+								data-bs-popper-config={POPPER_FIXED}
 							>
 								<IconDotsVertical />
 							</button>

@@ -12,6 +12,7 @@ import {
 } from "src/components";
 import { TableLayout } from "src/components/Table/TableLayout";
 import { intl, T } from "src/locale";
+import { POPPER_FIXED } from "src/modules/Dropdown";
 import { MANAGE, REDIRECTION_HOSTS } from "src/modules/Permissions";
 
 interface Props {
@@ -90,6 +91,7 @@ export default function Table({ data, isFetching, onEdit, onDelete, onDisableTog
 								className="btn dropdown-toggle btn-action btn-sm px-1"
 								data-bs-boundary="viewport"
 								data-bs-toggle="dropdown"
+								data-bs-popper-config={POPPER_FIXED}
 							>
 								<IconDotsVertical />
 							</button>

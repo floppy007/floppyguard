@@ -95,6 +95,96 @@ curl -s http://127.0.0.1:3300/ | head -3
 curl -so /dev/null -w "%{http_code}" http://127.0.0.1:81/
 ```
 
+## Anmeldung über den Anbieter (SSO)
+
+Seit 2.2.1 kann man sich neben Passwort und 2FA auch über einen
+OpenID-Connect-Anbieter anmelden. Hier ist das Authentik unter
+`https://sso.comnic-it.de`.
+
+**Grundsatz: Es gibt genau eine Gruppe.** Wer in `SEC-FloppyGuard-Admins` ist,
+darf herein und ist Administrator. Fehlt die Gruppe, wird die Anmeldung
+abgewiesen. Ein Konto wird bei der ersten Anmeldung selbst angelegt - ohne
+Passwort-Datensatz, es kann sich also ausschließlich über den Anbieter anmelden.
+Eine lokal eingerichtete 2FA wird bei diesem Weg **nicht** zusätzlich abgefragt;
+die Faktoren verwaltet der Anbieter.
+
+### Konfiguration
+
+Alles steht in `/data/oidc.json` (Rechte 0600, liegt bewusst neben
+`keys.json` im dauerhaften Datenverzeichnis, nicht im Code):
+
+```json
+{
+  "enabled": true,
+  "label": "Mit COMNIC-Konto anmelden",
+  "issuer": "https://sso.comnic-it.de/application/o/floppyguard/",
+  "client_id": "...",
+  "client_secret": "...",
+  "redirect_uri": "https://proxy.comnic.de/api/oidc/callback",
+  "required_group": "SEC-FloppyGuard-Admins",
+  "groups_claim": "groups",
+  "scopes": "openid profile email",
+  "expiry": "1d"
+}
+```
+
+Die Datei wird bei jeder Anfrage über ihren Zeitstempel geprüft - eine Änderung
+greift ohne Neustart. `enabled: false` oder eine fehlende Datei blendet den
+Knopf auf der Anmeldeseite aus; das Passwortformular bleibt immer da.
+
+### Endpunkte
+
+| Endpunkt | Zweck |
+|---|---|
+| `GET /api/oidc/status` | Sagt der Anmeldeseite, ob der Knopf erscheint. Ohne Token aufrufbar. |
+| `GET /api/oidc/start` | Leitet zum Anbieter weiter (PKCE S256). Auch die Startadresse der Kachel im Anbieter-Dashboard. |
+| `GET /api/oidc/callback` | Rückweg. Muss im Anbieter als Rückleit-Adresse eingetragen sein. |
+| `POST /api/oidc/exchange` | Gibt das Ergebnis der Anmeldung genau einmal an die Anmeldeseite heraus. |
+
+### Wie das Token in den Browser kommt
+
+`/api/oidc/start` legt `state` und PKCE-Prüfwert verschlüsselt in das
+HttpOnly-Cookie `fg_oidc_flow`. Der Rückweg wird nur angenommen, wenn genau
+dieses Cookie mitkommt und der `state` passt - eine Callback-Adresse, die in
+einem anderen Browser geöffnet wird, führt also zu `sso_error=expired`.
+Nach erfolgreicher Anmeldung legt der Rückweg das Ergebnis für 60 Sekunden in
+das HttpOnly-Cookie `fg_oidc_result` und leitet auf `/login#sso=done`. Die
+Anmeldeseite holt das Token per `POST /api/oidc/exchange` ab. Ein Token in der
+Adresse wird nie übernommen, und Fehlertexte kommen nur als feste Codes.
+
+Das SSO-Token trägt die Laufzeit der Anbieter-Anmeldung (`expiry` aus
+`oidc.json`). Verlängerungen über `GET /api/tokens` reichen nie darüber hinaus;
+danach muss der Benutzer erneut über den Anbieter, der dabei die Gruppe neu
+prüft. Wer sofort gesperrt werden soll, wird in FloppyGuard deaktiviert.
+
+### Wenn es nicht geht
+
+```bash
+# Ist die Konfiguration gültig und aktiv?
+curl -s http://127.0.0.1:3300/api/oidc/status
+
+# Wird eine brauchbare Adresse zum Anbieter gebaut?
+curl -s -o /dev/null -w '%{redirect_url}\n' http://127.0.0.1:3300/api/oidc/start
+
+# Was sagt das Protokoll zur letzten Anmeldung?
+journalctl -u floppyguard-backend -n 50 --no-pager | grep OIDC
+```
+
+Die Fehler landen als `#sso_error=...` auf der Anmeldeseite:
+
+| Code | Bedeutung |
+|---|---|
+| `unconfigured` | `/data/oidc.json` fehlt, ist unvollständig oder `enabled: false`. |
+| `denied` | Der Anbieter hat abgebrochen (z. B. Zustimmung verweigert). |
+| `invalid` | Rückmeldung ohne `code`/`state`. |
+| `expired` | Anmeldung älter als zehn Minuten, in einem anderen Browser begonnen, oder Backend zwischendurch neu gestartet. |
+| `rejected` | Angemeldet, aber abgewiesen; `reason=group\|disabled\|noemail` nennt den Grund. |
+| `failed` | Technischer Fehler beim Anbieter (auch Zeitüberschreitung nach 10 s), siehe Protokoll. |
+
+Ein `state` ist genau einmal verwendbar und zehn Minuten gültig. Der Schlüssel
+für das Cookie lebt nur im Prozess; ein Neustart mitten in einer Anmeldung
+bedeutet also nur, dass sie wiederholt werden muss.
+
 ## Agent Management
 
 Agents are managed via `/wireguard` — open a link card and click "Agent".

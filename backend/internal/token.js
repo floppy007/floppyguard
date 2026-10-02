@@ -109,8 +109,31 @@ export default {
 		thisData.expiry = thisData.expiry || "1d";
 
 		if (access?.token.getUserId(0)) {
+			// Only real login sessions may be refreshed. A 2FA challenge token
+			// (scope "2fa-challenge", 5 minutes) must never be re-minted into a
+			// long-lived token.
+			if (
+				access.token.hasScope("2fa-challenge") ||
+				(!access.token.hasScope("user") && !access.token.hasScope("admin"))
+			) {
+				throw new errs.AuthError("Invalid token");
+			}
+
+			// Re-check the account: deleted or disabled users get no fresh token.
+			const userId = access.token.getUserId(0);
+			const user = await userModel
+				.query()
+				.select("id")
+				.where("id", userId)
+				.andWhere("is_deleted", 0)
+				.andWhere("is_disabled", 0)
+				.first();
+			if (!user) {
+				throw new errs.AuthError("Invalid token");
+			}
+
 			// Create a moment of the expiry expression
-			const expiry = parseDatePeriod(thisData.expiry);
+			let expiry = parseDatePeriod(thisData.expiry);
 			if (expiry === null) {
 				throw new errs.AuthError(`Invalid expiry time: ${thisData.expiry}`);
 			}
@@ -122,8 +145,25 @@ export default {
 			}
 
 			const token_attrs = {
-				id: access.token.getUserId(0),
+				id: userId,
 			};
+			let expiresIn = thisData.expiry;
+
+			// SSO sessions are bounded by the lifetime of the original IdP login.
+			// Past that point the user must go through the IdP again, which
+			// re-checks the required group.
+			const ssoUntil = Number(access.token.get("attrs")?.sso_exp);
+			if (ssoUntil) {
+				const ssoUntilMs = ssoUntil * 1000;
+				if (Date.now() >= ssoUntilMs - 5000) {
+					throw new errs.AuthError("SSO session expired, please sign in again");
+				}
+				token_attrs.sso_exp = ssoUntil;
+				if (expiry.getTime() > ssoUntilMs) {
+					expiry = new Date(ssoUntilMs);
+					expiresIn = Math.max(1, Math.floor((ssoUntilMs - Date.now()) / 1000));
+				}
+			}
 
 			// Only admins can request otherwise scoped tokens
 			let scope = access.token.get("scope");
@@ -139,7 +179,7 @@ export default {
 				iss: "api",
 				scope: scope,
 				attrs: token_attrs,
-				expiresIn: thisData.expiry,
+				expiresIn,
 			});
 
 			return {

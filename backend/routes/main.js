@@ -7,6 +7,8 @@ import agentRoutes from "./agent.js";
 import auditLogRoutes from "./audit-log.js";
 import designRoutes from "./design.js";
 import accessListsRoutes from "./nginx/access_lists.js";
+import oidcRoutes from "./oidc.js";
+import oidcSettingsRoutes from "./oidc-settings.js";
 import certificatesHostsRoutes from "./nginx/certificates.js";
 import deadHostsRoutes from "./nginx/dead_hosts.js";
 import proxyHostsRoutes from "./nginx/proxy_hosts.js";
@@ -50,6 +52,8 @@ router.get(["", "/"], async (_, res /*, next*/) => {
 
 router.use("/schema", schemaRoutes);
 router.use("/tokens", tokensRoutes);
+router.use("/oidc/settings", oidcSettingsRoutes);
+router.use("/oidc", oidcRoutes);
 router.use("/users", usersRoutes);
 router.use("/audit-log", auditLogRoutes);
 router.use("/reports", reportsRoutes);

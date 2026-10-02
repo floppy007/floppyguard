@@ -1,10 +1,44 @@
 import _ from "lodash";
+import errs from "../lib/error.js";
 import { castJsonIfNeed } from "../lib/helpers.js";
+import certificateModel from "../models/certificate.js";
 import deadHostModel from "../models/dead_host.js";
 import proxyHostModel from "../models/proxy_host.js";
 import redirectionHostModel from "../models/redirection_host.js";
 
 const internalHost = {
+	/**
+	 * Prüft, ob der Anfragende das Zertifikat sehen (und damit verwenden) darf:
+	 * Admins und Benutzer mit Sichtbarkeit "all" jedes, alle anderen nur
+	 * eigene. Sonst könnte ein Benutzer fremde (z. B. Wildcard-)Zertifikate
+	 * und deren DNS-Zugangsdaten an seine Hosts hängen.
+	 *
+	 * @param {Access} access
+	 * @param {*}      certificateId
+	 */
+	assertCertificateAccess: async (access, certificateId) => {
+		if (certificateId === undefined || certificateId === null || certificateId === 0 || certificateId === "new") {
+			return;
+		}
+		const id = Number(certificateId);
+		if (!Number.isInteger(id) || id <= 0) {
+			throw new errs.ValidationError("Invalid certificate");
+		}
+		const accessData = await access.can("certificates:get", id);
+		if (accessData === true) {
+			// interner Zugriff
+			return;
+		}
+		const query = certificateModel.query().where("is_deleted", 0).andWhere("id", id).first();
+		if (accessData?.permission_visibility !== "all") {
+			query.andWhere("owner_user_id", access.token.getUserId(1));
+		}
+		const row = await query;
+		if (!row?.id) {
+			throw new errs.ValidationError("Certificate not found or not accessible");
+		}
+	},
+
 	/**
 	 * Makes sure that the ssl_* and hsts_* fields play nicely together.
 	 * ie: if there is no cert, then force_ssl is off.

@@ -13,6 +13,7 @@ import {
 } from "src/components";
 import { TableLayout } from "src/components/Table/TableLayout";
 import { intl, T } from "src/locale";
+import { POPPER_FIXED } from "src/modules/Dropdown";
 import { MANAGE, PROXY_HOSTS } from "src/modules/Permissions";
 
 interface Props {
@@ -48,7 +49,13 @@ export default function Table({ data, isFetching, onEdit, onDelete, onDisableTog
 						<span className="d-inline-flex align-items-center gap-2">
 							<DomainsFormatter domains={value.domainNames} createdOn={value.createdOn} />
 							{cloudflareDns?.enabled ? (
-								<span title={cloudflareDns.proxied ? "Cloudflare proxy enabled" : "Cloudflare DNS sync enabled"}>
+								<span
+									title={
+										cloudflareDns.proxied
+											? "Cloudflare proxy enabled"
+											: "Cloudflare DNS sync enabled"
+									}
+								>
 									<IconBrandCloudflare
 										size={19}
 										className={cloudflareDns.proxied ? "text-orange" : "text-green"}
@@ -98,6 +105,7 @@ export default function Table({ data, isFetching, onEdit, onDelete, onDisableTog
 								className="btn dropdown-toggle btn-action btn-sm px-1"
 								data-bs-boundary="viewport"
 								data-bs-toggle="dropdown"
+								data-bs-popper-config={POPPER_FIXED}
 							>
 								<IconDotsVertical />
 							</button>

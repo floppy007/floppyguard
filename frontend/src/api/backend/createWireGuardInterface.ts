@@ -20,5 +20,9 @@ export async function createWireGuardInterface(
 ): Promise<CreateWireGuardInterfaceResponse> {
 	// rawBody: the backend route reads camelCase keys (listenPort),
 	// so the default decamelizeKeys() conversion would silently drop them.
-	return api.post({ url: "wireguard/create-interface", data, rawBody: true }) as Promise<CreateWireGuardInterfaceResponse>;
+	return api.post({
+		url: "wireguard/create-interface",
+		data,
+		rawBody: true,
+	}) as Promise<CreateWireGuardInterfaceResponse>;
 }

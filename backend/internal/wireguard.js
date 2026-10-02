@@ -1066,7 +1066,9 @@ async function _generatePeerConfigUncached(linkId) {
 	if (link.importedNetworks.length > 0) {
 		allowedIps = link.importedNetworks;
 	} else {
-		const otherLinks = (status.links || []).filter((l) => l.id !== linkId && l.interfaceName === link.interfaceName);
+		const otherLinks = (status.links || []).filter(
+			(l) => l.id !== linkId && l.interfaceName === link.interfaceName,
+		);
 		const otherNets = otherLinks.flatMap((l) => l.exportedNetworks || []);
 		const tunnelSubnets = iface?.addresses ?? [];
 		allowedIps = [...new Set([...tunnelSubnets, ...otherNets])];
@@ -1474,10 +1476,18 @@ function _rewriteHubConf(lines, ifaceName, peerUpdates, allRouteNets, masquerade
 	// If no PostUp/PostDown existed in the original config, inject them before the first [Peer]
 	const hasPostUp = lines.some((l) => l.trim().startsWith("PostUp"));
 	if (!hasPostUp && (allRouteNets.size > 0 || masqueradeIfaces.length > 0)) {
-		const routeUpCmds = [...allRouteNets].sort().map((net) => `ip route add ${net} dev ${ifaceName} 2>/dev/null || true`);
-		const routeDownCmds = [...allRouteNets].sort().map((net) => `ip route del ${net} dev ${ifaceName} 2>/dev/null || true`);
-		const masqUpCmds = masqueradeIfaces.map((nic) => `iptables -t nat -A POSTROUTING -o ${nic.name} -s ${nic.cidr} -j MASQUERADE`);
-		const masqDownCmds = masqueradeIfaces.map((nic) => `iptables -t nat -D POSTROUTING -o ${nic.name} -s ${nic.cidr} -j MASQUERADE 2>/dev/null || true`);
+		const routeUpCmds = [...allRouteNets]
+			.sort()
+			.map((net) => `ip route add ${net} dev ${ifaceName} 2>/dev/null || true`);
+		const routeDownCmds = [...allRouteNets]
+			.sort()
+			.map((net) => `ip route del ${net} dev ${ifaceName} 2>/dev/null || true`);
+		const masqUpCmds = masqueradeIfaces.map(
+			(nic) => `iptables -t nat -A POSTROUTING -o ${nic.name} -s ${nic.cidr} -j MASQUERADE`,
+		);
+		const masqDownCmds = masqueradeIfaces.map(
+			(nic) => `iptables -t nat -D POSTROUTING -o ${nic.name} -s ${nic.cidr} -j MASQUERADE 2>/dev/null || true`,
+		);
 		const postUp = [...routeUpCmds, ...masqUpCmds].join("; ");
 		const postDown = [...routeDownCmds, ...masqDownCmds].join("; ");
 		// Insert before the first [Peer] line
@@ -1594,7 +1604,9 @@ async function deletePeer(linkId) {
 	try {
 		await execFileAsync(wgBin, ["set", ifaceName, "peer", publicKey, "remove"]);
 	} catch (err) {
-		logger.debug(`Peer ${publicKey.slice(0, 8)}… not active on ${ifaceName}, skipping live removal: ${err.message}`);
+		logger.debug(
+			`Peer ${publicKey.slice(0, 8)}… not active on ${ifaceName}, skipping live removal: ${err.message}`,
+		);
 	}
 
 	// ── Remove from config file (locked RMW — serialize with createPeer's locked
@@ -1983,30 +1995,74 @@ const _bwHistory = new Map();
 /** Map<peerKey, {ts: number, rxBytes: number, txBytes: number}> — previous raw counters */
 let _bwPrev = null;
 
+/**
+ * Start of the bucket containing `nowMs`, in epoch seconds. Daily buckets are
+ * aligned to local midnight of the hub (process TZ), not UTC midnight, so a
+ * "day" in the 12-month chart is a calendar day for the people reading it.
+ */
+function bandwidthBucketStart(bucket, nowMs) {
+	if (bucket.resolution === "1d") {
+		const d = new Date(nowMs);
+		d.setHours(0, 0, 0, 0);
+		return Math.floor(d.getTime() / 1000);
+	}
+	return Math.floor(nowMs / 1000 / bucket.seconds) * bucket.seconds;
+}
+
+/**
+ * Byte delta between two counter readings. WireGuard counters restart at 0
+ * when the interface/peer is recreated; in that case everything counted since
+ * the reset (= the current value) is the delta, not 0.
+ */
+function counterDelta(curr, prev) {
+	return curr >= prev ? curr - prev : curr;
+}
+
 async function persistBandwidthDelta(peerKey, now, rxBytes, txBytes) {
 	const database = db();
+	const table = "wireguard_bandwidth_history";
 	for (const bucket of BW_BUCKETS) {
-		const bucketStart = Math.floor(now / 1000 / bucket.seconds) * bucket.seconds;
-		const where = { peer_key: peerKey, resolution: bucket.resolution, bucket_start: bucketStart };
-		const current = await database("wireguard_bandwidth_history").where(where).first();
-		if (current) {
-			await database("wireguard_bandwidth_history").where({ id: current.id }).update({
-				rx_bytes: Number(current.rx_bytes) + rxBytes,
-				tx_bytes: Number(current.tx_bytes) + txBytes,
-				samples: Number(current.samples) + 1,
+		const bucketStart = bandwidthBucketStart(bucket, now);
+		// Atomic upsert on UNIQUE(peer_key, resolution, bucket_start): no
+		// read-modify-write, so overlapping writers cannot lose increments or
+		// create duplicate bucket rows.
+		await database(table)
+			.insert({
+				peer_key: peerKey,
+				resolution: bucket.resolution,
+				bucket_start: bucketStart,
+				rx_bytes: rxBytes,
+				tx_bytes: txBytes,
+				samples: 1,
+			})
+			.onConflict(["peer_key", "resolution", "bucket_start"])
+			.merge({
+				rx_bytes: database.raw("?? + ?", [`${table}.rx_bytes`, rxBytes]),
+				tx_bytes: database.raw("?? + ?", [`${table}.tx_bytes`, txBytes]),
+				samples: database.raw("?? + 1", [`${table}.samples`]),
 			});
-		} else {
-			await database("wireguard_bandwidth_history").insert({ ...where, rx_bytes: rxBytes, tx_bytes: txBytes, samples: 1 });
-		}
 	}
 }
 
 async function pruneBandwidthHistory(now) {
 	const database = db();
-	await Promise.all(BW_BUCKETS.map((bucket) => database("wireguard_bandwidth_history").where("resolution", bucket.resolution).where("bucket_start", "<", Math.floor(now / 1000) - bucket.retention).delete()));
+	await Promise.all(
+		BW_BUCKETS.map((bucket) =>
+			database("wireguard_bandwidth_history")
+				.where("resolution", bucket.resolution)
+				.where("bucket_start", "<", Math.floor(now / 1000) - bucket.retention)
+				.delete(),
+		),
+	);
 }
 
+let _bwPolling = false;
+
 async function _pollBandwidth() {
+	// setInterval does not wait for an async poll; a slow DB must not lead to
+	// two polls computing deltas from the same baseline.
+	if (_bwPolling) return;
+	_bwPolling = true;
 	try {
 		const now = Date.now();
 		const dump = parseDump(await getDump());
@@ -2018,39 +2074,82 @@ async function _pollBandwidth() {
 				snap.set(key, { ts: now, rxBytes: peer.rxBytes, txBytes: peer.txBytes });
 			}
 		}
-		if (_bwPrev) {
-			const dt = (now - _bwPrev.get("__ts__")) / 1000 || BW_POLL_INTERVAL / 1000;
-			for (const [key, curr] of snap) {
-				if (key === "__ts__") continue;
-				const prev = _bwPrev.get(key);
-				if (!prev) continue;
-				const rxDelta = Math.max(0, curr.rxBytes - prev.rxBytes);
-				const txDelta = Math.max(0, curr.txBytes - prev.txBytes);
-				const rx = rxDelta / dt;
-				const tx = txDelta / dt;
-				const history = _bwHistory.get(key) ?? [];
-				history.push({ ts: now, rx: Math.round(rx), tx: Math.round(tx) });
-				if (history.length > BW_HISTORY_SIZE) history.shift();
-				_bwHistory.set(key, history);
-				await persistBandwidthDelta(key, now, rxDelta, txDelta);
-			}
-			if (Math.floor(now / 1000) % 3600 < BW_POLL_INTERVAL / 1000) await pruneBandwidthHistory(now);
+		// Peers that are gone from the dump (deleted, key rotated, interface
+		// removed) must not keep showing their last rate as live traffic.
+		for (const key of _bwHistory.keys()) {
+			if (!snap.has(key)) _bwHistory.delete(key);
 		}
+		const prevSnap = _bwPrev;
 		snap.set("__ts__", now);
+		// Advance the baseline BEFORE persisting: a DB error must lose at most
+		// this one interval, never re-count it (or a whole outage) later.
 		_bwPrev = snap;
+		if (!prevSnap) return;
+
+		const dt = (now - prevSnap.get("__ts__")) / 1000 || BW_POLL_INTERVAL / 1000;
+		const deltas = [];
+		for (const [key, curr] of snap) {
+			if (key === "__ts__") continue;
+			const prev = prevSnap.get(key);
+			if (!prev) continue;
+			const rxDelta = counterDelta(curr.rxBytes, prev.rxBytes);
+			const txDelta = counterDelta(curr.txBytes, prev.txBytes);
+			const history = _bwHistory.get(key) ?? [];
+			history.push({ ts: now, rx: Math.round(rxDelta / dt), tx: Math.round(txDelta / dt) });
+			if (history.length > BW_HISTORY_SIZE) history.shift();
+			_bwHistory.set(key, history);
+			deltas.push([key, rxDelta, txDelta]);
+		}
+
+		let persistFailures = 0;
+		let lastPersistError = "";
+		for (const [key, rxDelta, txDelta] of deltas) {
+			try {
+				await persistBandwidthDelta(key, now, rxDelta, txDelta);
+			} catch (err) {
+				persistFailures++;
+				lastPersistError = err.message;
+				logger.debug(`Bandwidth persist for ${key} failed: ${err.message}`);
+			}
+		}
+		if (persistFailures) {
+			// Visible at the default log level: a persistent failure (e.g. a full
+			// table or an exhausted id range) must not stop the history silently.
+			logger.warn(`Traffic history: ${persistFailures} of ${deltas.length} writes failed: ${lastPersistError}`);
+		}
+		if (Math.floor(now / 1000) % 3600 < BW_POLL_INTERVAL / 1000) {
+			await pruneBandwidthHistory(now).catch((err) => logger.debug(`Bandwidth prune failed: ${err.message}`));
+		}
 	} catch (err) {
 		logger.debug(`Bandwidth poll error: ${err.message}`);
+	} finally {
+		_bwPolling = false;
 	}
 }
 
-// Lazy-initialize bandwidth polling on first getBandwidth() or getStatus() call,
-// not at module import — avoids unnecessary `wg show` calls when WireGuard is not installed.
+// Started at backend boot (index.js -> startBandwidthPolling) so the persisted
+// history has no gaps after a restart, and lazily on the first
+// getBandwidth()/getStatus() call as a fallback.
 let _bwTimer = null;
 function _ensureBandwidthPolling() {
 	if (_bwTimer) return;
 	_pollBandwidth();
 	_bwTimer = setInterval(_pollBandwidth, BW_POLL_INTERVAL);
 	if (typeof _bwTimer.unref === "function") _bwTimer.unref();
+}
+
+/**
+ * Starts background bandwidth polling if WireGuard is set up on this host
+ * (config directory present). Safe to call more than once.
+ */
+async function startBandwidthPolling() {
+	try {
+		await fs.access(getWireGuardConfDir());
+	} catch {
+		return false;
+	}
+	_ensureBandwidthPolling();
+	return true;
 }
 
 /**
@@ -2063,12 +2162,26 @@ async function getBandwidth(range = "live") {
 	if (["24h", "30d", "12m"].includes(range)) {
 		const resolution = range === "24h" ? "1m" : range === "30d" ? "15m" : "1d";
 		const seconds = range === "24h" ? 60 : range === "30d" ? 900 : 86400;
-		const since = Math.floor(Date.now() / 1000) - (range === "24h" ? 86400 : range === "30d" ? 2592000 : 31536000);
-		const rows = await db()("wireguard_bandwidth_history").where({ resolution }).where("bucket_start", ">=", since).orderBy("bucket_start", "asc");
+		const nowSec = Math.floor(Date.now() / 1000);
+		const since = nowSec - (range === "24h" ? 86400 : range === "30d" ? 2592000 : 31536000);
+		const rows = await db()("wireguard_bandwidth_history")
+			.where({ resolution })
+			.where("bucket_start", ">=", since)
+			.orderBy("bucket_start", "asc");
 		const peers = new Map();
 		for (const row of rows) {
-			const peer = peers.get(row.peer_key) ?? { id: row.peer_key, name: metadataStore.links?.[row.peer_key]?.name || row.peer_key, history: [] };
-			peer.history.push({ ts: Number(row.bucket_start) * 1000, rx: Math.round(Number(row.rx_bytes) / seconds), tx: Math.round(Number(row.tx_bytes) / seconds) });
+			const peer = peers.get(row.peer_key) ?? {
+				id: row.peer_key,
+				name: metadataStore.links?.[row.peer_key]?.name || row.peer_key,
+				history: [],
+			};
+			// The bucket that is still open only covers the time elapsed so far.
+			const covered = Math.min(seconds, Math.max(1, nowSec - Number(row.bucket_start)));
+			peer.history.push({
+				ts: Number(row.bucket_start) * 1000,
+				rx: Math.round(Number(row.rx_bytes) / covered),
+				tx: Math.round(Number(row.tx_bytes) / covered),
+			});
 			peers.set(row.peer_key, peer);
 		}
 		return [...peers.values()];
@@ -2108,6 +2221,8 @@ function checkAllowedIPsConflicts(proposedNets, existingLinks) {
 
 export {
 	_buildPeerUpdates,
+	bandwidthBucketStart,
+	counterDelta,
 	canonicalizeIpv4Network,
 	configuredHubHost,
 	isValidInterfaceAddress,
@@ -2349,209 +2464,211 @@ async function createPeer({ name, type, dns, fullTunnel, platform, importedNetwo
 		throw new Error("Invalid name — control characters (including newlines) are not allowed");
 	}
 	return withWriteLock(async () => {
-	const status = await getStatus();
-	if (!status.available) throw new Error("WireGuard is not available");
+		const status = await getStatus();
+		if (!status.available) throw new Error("WireGuard is not available");
 
-	const iface = status.interfaces.find((i) => i.name === ifaceName);
-	if (!iface) throw new Error(`Interface ${ifaceName} not found`);
+		const iface = status.interfaces.find((i) => i.name === ifaceName);
+		if (!iface) throw new Error(`Interface ${ifaceName} not found`);
 
-	// ── Find next free tunnel IP ──
-	// Compute the host range from the hub's ACTUAL prefix instead of assuming /24.
-	// Hardcoding /24 (scan .2-.254 of the first three octets) handed out addresses
-	// OUTSIDE a longer prefix's subnet (e.g. 10.10.0.130/25, past the /25 broadcast),
-	// which the hub — running `Table = off` with only the connected tunnel route —
-	// cannot reach, and wrongly capped shorter prefixes at 253 hosts.
-	const hubAddr = (iface.addresses[0] || "10.10.0.1/24").split("/");
-	const hubIp = hubAddr[0];
-	const mask = hubAddr[1] || "24";
-	const prefix = Number.parseInt(mask, 10);
-	const octets = hubIp.split(".").map(Number);
-	if (
-		octets.length !== 4 ||
-		octets.some((o) => !Number.isInteger(o) || o < 0 || o > 255) ||
-		!Number.isInteger(prefix) ||
-		prefix < 0 ||
-		prefix > 32
-	) {
-		throw new Error(`Interface ${ifaceName} has an invalid address: ${iface.addresses[0]}`);
-	}
-	const hubInt = ((octets[0] << 24) >>> 0) + (octets[1] << 16) + (octets[2] << 8) + octets[3];
-	const maskBits = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
-	const network = (hubInt & maskBits) >>> 0;
-	const broadcast = (network | (~maskBits >>> 0)) >>> 0;
-	const intToIp = (n) => `${(n >>> 24) & 0xff}.${(n >>> 16) & 0xff}.${(n >>> 8) & 0xff}.${n & 0xff}`;
-	const usedIPs = new Set();
-	// Hub's own IP
-	usedIPs.add(hubIp);
-	// All existing peer tunnel IPs
-	for (const link of status.links) {
-		for (const addr of link.tunnelAddresses) {
-			usedIPs.add(addr.replace(/\/\d+$/, ""));
+		// ── Find next free tunnel IP ──
+		// Compute the host range from the hub's ACTUAL prefix instead of assuming /24.
+		// Hardcoding /24 (scan .2-.254 of the first three octets) handed out addresses
+		// OUTSIDE a longer prefix's subnet (e.g. 10.10.0.130/25, past the /25 broadcast),
+		// which the hub — running `Table = off` with only the connected tunnel route —
+		// cannot reach, and wrongly capped shorter prefixes at 253 hosts.
+		const hubAddr = (iface.addresses[0] || "10.10.0.1/24").split("/");
+		const hubIp = hubAddr[0];
+		const mask = hubAddr[1] || "24";
+		const prefix = Number.parseInt(mask, 10);
+		const octets = hubIp.split(".").map(Number);
+		if (
+			octets.length !== 4 ||
+			octets.some((o) => !Number.isInteger(o) || o < 0 || o > 255) ||
+			!Number.isInteger(prefix) ||
+			prefix < 0 ||
+			prefix > 32
+		) {
+			throw new Error(`Interface ${ifaceName} has an invalid address: ${iface.addresses[0]}`);
 		}
-	}
-	let nextIP = null;
-	// Iterate host addresses strictly inside the subnet, excluding network + broadcast.
-	for (let host = network + 1; host < broadcast; host++) {
-		const candidate = intToIp(host >>> 0);
-		if (usedIPs.has(candidate)) continue;
-		nextIP = candidate;
-		break;
-	}
-	if (!nextIP) throw new Error("No free tunnel IPs available in subnet");
-
-	const tunnelAddress = `${nextIP}/${mask}`;
-	const peerAllowedIP = `${nextIP}/32`;
-
-	// ── Generate keypair ──
-	const wgBin = getWireGuardBin();
-	const { stdout: privKeyRaw } = await execFileAsync(wgBin, ["genkey"]);
-	const privateKey = privKeyRaw.trim();
-	const publicKey = derivePublicKey(privateKey);
-
-	// ── Compute AllowedIPs for hub side ──
-	// Client peers only get their tunnel IP on the hub side — importedNetworks
-	// define what the client can reach (downloaded config), not hub routing.
-	const hubAllowedIPs = [peerAllowedIP];
-	const importedNets = sanitizeNetworkArray(importedNetworks);
-	const isClientType = (type || "client") === "client";
-	if (importedNets.length && !isClientType) hubAllowedIPs.push(...importedNets);
-
-	// ── AllowedIPs conflict check ──
-	// Skip for client/road-warrior links: their importedNetworks are a REACH list
-	// (which existing sites they want to talk to), deliberately NOT added to
-	// hubAllowedIPs (see the !isClientType guard above), so there is no cryptokey-routing
-	// conflict. The other conflict checks (routes/wireguard.js /metadata and
-	// wireguard-plan.js) likewise exempt clients; createPeer must too or selecting any
-	// existing site to reach falsely throws "AllowedIPs conflict".
-	if (!isClientType) {
-		const conflicts = checkAllowedIPsConflicts(importedNets, status.links);
-		if (conflicts.length > 0) {
-			const details = conflicts.map((c) => `${c.subnet} already claimed by ${c.peer}`).join("; ");
-			throw new Error(`AllowedIPs conflict: ${details}`);
+		const hubInt = ((octets[0] << 24) >>> 0) + (octets[1] << 16) + (octets[2] << 8) + octets[3];
+		const maskBits = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
+		const network = (hubInt & maskBits) >>> 0;
+		const broadcast = (network | (~maskBits >>> 0)) >>> 0;
+		const intToIp = (n) => `${(n >>> 24) & 0xff}.${(n >>> 16) & 0xff}.${(n >>> 8) & 0xff}.${n & 0xff}`;
+		const usedIPs = new Set();
+		// Hub's own IP
+		usedIPs.add(hubIp);
+		// All existing peer tunnel IPs
+		for (const link of status.links) {
+			for (const addr of link.tunnelAddresses) {
+				usedIPs.add(addr.replace(/\/\d+$/, ""));
+			}
 		}
-	}
+		let nextIP = null;
+		// Iterate host addresses strictly inside the subnet, excluding network + broadcast.
+		for (let host = network + 1; host < broadcast; host++) {
+			const candidate = intToIp(host >>> 0);
+			if (usedIPs.has(candidate)) continue;
+			nextIP = candidate;
+			break;
+		}
+		if (!nextIP) throw new Error("No free tunnel IPs available in subnet");
 
-	// ── Reject duplicate link names BEFORE any conf/live side effects. Two links
-	// sharing a name make every bound agent resolve to ambiguous-link-name in
-	// syncAgentConfigs and silently freeze BOTH. The update paths already guard this
-	// via assertUniqueLinkName; createPeer must too. ──
-	const desiredName = name ? String(name) : undefined;
-	assertUniqueLinkName(
-		{ links: Object.fromEntries((status.links || []).map((l) => [l.id, l])) },
-		`${ifaceName}:${publicKey}`,
-		desiredName,
-	);
+		const tunnelAddress = `${nextIP}/${mask}`;
+		const peerAllowedIP = `${nextIP}/32`;
 
-	// ── Write config file FIRST (safe to fail without side effects) ──
-	const confPath = path.join(getWireGuardConfDir(), `${ifaceName}.conf`);
-	const peerBlock = [
-		"",
-		`# ${stripLinkNameControlChars(name || "new-peer")}`,
-		"[Peer]",
-		`PublicKey = ${publicKey}`,
-		`AllowedIPs = ${hubAllowedIPs.join(", ")}`,
-		"",
-	].join("\n");
-	await fs.appendFile(confPath, peerBlock, "utf8");
+		// ── Generate keypair ──
+		const wgBin = getWireGuardBin();
+		const { stdout: privKeyRaw } = await execFileAsync(wgBin, ["genkey"]);
+		const privateKey = privKeyRaw.trim();
+		const publicKey = derivePublicKey(privateKey);
 
-	// ── Add peer to live interface (rollback conf on failure) ──
-	try {
-		await execFileAsync(wgBin, ["set", ifaceName, "peer", publicKey, "allowed-ips", hubAllowedIPs.join(",")]);
-	} catch (err) {
-		// Rollback: remove the peer block we just appended
-		const conf = await fs.readFile(confPath, "utf8");
-		const cleaned = conf.replace(peerBlock, "");
-		await fs.writeFile(confPath, cleaned, "utf8");
-		throw new Error(`Failed to add peer to live interface: ${err.message}`);
-	}
+		// ── Compute AllowedIPs for hub side ──
+		// Client peers only get their tunnel IP on the hub side — importedNetworks
+		// define what the client can reach (downloaded config), not hub routing.
+		const hubAllowedIPs = [peerAllowedIP];
+		const importedNets = sanitizeNetworkArray(importedNetworks);
+		const isClientType = (type || "client") === "client";
+		if (importedNets.length && !isClientType) hubAllowedIPs.push(...importedNets);
 
-	// ── Write metadata ──
-	const linkId = `${ifaceName}:${publicKey}`;
-	const store = await readMetadataStore();
-	const ifaceMeta = store.interfaces[ifaceName] || {};
-	store.links[linkId] = sanitizeLinkMetadataPatch({
-		name: name || undefined,
-		type: type || "client",
-		importedNetworks: importedNets,
-		dns: (dns || []).filter(Boolean),
-		fullTunnel: Boolean(fullTunnel),
-		platform: platform || undefined,
-	});
-	await writeMetadataStore(store);
+		// ── AllowedIPs conflict check ──
+		// Skip for client/road-warrior links: their importedNetworks are a REACH list
+		// (which existing sites they want to talk to), deliberately NOT added to
+		// hubAllowedIPs (see the !isClientType guard above), so there is no cryptokey-routing
+		// conflict. The other conflict checks (routes/wireguard.js /metadata and
+		// wireguard-plan.js) likewise exempt clients; createPeer must too or selecting any
+		// existing site to reach falsely throws "AllowedIPs conflict".
+		if (!isClientType) {
+			const conflicts = checkAllowedIPsConflicts(importedNets, status.links);
+			if (conflicts.length > 0) {
+				const details = conflicts.map((c) => `${c.subnet} already claimed by ${c.peer}`).join("; ");
+				throw new Error(`AllowedIPs conflict: ${details}`);
+			}
+		}
 
-	// ── Site peers: reconcile the hub conf so the new site's networks get a kernel
-	// route + persisted PostUp `ip route add`. createPeer only set cryptokey routing
-	// (wg set allowed-ips); with `Table = off` the hub has no kernel route to the new
-	// LAN until syncHubConf runs, and without the PostUp rewrite the route is dropped
-	// on every wg-quick restart. We already hold the write lock, so call the unlocked
-	// core directly (the wrapper would deadlock). No-op for client peers. ──
-	if (importedNets.length && !isClientType) {
+		// ── Reject duplicate link names BEFORE any conf/live side effects. Two links
+		// sharing a name make every bound agent resolve to ambiguous-link-name in
+		// syncAgentConfigs and silently freeze BOTH. The update paths already guard this
+		// via assertUniqueLinkName; createPeer must too. ──
+		const desiredName = name ? String(name) : undefined;
+		assertUniqueLinkName(
+			{ links: Object.fromEntries((status.links || []).map((l) => [l.id, l])) },
+			`${ifaceName}:${publicKey}`,
+			desiredName,
+		);
+
+		// ── Write config file FIRST (safe to fail without side effects) ──
+		const confPath = path.join(getWireGuardConfDir(), `${ifaceName}.conf`);
+		const peerBlock = [
+			"",
+			`# ${stripLinkNameControlChars(name || "new-peer")}`,
+			"[Peer]",
+			`PublicKey = ${publicKey}`,
+			`AllowedIPs = ${hubAllowedIPs.join(", ")}`,
+			"",
+		].join("\n");
+		await fs.appendFile(confPath, peerBlock, "utf8");
+
+		// ── Add peer to live interface (rollback conf on failure) ──
 		try {
-			await _syncHubConfCore(store, ifaceName);
+			await execFileAsync(wgBin, ["set", ifaceName, "peer", publicKey, "allowed-ips", hubAllowedIPs.join(",")]);
 		} catch (err) {
-			logger.error(`Hub conf sync after createPeer (${linkId}) failed: ${err.message}`);
+			// Rollback: remove the peer block we just appended
+			const conf = await fs.readFile(confPath, "utf8");
+			const cleaned = conf.replace(peerBlock, "");
+			await fs.writeFile(confPath, cleaned, "utf8");
+			throw new Error(`Failed to add peer to live interface: ${err.message}`);
 		}
-	}
 
-	// Resync existing agents so a newly-added site's networks reach them on the next
-	// poll, not only at the 5-min reconciler. No-op for client peers (no site nets).
-	try {
-		const { default: internalAgent } = await import("./agent.js");
-		await internalAgent.syncAgentConfigs(store);
-	} catch (err) {
-		logger.error(`Agent config sync after createPeer (${linkId}) failed: ${err.message}`);
-	}
+		// ── Write metadata ──
+		const linkId = `${ifaceName}:${publicKey}`;
+		const store = await readMetadataStore();
+		const ifaceMeta = store.interfaces[ifaceName] || {};
+		store.links[linkId] = sanitizeLinkMetadataPatch({
+			name: name || undefined,
+			type: type || "client",
+			importedNetworks: importedNets,
+			dns: (dns || []).filter(Boolean),
+			fullTunnel: Boolean(fullTunnel),
+			platform: platform || undefined,
+		});
+		await writeMetadataStore(store);
 
-	// ── Build client config ──
-	const hubPublicKey = iface.publicKey;
-	const hubListenPort = iface.listenPort || 51820;
-	const hubHost = resolveHubHost();
+		// ── Site peers: reconcile the hub conf so the new site's networks get a kernel
+		// route + persisted PostUp `ip route add`. createPeer only set cryptokey routing
+		// (wg set allowed-ips); with `Table = off` the hub has no kernel route to the new
+		// LAN until syncHubConf runs, and without the PostUp rewrite the route is dropped
+		// on every wg-quick restart. We already hold the write lock, so call the unlocked
+		// core directly (the wrapper would deadlock). No-op for client peers. ──
+		if (importedNets.length && !isClientType) {
+			try {
+				await _syncHubConfCore(store, ifaceName);
+			} catch (err) {
+				logger.error(`Hub conf sync after createPeer (${linkId}) failed: ${err.message}`);
+			}
+		}
 
-	// DNS: link > interface > env
-	const dnsServers = (dns || []).length
-		? dns
-		: ifaceMeta.dns?.length
-			? ifaceMeta.dns
-			: process.env.WG_DNS
-				? process.env.WG_DNS.split(",").map((s) => s.trim())
-				: [];
+		// Resync existing agents so a newly-added site's networks reach them on the next
+		// poll, not only at the 5-min reconciler. No-op for client peers (no site nets).
+		try {
+			const { default: internalAgent } = await import("./agent.js");
+			await internalAgent.syncAgentConfigs(store);
+		} catch (err) {
+			logger.error(`Agent config sync after createPeer (${linkId}) failed: ${err.message}`);
+		}
 
-	const isFullTunnel = Boolean(fullTunnel);
-	const isMobilePlatform = platform === "mobile";
-	const fullTunnelIPs = isMobilePlatform ? ["0.0.0.0/0", "::/0"] : ["0.0.0.0/1", "128.0.0.0/1", "::/1", "8000::/1"];
-	// For road warriors (no importedNetworks), include all networks exported by other peers
-	let clientBaseIPs;
-	if (importedNets.length) {
-		clientBaseIPs = importedNets;
-	} else {
-		const otherLinks = (status.links || []).filter((l) => l.interfaceName === ifaceName);
-		const otherNets = otherLinks.flatMap((l) => l.exportedNetworks || []);
-		clientBaseIPs = [...new Set([...(iface.addresses || []), ...otherNets])];
-	}
-	const clientAllowedIPs = isFullTunnel ? fullTunnelIPs : clientBaseIPs;
+		// ── Build client config ──
+		const hubPublicKey = iface.publicKey;
+		const hubListenPort = iface.listenPort || 51820;
+		const hubHost = resolveHubHost();
 
-	const configLines = [
-		`# WireGuard peer config — ${name || linkId}`,
-		"# Generated by FloppyGuard",
-		"",
-		"[Interface]",
-		`PrivateKey = ${privateKey}`,
-		`Address = ${tunnelAddress}`,
-	];
-	if (dnsServers.length) configLines.push(`DNS = ${dnsServers.join(", ")}`);
-	configLines.push(
-		"",
-		"[Peer]",
-		`PublicKey = ${hubPublicKey}`,
-		`Endpoint = ${hubHost}:${hubListenPort}`,
-		`AllowedIPs = ${clientAllowedIPs.join(", ") || "0.0.0.0/0"}`,
-		"PersistentKeepalive = 25",
-	);
+		// DNS: link > interface > env
+		const dnsServers = (dns || []).length
+			? dns
+			: ifaceMeta.dns?.length
+				? ifaceMeta.dns
+				: process.env.WG_DNS
+					? process.env.WG_DNS.split(",").map((s) => s.trim())
+					: [];
 
-	const filename = `${name || "peer"}.conf`.replace(/[^\w.-]/g, "_");
-	const content = `${configLines.join("\n")}\n`;
+		const isFullTunnel = Boolean(fullTunnel);
+		const isMobilePlatform = platform === "mobile";
+		const fullTunnelIPs = isMobilePlatform
+			? ["0.0.0.0/0", "::/0"]
+			: ["0.0.0.0/1", "128.0.0.0/1", "::/1", "8000::/1"];
+		// For road warriors (no importedNetworks), include all networks exported by other peers
+		let clientBaseIPs;
+		if (importedNets.length) {
+			clientBaseIPs = importedNets;
+		} else {
+			const otherLinks = (status.links || []).filter((l) => l.interfaceName === ifaceName);
+			const otherNets = otherLinks.flatMap((l) => l.exportedNetworks || []);
+			clientBaseIPs = [...new Set([...(iface.addresses || []), ...otherNets])];
+		}
+		const clientAllowedIPs = isFullTunnel ? fullTunnelIPs : clientBaseIPs;
 
-	return { linkId, publicKey, tunnelAddress, filename, content };
+		const configLines = [
+			`# WireGuard peer config — ${name || linkId}`,
+			"# Generated by FloppyGuard",
+			"",
+			"[Interface]",
+			`PrivateKey = ${privateKey}`,
+			`Address = ${tunnelAddress}`,
+		];
+		if (dnsServers.length) configLines.push(`DNS = ${dnsServers.join(", ")}`);
+		configLines.push(
+			"",
+			"[Peer]",
+			`PublicKey = ${hubPublicKey}`,
+			`Endpoint = ${hubHost}:${hubListenPort}`,
+			`AllowedIPs = ${clientAllowedIPs.join(", ") || "0.0.0.0/0"}`,
+			"PersistentKeepalive = 25",
+		);
+
+		const filename = `${name || "peer"}.conf`.replace(/[^\w.-]/g, "_");
+		const content = `${configLines.join("\n")}\n`;
+
+		return { linkId, publicKey, tunnelAddress, filename, content };
 	}); // end withWriteLock
 }
 
@@ -2567,6 +2684,7 @@ export default {
 	updatePeer,
 	generatePeerConfigQr,
 	getBandwidth,
+	startBandwidthPolling,
 	configuredHubHost,
 	getStatus,
 	readMetadataStore,

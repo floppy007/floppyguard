@@ -6,9 +6,9 @@ import { type ReactNode, useState } from "react";
 import { Alert } from "react-bootstrap";
 import Modal from "react-bootstrap/Modal";
 import {
-		AccessField,
-		CloudflareDnsFields,
+	AccessField,
 	Button,
+	CloudflareDnsFields,
 	DomainNamesField,
 	HasPermission,
 	Loading,
@@ -168,7 +168,7 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 											<div className="tab-pane active show" id="tab-details" role="tabpanel">
 												<DomainNamesField isWildcardPermitted dnsProviderWildcardSupported />
 												<div className="row g-3 mt-1">
-													<div className="col-sm-2">
+													<div className="col-sm-3">
 														<Field name="forwardScheme">
 															{({ field, form }: any) => (
 																<div className="mb-3">
@@ -199,7 +199,7 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 															)}
 														</Field>
 													</div>
-													<div className="col-sm-7">
+													<div className="col-sm-6">
 														<Field name="forwardHost" validate={validateString(1, 255)}>
 															{({ field, form }: any) => (
 																<div className="mb-3">

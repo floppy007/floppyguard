@@ -4,6 +4,7 @@ import app from "./app.js";
 import internalAgent from "./internal/agent.js";
 import internalCertificate from "./internal/certificate.js";
 import internalIpRanges from "./internal/ip_ranges.js";
+import internalWireGuard from "./internal/wireguard.js";
 import { global as logger } from "./logger.js";
 import { migrateUp } from "./migrate.js";
 import { getCompiledSchema } from "./schema/index.js";
@@ -36,6 +37,11 @@ async function appStart() {
 			internalCertificate.initTimer();
 			internalIpRanges.initTimer();
 			internalAgent.startBackgroundTasks();
+			// Record traffic history from boot on, not only once someone opens
+			// a WireGuard page.
+			internalWireGuard.startBandwidthPolling().catch((err) => {
+				logger.warn(`Bandwidth polling could not start: ${err.message}`);
+			});
 
 			const server = app.listen(PORT, () => {
 				logger.info(`Backend PID ${process.pid} listening on port ${PORT} ...`);

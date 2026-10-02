@@ -3,6 +3,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import express from "express";
+import limitedFileUpload from "../lib/express/file-upload.js";
 import jwtdecode from "../lib/express/jwt-decode.js";
 import requireAdmin from "../lib/express/require-admin.js";
 
@@ -35,29 +36,35 @@ function validateMagicBytes(buffer, ext) {
  * POST /api/design/screenshot
  * Admin-only — saves uploaded image to frontend/dist/design/uploads/
  */
-router.post("/screenshot", jwtdecode(), requireAdmin(), (req, res) => {
-	if (!req.files?.screenshot) {
-		return res.status(400).json({ error: "No file" });
-	}
+router.post(
+	"/screenshot",
+	jwtdecode(),
+	requireAdmin(),
+	limitedFileUpload({ fileSize: 10 * 1024 * 1024, files: 1 }),
+	(req, res) => {
+		if (!req.files?.screenshot) {
+			return res.status(400).json({ error: "No file" });
+		}
 
-	const file = req.files.screenshot;
-	const ext = path.extname(file.name).toLowerCase() || ".png";
-	const allowed = [".png", ".jpg", ".jpeg", ".webp", ".gif"];
-	if (!allowed.includes(ext)) {
-		return res.status(400).json({ error: "Unsupported file type" });
-	}
+		const file = req.files.screenshot;
+		const ext = path.extname(file.name).toLowerCase() || ".png";
+		const allowed = [".png", ".jpg", ".jpeg", ".webp", ".gif"];
+		if (!allowed.includes(ext)) {
+			return res.status(400).json({ error: "Unsupported file type" });
+		}
 
-	if (!validateMagicBytes(file.data, ext)) {
-		return res.status(400).json({ error: "File content does not match declared type" });
-	}
+		if (!validateMagicBytes(file.data, ext)) {
+			return res.status(400).json({ error: "File content does not match declared type" });
+		}
 
-	const name = `${randomBytes(8).toString("hex")}${ext}`;
-	const dest = path.join(UPLOAD_DIR, name);
+		const name = `${randomBytes(8).toString("hex")}${ext}`;
+		const dest = path.join(UPLOAD_DIR, name);
 
-	file.mv(dest, (err) => {
-		if (err) return res.status(500).json({ error: String(err) });
-		res.json({ url: `/design/uploads/${name}` });
-	});
-});
+		file.mv(dest, (err) => {
+			if (err) return res.status(500).json({ error: String(err) });
+			res.json({ url: `/design/uploads/${name}` });
+		});
+	},
+);
 
 export default router;

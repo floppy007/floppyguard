@@ -14,6 +14,32 @@ const omissions = () => {
 
 const DEFAULT_AVATAR = gravatar.url("admin@example.com", { default: "mm" });
 
+/**
+ * Hängt an jedes Konto, woher es kommt: "local" (Passwort-Datensatz) und/oder
+ * "sso" (über OpenID Connect angelegt bzw. angemeldet, Auth-Typ "oidc").
+ * Konten ganz ohne Auth-Datensatz gelten als lokal (Passwort noch nicht gesetzt).
+ */
+const attachAuthSources = async (rows) => {
+	const list = (Array.isArray(rows) ? rows : [rows]).filter((r) => r?.id);
+	if (!list.length) return rows;
+	const auths = await authModel
+		.query()
+		.select("user_id", "type")
+		.whereIn(
+			"user_id",
+			list.map((r) => r.id),
+		)
+		.where("is_deleted", 0);
+	for (const row of list) {
+		const types = auths.filter((a) => a.user_id === row.id).map((a) => a.type);
+		const sources = [];
+		if (types.includes("oidc")) sources.push("sso");
+		if (types.includes("password") || !sources.length) sources.push("local");
+		row.auth_sources = sources;
+	}
+	return rows;
+};
+
 const internalUser = {
 	/**
 	 * Create a user can happen unauthenticated only once and only when no active users exist.
@@ -202,7 +228,7 @@ const internalUser = {
 					row.avatar = DEFAULT_AVATAR;
 				}
 
-				return row;
+				return attachAuthSources(row);
 			});
 	},
 
@@ -335,7 +361,7 @@ const internalUser = {
 		}
 
 		const res = await query;
-		return utils.omitRows(omissions())(res);
+		return attachAuthSources(utils.omitRows(omissions())(res));
 	},
 
 	/**

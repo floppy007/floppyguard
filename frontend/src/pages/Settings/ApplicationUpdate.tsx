@@ -28,7 +28,8 @@ export default function ApplicationUpdate() {
 				<div>
 					<h3 className="card-title mb-1">Application update</h3>
 					<div className="text-secondary small">
-						Updates are started deliberately by administrators only and are loaded from the configured Git branch.
+						Updates are started deliberately by administrators only and are loaded from the configured Git
+						branch.
 					</div>
 				</div>
 				<Button
@@ -58,7 +59,15 @@ export default function ApplicationUpdate() {
 			)}
 
 			{status.data && status.data.state !== "idle" && (
-				<Alert variant={status.data.state === "failed" ? "danger" : status.data.state === "completed" ? "success" : "info"}>
+				<Alert
+					variant={
+						status.data.state === "failed"
+							? "danger"
+							: status.data.state === "completed"
+								? "success"
+								: "info"
+					}
+				>
 					<div className="fw-bold">{status.data.message}</div>
 					<div className="small mt-1 text-secondary">
 						Status: {status.data.step}

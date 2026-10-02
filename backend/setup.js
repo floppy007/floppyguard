@@ -1,7 +1,9 @@
-import { access, copyFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { access, copyFile, mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { installPlugins } from "./lib/certbot.js";
+import { credentialsFileContent } from "./lib/route53-credentials.js";
 import utils from "./lib/utils.js";
 import { setup as logger } from "./logger.js";
 import authModel from "./models/auth.js";
@@ -9,6 +11,8 @@ import certificateModel from "./models/certificate.js";
 import settingModel from "./models/setting.js";
 import userModel from "./models/user.js";
 import userPermissionModel from "./models/user_permission.js";
+
+const letsencryptRoot = process.env.NPM_LETSENCRYPT_ROOT || "/etc/letsencrypt";
 
 export const isSetup = async () => {
 	const row = await userModel.query().select("id").where("is_deleted", 0).first();
@@ -36,7 +40,7 @@ const setupDefaultUser = async () => {
 	const userIsetup = await isSetup();
 	if (!userIsetup) {
 		// Create a new user and set password
-		logger.info(`Creating a new user: ${initialAdminEmail} with password: ${initialAdminPassword}`);
+		logger.info(`Creating initial admin user ${initialAdminEmail}`);
 
 		const data = {
 			is_deleted: 0,
@@ -115,15 +119,36 @@ const setupCertbotPlugins = async () => {
 					plugins.push(certificate.meta.dns_provider);
 				}
 
-				// Make sure credentials file exists
-				const credentials_loc = `/etc/letsencrypt/credentials/credentials-${certificate.id}`;
-				// Escape single quotes and backslashes
+				// Make sure credentials file exists. Written directly with fs (no
+				// shell): the credentials are user-controlled and must never be
+				// interpolated into a shell command line.
 				if (typeof certificate.meta.dns_provider_credentials === "string") {
-					const escapedCredentials = certificate.meta.dns_provider_credentials
-						.replaceAll("'", "\\'")
-						.replaceAll("\\", "\\\\");
-					const credentials_cmd = `[ -f '${credentials_loc}' ] || { mkdir -p /etc/letsencrypt/credentials 2> /dev/null; echo '${escapedCredentials}' > '${credentials_loc}' && chmod 600 '${credentials_loc}'; }`;
-					promises.push(utils.exec(credentials_cmd));
+					const credentialsDir = `${letsencryptRoot}/credentials`;
+					const credentials_loc = `${credentialsDir}/credentials-${certificate.id}`;
+					promises.push(
+						(async () => {
+							const isRoute53 = certificate.meta.dns_provider === "route53";
+							// route53 immer neu schreiben: eine ältere, ungeprüfte Datei
+							// könnte credential_process enthalten.
+							if (existsSync(credentials_loc) && !isRoute53) return;
+							if (isRoute53) {
+								try {
+									credentialsFileContent("route53", certificate.meta.dns_provider_credentials);
+								} catch (err) {
+									await rm(credentials_loc, { force: true });
+									throw err;
+								}
+							}
+							await mkdir(credentialsDir, { recursive: true });
+							await writeFile(
+								credentials_loc,
+								credentialsFileContent(certificate.meta.dns_provider, certificate.meta.dns_provider_credentials),
+								{ mode: 0o600 },
+							);
+						})().catch((err) => {
+							logger.warn(`Could not restore DNS credentials for certificate #${certificate.id}: ${err.message}`);
+						}),
+					);
 				}
 			}
 			return true;

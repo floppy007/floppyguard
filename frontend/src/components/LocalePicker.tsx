@@ -3,6 +3,7 @@ import { Flag } from "src/components";
 import { useLocaleState } from "src/context";
 import { useTheme } from "src/hooks";
 import { changeLocale, getFlagCodeForLocale, localeOptions, T } from "src/locale";
+import { POPPER_FIXED } from "src/modules/Dropdown";
 import styles from "./LocalePicker.module.css";
 
 interface Props {
@@ -24,7 +25,7 @@ function LocalePicker({ menuAlign = "start" }: Props) {
 
 	return (
 		<div className="dropdown">
-			<button type="button" className={cns} data-bs-toggle="dropdown">
+			<button type="button" className={cns} data-bs-toggle="dropdown" data-bs-popper-config={POPPER_FIXED}>
 				<Flag countryCode={getFlagCodeForLocale(locale)} />
 			</button>
 			<div

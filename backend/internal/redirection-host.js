@@ -28,6 +28,7 @@ const internalRedirectionHost = {
 
 		return access
 			.can("redirection_hosts:create", thisData)
+			.then(() => internalHost.assertCertificateAccess(access, thisData.certificate_id))
 			.then((/*access_data*/) => {
 				// Get a list of the domain names and check each of them against existing records
 				const domain_name_check_promises = [];
@@ -168,6 +169,9 @@ const internalRedirectionHost = {
 						.then(() => {
 							return row;
 						});
+				}
+				if (thisData.certificate_id !== undefined && thisData.certificate_id !== row.certificate_id) {
+					return internalHost.assertCertificateAccess(access, thisData.certificate_id).then(() => row);
 				}
 				return row;
 			})

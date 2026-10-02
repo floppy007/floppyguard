@@ -13,6 +13,7 @@ import {
 	showHTTPCertificateModal,
 	showRenewCertificateModal,
 } from "src/modals";
+import { POPPER_FIXED } from "src/modules/Dropdown";
 import { CERTIFICATES, MANAGE } from "src/modules/Permissions";
 import { showError, showObjectSuccess } from "src/notifications";
 import Table from "./Table";
@@ -96,6 +97,7 @@ export default function TableWrapper() {
 											type="button"
 											className="btn btn-sm dropdown-toggle btn-pink mt-1"
 											data-bs-toggle="dropdown"
+											data-bs-popper-config={POPPER_FIXED}
 										>
 											<T id="object.add" tData={{ object: "certificate" }} />
 										</button>

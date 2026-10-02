@@ -9,7 +9,14 @@ import {
 import { useNavigate } from "react-router-dom";
 import type { PeerBandwidth } from "src/api/backend";
 import { DonutGauge, HasPermission, PeerSparkline } from "src/components";
-import { useCheckVersion, useFail2BanStatus, useHostReport, useUnbanIp, useWireGuardBandwidth, useWireGuardStatus } from "src/hooks";
+import {
+	useCheckVersion,
+	useFail2BanStatus,
+	useHostReport,
+	useUnbanIp,
+	useWireGuardBandwidth,
+	useWireGuardStatus,
+} from "src/hooks";
 import { intl } from "src/locale/IntlProvider";
 import { ADMIN, DEAD_HOSTS, PROXY_HOSTS, REDIRECTION_HOSTS, STREAMS, VIEW } from "src/modules/Permissions";
 
@@ -194,7 +201,9 @@ function UpdateNotice() {
 		<div className="alert alert-success d-flex align-items-center justify-content-between gap-3 mb-4" role="alert">
 			<div>
 				<strong>FloppyGuard update available: {version.data.latest}</strong>
-				<div className="small">Installed: {version.data.current}. The update starts only after your confirmation.</div>
+				<div className="small">
+					Installed: {version.data.current}. The update starts only after your confirmation.
+				</div>
 			</div>
 			<button type="button" className="btn btn-success btn-sm" onClick={() => navigate("/settings")}>
 				Update now

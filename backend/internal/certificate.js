@@ -10,6 +10,7 @@ import dnsPlugins from "../certbot/dns-plugins.json" with { type: "json" };
 import { installPlugin } from "../lib/certbot.js";
 import { useLetsencryptServer, useLetsencryptStaging } from "../lib/config.js";
 import error from "../lib/error.js";
+import { credentialsFileContent, normalizeRoute53Credentials } from "../lib/route53-credentials.js";
 import utils from "../lib/utils.js";
 import { debug, ssl as logger } from "../logger.js";
 import certificateModel from "../models/certificate.js";
@@ -30,6 +31,33 @@ const customSslRoot = process.env.NPM_CUSTOM_SSL_ROOT || "/data/custom_ssl";
 
 const omissions = () => {
 	return ["is_deleted", "owner.is_deleted", "meta.dns_provider_credentials"];
+};
+
+/**
+ * Route53-Zugangsdaten vor dem Speichern prüfen und normalisieren.
+ * @param {Object} meta
+ */
+const checkDnsCredentials = (meta) => {
+	if (meta?.dns_provider === "route53" && meta.dns_provider_credentials !== undefined) {
+		try {
+			meta.dns_provider_credentials = normalizeRoute53Credentials(meta.dns_provider_credentials);
+		} catch (err) {
+			throw new error.ValidationError(err.message);
+		}
+	}
+};
+
+/**
+ * Zugangsdaten-Datei schreiben; route53 nur in geprüfter Form.
+ */
+const writeCredentialsFile = (location, provider, credentials) => {
+	let content;
+	try {
+		content = credentialsFileContent(provider, credentials);
+	} catch (err) {
+		throw new error.ValidationError(err.message);
+	}
+	fs.writeFileSync(location, content, { mode: 0o600 });
 };
 
 const internalCertificate = {
@@ -120,6 +148,7 @@ const internalCertificate = {
 	 */
 	create: async (access, data) => {
 		await access.can("certificates:create", data);
+		checkDnsCredentials(data.meta);
 		data.owner_user_id = access.token.getUserId(1);
 
 		if (data.provider === "letsencrypt") {
@@ -253,6 +282,7 @@ const internalCertificate = {
 	 */
 	update: async (access, data) => {
 		await access.can("certificates:update", data.id);
+		checkDnsCredentials(data.meta);
 		const row = await internalCertificate.get(access, { id: data.id });
 
 		if (row.id !== data.id) {
@@ -859,7 +889,7 @@ const internalCertificate = {
 
 		const credentialsLocation = `${letsencryptRoot}/credentials/credentials-${certificate.id}`;
 		fs.mkdirSync(`${letsencryptRoot}/credentials`, { recursive: true });
-		fs.writeFileSync(credentialsLocation, certificate.meta.dns_provider_credentials, { mode: 0o600 });
+		writeCredentialsFile(credentialsLocation, certificate.meta.dns_provider, certificate.meta.dns_provider_credentials);
 
 		// Whether the plugin has a --<name>-credentials argument
 		const hasConfigArg = certificate.meta.dns_provider !== "route53";
@@ -1104,7 +1134,7 @@ const internalCertificate = {
 
 		const credentialsLocation = `${letsencryptRoot}/credentials/credentials-${certificate.id}`;
 		fs.mkdirSync(`${letsencryptRoot}/credentials`, { recursive: true });
-		fs.writeFileSync(credentialsLocation, dnsCredentials, { mode: 0o600 });
+		writeCredentialsFile(credentialsLocation, certificate.meta.dns_provider, dnsCredentials);
 
 		const hasConfigArg = certificate.meta.dns_provider !== "route53";
 
@@ -1391,12 +1421,16 @@ const internalCertificate = {
 			args.push("--staging");
 		}
 
-		// For route53, add the credentials file as an environment variable,
-		// inheriting the process env
+		// For route53, pass the credentials file as the shared credentials file
+		// (keys only, no credential_process) and disable the AWS config file.
+		// A per-call copy keeps the global process env untouched.
 		const opts = {};
 		if (certificate_id && dns_provider === "route53") {
-			opts.env = process.env;
-			opts.env.AWS_CONFIG_FILE = `${letsencryptRoot}/credentials/credentials-${certificate_id}`;
+			opts.env = {
+				...process.env,
+				AWS_CONFIG_FILE: "/dev/null",
+				AWS_SHARED_CREDENTIALS_FILE: `${letsencryptRoot}/credentials/credentials-${certificate_id}`,
+			};
 		}
 
 		if (dns_provider === "duckdns") {

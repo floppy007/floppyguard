@@ -5,6 +5,7 @@ import type { AccessList } from "src/api/backend";
 import { EmptyData, GravatarFormatter, HasPermission, ValueWithDateFormatter } from "src/components";
 import { TableLayout } from "src/components/Table/TableLayout";
 import { intl, T } from "src/locale";
+import { POPPER_FIXED } from "src/modules/Dropdown";
 import { ACCESS_LISTS, MANAGE } from "src/modules/Permissions";
 
 interface Props {
@@ -66,6 +67,7 @@ export default function Table({ data, isFetching, isFiltered, onEdit, onDelete, 
 								className="btn dropdown-toggle btn-action btn-sm px-1"
 								data-bs-boundary="viewport"
 								data-bs-toggle="dropdown"
+								data-bs-popper-config={POPPER_FIXED}
 							>
 								<IconDotsVertical />
 							</button>

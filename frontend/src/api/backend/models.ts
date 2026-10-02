@@ -28,6 +28,7 @@ export interface User {
 	nickname: string;
 	avatar: string;
 	roles: string[];
+	authSources?: ("local" | "sso")[];
 	permissions?: UserPermissions;
 }
 

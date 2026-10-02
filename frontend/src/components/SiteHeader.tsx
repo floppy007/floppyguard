@@ -4,6 +4,7 @@ import { useAuthState } from "src/context";
 import { useUser } from "src/hooks";
 import { T } from "src/locale";
 import { showChangePasswordModal, showTwoFactorModal, showUserModal } from "src/modals";
+import { POPPER_FIXED } from "src/modules/Dropdown";
 import styles from "./SiteHeader.module.css";
 
 export function SiteHeader() {
@@ -57,6 +58,7 @@ export function SiteHeader() {
 								href="/"
 								className={styles.profileLink}
 								data-bs-toggle="dropdown"
+								data-bs-popper-config={POPPER_FIXED}
 								aria-label="Open user menu"
 							>
 								{currentUser?.avatar ? (

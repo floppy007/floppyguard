@@ -9,9 +9,15 @@ export function CloudflareDnsFields() {
 			<div className="d-flex justify-content-between align-items-center mb-2">
 				<div>
 					<div className="form-label mb-0">Cloudflare DNS</div>
-					<div className="text-secondary small">Synchronizes explicit A/AAAA records when this Proxy Host is saved.</div>
+					<div className="text-secondary small">
+						Synchronizes explicit A/AAAA records when this Proxy Host is saved.
+					</div>
 				</div>
-				{config.status ? <span className={`badge ${config.status === "synced" ? "bg-green-lt" : "bg-red-lt"}`}>{config.status}</span> : null}
+				{config.status ? (
+					<span className={`badge ${config.status === "synced" ? "bg-green-lt" : "bg-red-lt"}`}>
+						{config.status}
+					</span>
+				) : null}
 			</div>
 			<Field name="meta.cloudflareDns.enabled">
 				{({ field }: any) => (

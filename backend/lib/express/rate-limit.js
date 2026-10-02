@@ -47,13 +47,16 @@ export default function rateLimit({ windowMs = 15 * 60 * 1000, max = 15, bucket 
 		SELECT count FROM hits WHERE ip = ? AND window_key = ?
 	`);
 	const cleanupStmt = database.prepare(`
-		DELETE FROM hits WHERE window_key < ?
+		DELETE FROM hits WHERE substr(ip, 1, ?) = ? AND window_key < ?
 	`);
+	const prefix = `${bucket}:`;
 
-	// Periodically clean up old windows
+	// Periodically clean up old windows - only this limiter's own bucket.
+	// window_key depends on windowMs, so a global delete from a limiter with a
+	// shorter window would wipe the live counters of every longer-window limiter.
 	const cleanup = setInterval(() => {
 		const currentWindow = Math.floor(Date.now() / windowMs);
-		cleanupStmt.run(currentWindow - 1);
+		cleanupStmt.run(prefix.length, prefix, currentWindow - 1);
 	}, windowMs);
 	if (typeof cleanup.unref === "function") cleanup.unref();
 
@@ -61,7 +64,7 @@ export default function rateLimit({ windowMs = 15 * 60 * 1000, max = 15, bucket 
 		const ip = req.ip || req.connection?.remoteAddress || "unknown";
 		// Namespace the key by bucket so limiters with an identical windowMs
 		// (and therefore identical window_key) don't share one per-IP counter.
-		const key = `${bucket}:${ip}`;
+		const key = `${prefix}${ip}`;
 		const windowKey = Math.floor(Date.now() / windowMs);
 
 		upsertStmt.run(key, windowKey);

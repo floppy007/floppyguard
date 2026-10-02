@@ -18,6 +18,8 @@ const CLOUDFARE_V6_URL = "https://www.cloudflare.com/ips-v6";
 const regIpV4 = /^(\d+\.?){4}\/\d+/;
 const regIpV6 = /^(([\da-fA-F]+)?:)+\/\d+/;
 
+const FETCH_TIMEOUT_MS = 15000;
+
 const internalIpRanges = {
 	interval_timeout: 1000 * 60 * 60 * 6, // 6 hours
 	interval: null,
@@ -33,7 +35,7 @@ const internalIpRanges = {
 		const agent = new ProxyAgent();
 		return new Promise((resolve, reject) => {
 			logger.info(`Fetching ${url}`);
-			return https
+			const req = https
 				.get(url, { agent }, (res) => {
 					res.setEncoding("utf8");
 					let raw_data = "";
@@ -48,6 +50,12 @@ const internalIpRanges = {
 				.on("error", (err) => {
 					reject(err);
 				});
+			// Without a timeout a blackholed connection delays startup (the
+			// fetch runs before the backend listens) until the OS gives up.
+			req.setTimeout(FETCH_TIMEOUT_MS, () => {
+				req.destroy(new Error(`Timeout fetching ${url}`));
+			});
+			return req;
 		});
 	},
 

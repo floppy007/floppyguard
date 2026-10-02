@@ -491,8 +491,9 @@ describe("WireGuard page", () => {
 		fireEvent.click(editButtons[editButtons.length - 1]);
 		// Notes textarea has comma-joined notes as value
 		expect(
-			screen.getAllByDisplayValue("1 link(s) on this interface need review, inactive interface with imported networks")
-				.length,
+			screen.getAllByDisplayValue(
+				"1 link(s) on this interface need review, inactive interface with imported networks",
+			).length,
 		).toBeGreaterThan(0);
 		// Switch back to Overview tab for backups
 		fireEvent.click(screen.getAllByRole("button", { name: /Overview/ })[0]);
@@ -584,9 +585,7 @@ describe("WireGuard page", () => {
 		expect(await screen.findByText(/Blocked:/)).toBeTruthy();
 		expect(await screen.findByText(/write-layer-not-implemented/)).toBeTruthy();
 		// Shows config-intent warning
-		expect(
-			await screen.findByText(/Config-intent change/),
-		).toBeTruthy();
+		expect(await screen.findByText(/Config-intent change/)).toBeTruthy();
 	});
 
 	it("applies a reviewed metadata-only interface change", async () => {
@@ -613,7 +612,9 @@ describe("WireGuard page", () => {
 		// Open the interface editor
 		fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]);
 		// Edit the notes
-		fireEvent.change(screen.getByPlaceholderText("Hub role, check later, ..."), { target: { value: "reviewed interface" } });
+		fireEvent.change(screen.getByPlaceholderText("Hub role, check later, ..."), {
+			target: { value: "reviewed interface" },
+		});
 		// Preview the change
 		fireEvent.click(screen.getAllByRole("button", { name: "Preview" })[0]);
 		// PreviewResult shows valid badge

@@ -26,6 +26,7 @@ const internalDeadHost = {
 		}
 
 		await access.can("dead_hosts:create", data);
+		await internalHost.assertCertificateAccess(access, data.certificate_id);
 
 		// Get a list of the domain names and check each of them against existing records
 		const domainNameCheckPromises = [];
@@ -138,6 +139,8 @@ const internalDeadHost = {
 
 			// update host with cert id
 			data.certificate_id = cert.id;
+		} else if (data.certificate_id !== undefined && data.certificate_id !== row.certificate_id) {
+			await internalHost.assertCertificateAccess(access, data.certificate_id);
 		}
 
 		// Add domain_names to the data in case it isn't there, so that the audit log renders correctly. The order is important here.
