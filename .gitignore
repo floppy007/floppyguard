@@ -17,6 +17,7 @@ frontend/package-lock.json
 .gstack/
 CLAUDE.md
 AGENTS.md
+.projectatlas/
 
 # Per-developer Claude Code local settings (permissions allowlist) — not shared
 .claude/settings.local.json
