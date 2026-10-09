@@ -74,7 +74,7 @@ Remote agent management built and live:
 - `POST /api/agent/heartbeat` — agent reports hash + hostname + LAN IP + services
 
 Agent features:
-- `native` and `unifi` modes
+- `native` mode (UniFi mode removed 2026-10-09)
 - `wg_link_name` field reliably links an agent to a WireGuard link by name
 - Auto-create agent when opening Agent section for a link
 - Service auto-discovery (hub-side scan of agent LAN IP on known ports)

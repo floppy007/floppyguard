@@ -5,6 +5,24 @@ This project diverges from upstream nginx-proxy-manager starting at v1.0.0.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.2.2] - 2026-10-09
+
+Removes the UniFi integration. The UniFi agent mode was never exposed in the UI and no agent used it. One migration runs on startup and drops the stored UniFi columns. The agent script changes only in dead UniFi code, so `AGENT_SCRIPT_VERSION` stays 1.3.23 to avoid a fleet-wide re-download and restart; the cleaned script ships with the next agent script bump.
+
+### English
+
+#### Removed
+
+- **UniFi agent mode.** Agents only support `native` mode now. The UniFi controller apply path (login, VPN client, firewall rules), the `UNIFI_*` variables in `config.env` and the `unifi_url`, `unifi_user`, `unifi_pass` and `unifi_site` API fields are gone. The migration switches any `unifi` agent to `native` and drops the four columns, including any stored controller credentials.
+- **UniFi detection in service discovery.** Ports 8080 and 8443 are now labelled "Web UI" instead of "UniFi Network".
+
+### Deutsch
+
+#### Entfernt
+
+- **UniFi-Agent-Modus.** Agents unterstützen nur noch den Modus `native`. Der UniFi-Controller-Pfad (Login, VPN-Client, Firewall-Regeln), die `UNIFI_*`-Variablen in `config.env` und die API-Felder `unifi_url`, `unifi_user`, `unifi_pass` und `unifi_site` sind entfernt. Die Migration stellt etwaige `unifi`-Agents auf `native` um und löscht die vier Spalten samt gespeicherter Controller-Zugangsdaten.
+- **UniFi-Erkennung im Service-Scan.** Die Ports 8080 und 8443 heißen jetzt "Web UI" statt "UniFi Network".
+
 ## [2.2.1] - 2026-10-02
 
 Company-account sign-in (OpenID Connect) with in-app SSO settings, plus the fixes from a two-pass multi-agent audit (find, adversarially verify, fix: 43 confirmed findings, 36 fixed). Hub-side only: the agent script is unchanged, `AGENT_SCRIPT_VERSION` stays 1.3.23. Two migrations run on startup (traffic history indexes and BIGINT id).

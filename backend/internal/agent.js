@@ -66,48 +66,14 @@ function sanitizeHubUrl(url) {
 	return trimmed;
 }
 
-// UniFi credential fields are interpolated into config.env (UNIFI_PASS="...")
-// which is `source`d as ROOT on the agent. A value with a quote, newline,
-// backtick, $ or backslash can close the assignment and inject env/shell — at
-// minimum it corrupts the PRIMARY_URL/FALLBACK_URL lines below it and silently
-// blackholes the agent's hub connection. Validate before storage (mirrors how
-// sanitizeHubUrl / sanitizeAclNetworks guard their own sinks).
-const UNIFI_UNSAFE_RE = /["$`\\\r\n]/;
-function sanitizeUnifiFields(data, patch) {
-	if (typeof data.unifi_url !== "undefined") {
-		if (data.unifi_url === null || data.unifi_url === "") {
-			patch.unifi_url = null;
-		} else {
-			const u = sanitizeHubUrl(data.unifi_url);
-			if (!u)
-				throw new error.ValidationError("unifi_url must be a valid http(s) URL without shell metacharacters");
-			patch.unifi_url = u;
-		}
-	}
-	for (const f of ["unifi_user", "unifi_pass", "unifi_site"]) {
-		if (typeof data[f] === "undefined") continue;
-		if (data[f] === null || data[f] === "") {
-			patch[f] = f === "unifi_site" ? "default" : null;
-			continue;
-		}
-		const s = String(data[f]);
-		if (UNIFI_UNSAFE_RE.test(s)) {
-			throw new error.ValidationError(
-				`${f} contains characters not allowed in config.env (quotes, newline, backtick, $ or backslash)`,
-			);
-		}
-		patch[f] = s;
-	}
-}
-
 // `mode` and `wg_interface` are interpolated into the same root-sourced
 // config.env heredoc (AGENT_MODE="..." / WG_INTERFACE="...") in
 // getInstallScript — the JS template substitutes the value BEFORE the
 // single-quoted heredoc is written, so a quote+newline closes the assignment
-// and injects arbitrary lines, exactly the sink sanitizeUnifiFields guards.
+// and injects arbitrary lines.
 // wg_interface additionally flows into `wg-quick up "$iface"` and the path
 // /etc/wireguard/$iface.conf on the agent. Whitelist both before storage.
-const VALID_AGENT_MODES = ["native", "unifi"];
+const VALID_AGENT_MODES = ["native"];
 // Mirrors VALID_IFACE_NAME in wireguard.js.
 const VALID_WG_INTERFACE_RE = /^wg\d{1,3}$/;
 function sanitizeAgentMode(mode) {
@@ -646,14 +612,11 @@ function startBackgroundTasks() {
 /**
  * Build the agent loop script (the bash daemon that runs on the remote machine).
  *
- * @param {string} mode  "native" or "unifi"
  * @returns {string}  Complete bash script starting with #!/bin/bash
  */
-function buildLoopScript(mode) {
-	// ── apply_config function: mode-specific ──────────────────────────────────────
-	// native: write wg-quick config file and apply via wg syncconf / wg-quick
-	// unifi:  push peer config to UniFi Network Application API
-	const applyFunctionNative = `\
+function buildLoopScript() {
+	// ── apply_config: write wg-quick config file and apply via wg syncconf / wg-quick
+	const applyFunction = `\
 # Ensure kernel ip routes exist for all non-host AllowedIPs on a WireGuard interface.
 # wg syncconf updates WireGuard peer tables but does NOT touch the kernel routing table.
 # This must be called after syncconf and also once on startup to recover from missed syncs.
@@ -781,182 +744,11 @@ with open('/tmp/fg_new_wg.conf','w') as f: f.write(c.replace('PrivateKey = (hidd
 # Sync routes once at agent startup to recover any routes missed by previous syncconf calls
 sync_routes "$WG_INTERFACE"`;
 
-	// For UniFi mode, config_text is a JSON blob:
-	// { "server_public_key": "...", "endpoint": "host:port",
-	//   "local_address": "10.x.x.x/32", "allowed_ips": ["..."],
-	//   "persistent_keepalive": 25, "private_key": "..." }
-	// The agent authenticates with UniFi controller and creates/updates the
-	// WireGuard VPN client entry. It also adds firewall rules for the allowed_ips.
-	const applyFunctionUnifi = `\
-# UniFi helper: authenticate and get session cookie
-unifi_login() {
-  curl -sk -c /tmp/fg_unifi_cookie -b /tmp/fg_unifi_cookie \\
-    -X POST -H "Content-Type: application/json" \\
-    -d "{\\"username\\":\\"$UNIFI_USER\\",\\"password\\":\\"$UNIFI_PASS\\"}" \\
-    "$UNIFI_URL/api/auth/login" > /dev/null 2>&1
-}
-
-# UniFi helper: find existing VPN client by name, returns ID or empty
-unifi_find_vpn() {
-  local name="$1"
-  curl -sk -b /tmp/fg_unifi_cookie \\
-    "$UNIFI_URL/proxy/network/api/s/$UNIFI_SITE/rest/vpnclient" 2>/dev/null |
-    python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-items = data.get('data', [])
-for item in items:
-    if item.get('name') == sys.argv[1]:
-        print(item.get('_id',''))
-        sys.exit(0)
-" "$name" 2>/dev/null || echo ""
-}
-
-apply_config() {
-  local cfg="$1"  # JSON blob from FloppyGuard
-  # Parse peer config from JSON
-  SERVER_PUB=$(python3 -c "import sys,json; d=json.loads(sys.argv[1]); print(d.get('server_public_key',''))" "$cfg" 2>/dev/null || echo "")
-  ENDPOINT=$(python3   -c "import sys,json; d=json.loads(sys.argv[1]); print(d.get('endpoint',''))" "$cfg" 2>/dev/null || echo "")
-  LOCAL_ADDR=$(python3 -c "import sys,json; d=json.loads(sys.argv[1]); print(d.get('local_address',''))" "$cfg" 2>/dev/null || echo "")
-  PRIV_KEY=$(python3   -c "import sys,json; d=json.loads(sys.argv[1]); print(d.get('private_key',''))" "$cfg" 2>/dev/null || echo "")
-  ALLOWED=$(python3    -c "import sys,json; d=json.loads(sys.argv[1]); print(','.join(d.get('allowed_ips',[])))" "$cfg" 2>/dev/null || echo "")
-  KEEPALIVE=$(python3  -c "import sys,json; d=json.loads(sys.argv[1]); print(d.get('persistent_keepalive',25))" "$cfg" 2>/dev/null || echo "25")
-
-  if [ -z "$SERVER_PUB" ] || [ -z "$ENDPOINT" ]; then
-    log "UniFi apply: missing server_public_key or endpoint in config, skipping"
-    return 1
-  fi
-
-  unifi_login
-
-  local payload
-  payload=$(python3 -c "
-import json, sys
-d = {
-  'name': 'FloppyGuard',
-  'vpn_type': 'wireguard-client',
-  'private_key': sys.argv[1],
-  'server_public_key': sys.argv[2],
-  'server_address': sys.argv[3],
-  'local_wg_address': sys.argv[4],
-  'allowed_ips': sys.argv[5].split(',') if sys.argv[5] else [],
-  'persistent_keepalive': int(sys.argv[6]),
-  'enabled': bool(sys.argv[5])
-}
-print(json.dumps(d))
-" "$PRIV_KEY" "$SERVER_PUB" "$ENDPOINT" "$LOCAL_ADDR" "$ALLOWED" "$KEEPALIVE" 2>/dev/null)
-
-  # Check if a FloppyGuard VPN entry already exists
-  VPN_ID=$(unifi_find_vpn "FloppyGuard")
-
-  if [ -n "$VPN_ID" ]; then
-    # Update existing entry
-    curl -sk -b /tmp/fg_unifi_cookie -X PUT \\
-      -H "Content-Type: application/json" \\
-      -d "$payload" \\
-      "$UNIFI_URL/proxy/network/api/s/$UNIFI_SITE/rest/vpnclient/$VPN_ID" > /dev/null 2>&1 && \\
-      log "Updated UniFi WireGuard VPN client (id: $VPN_ID)" || \\
-      log "Warning: UniFi VPN update failed"
-  else
-    # Create new entry
-    curl -sk -b /tmp/fg_unifi_cookie -X POST \\
-      -H "Content-Type: application/json" \\
-      -d "$payload" \\
-      "$UNIFI_URL/proxy/network/api/s/$UNIFI_SITE/rest/vpnclient" > /dev/null 2>&1 && \\
-      log "Created UniFi WireGuard VPN client" || \\
-      log "Warning: UniFi VPN create failed"
-  fi
-
-  # Add firewall rules for each allowed_ip network (traffic policy: accept on WAN_IN)
-  # This ensures return traffic from the WireGuard networks is allowed through the firewall
-  if [ -n "$ALLOWED" ]; then
-    IFS=',' read -ra NETS <<< "$ALLOWED"
-    for net in "\${NETS[@]}"; do
-      net=$(echo "$net" | tr -d ' ')
-      # Check if rule already exists
-      EXISTING_RULE=$(curl -sk -b /tmp/fg_unifi_cookie \\
-        "$UNIFI_URL/proxy/network/api/s/$UNIFI_SITE/rest/firewallrule" 2>/dev/null |
-        python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-items = data.get('data', [])
-for item in items:
-    if item.get('name') == 'FG-WG-' + sys.argv[1]:
-        print(item.get('_id',''))
-        sys.exit(0)
-" "$net" 2>/dev/null || echo "")
-
-      if [ -z "$EXISTING_RULE" ]; then
-        FW_PAYLOAD=$(python3 -c "
-import json, sys
-d = {
-  'name': 'FG-WG-' + sys.argv[1],
-  'ruleset': 'WAN_IN',
-  'rule_index': 4100,
-  'action': 'accept',
-  'enabled': True,
-  'protocol': 'all',
-  'src_firewallgroup_ids': [],
-  'dst_firewallgroup_ids': [],
-  'src_address': sys.argv[1],
-  'dst_address': '',
-  'state_new': True,
-  'state_established': True,
-  'state_related': True,
-  'icmp_typename': ''
-}
-print(json.dumps(d))
-" "$net" 2>/dev/null)
-        curl -sk -b /tmp/fg_unifi_cookie -X POST \\
-          -H "Content-Type: application/json" \\
-          -d "$FW_PAYLOAD" \\
-          "$UNIFI_URL/proxy/network/api/s/$UNIFI_SITE/rest/firewallrule" > /dev/null 2>&1 && \\
-          log "Added firewall rule for WireGuard network $net" || \\
-          log "Warning: firewall rule for $net could not be added"
-      fi
-    done
-  fi
-
-  # Remove stale FG-WG-* firewall rules for networks no longer in allowed_ips.
-  # The VPN client's allowed_ips is replaced wholesale on each apply, but the
-  # firewall rules were only ever added — without this, a removed network leaves
-  # its accept-on-WAN_IN rule lingering forever (over-permissive cruft that
-  # accumulates). Mirrors the native sync_routes stale-route reconciler.
-  curl -sk -b /tmp/fg_unifi_cookie \\
-    "$UNIFI_URL/proxy/network/api/s/$UNIFI_SITE/rest/firewallrule" 2>/dev/null |
-    python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-keep = set(n for n in sys.argv[1].split(',') if n)
-for item in data.get('data', []):
-    name = item.get('name', '')
-    if name.startswith('FG-WG-') and name[6:] not in keep:
-        print(item.get('_id', ''))
-" "$ALLOWED" 2>/dev/null | while read -r stale_id; do
-      [ -z "$stale_id" ] && continue
-      curl -sk -b /tmp/fg_unifi_cookie -X DELETE \\
-        "$UNIFI_URL/proxy/network/api/s/$UNIFI_SITE/rest/firewallrule/$stale_id" > /dev/null 2>&1 && \\
-        log "Removed stale FloppyGuard firewall rule $stale_id" || true
-    done
-}`;
-
-	const applyFunction = mode === "unifi" ? applyFunctionUnifi : applyFunctionNative;
-
-	// For UniFi mode, config applies using JSON; no wg_interface needed in apply call
-	const applyCallNative = `apply_config "$CFG" "$IFACE"`;
-	const applyCallUnifi = `apply_config "$CFG"`;
-	const applyCall = mode === "unifi" ? applyCallUnifi : applyCallNative;
+	const applyCall = `apply_config "$CFG" "$IFACE"`;
 
 	return `#!/bin/bash
 set -euo pipefail
 source /etc/floppyguard-agent/config.env
-# Default the UniFi vars so a unifi-built script self-updated onto a native
-# agent's config.env (which never had them written) does not abort under set -u
-# and crash-loop via systemd. Missing creds just fail unifi_login gracefully.
-: "\${UNIFI_URL:=}"
-: "\${UNIFI_USER:=}"
-: "\${UNIFI_PASS:=}"
-: "\${UNIFI_SITE:=default}"
 
 SCRIPT_VERSION="${AGENT_SCRIPT_VERSION}"
 HASH_FILE="/var/lib/floppyguard-agent/last_hash"
@@ -1010,7 +802,7 @@ ${applyFunction}
 
 # ── Service discovery ────────────────────────────────────────────────────────
 # port:scheme:fallback_name  (https ports use https scheme)
-SCAN_PORTS="80:http:Web 443:https:Web 3000:http:Grafana 8080:http:UniFi Network 8443:https:UniFi Network 8888:http:Management UI 9000:http:Portainer 9443:https:Portainer 9090:http:Prometheus 1880:http:Node-RED 10000:http:Webmin 8000:http:Web UI"
+SCAN_PORTS="80:http:Web 443:https:Web 3000:http:Grafana 8080:http:Web UI 8443:https:Web UI 8888:http:Management UI 9000:http:Portainer 9443:https:Portainer 9090:http:Prometheus 1880:http:Node-RED 10000:http:Webmin 8000:http:Web UI"
 
 SERVICES_JSON="[]"
 SERVICES_SCAN_INTERVAL=86400  # scan once a day
@@ -1281,9 +1073,6 @@ const internalAgent = {
 		const reg_token = randomToken(32);
 		const config_hash = hashConfig(data.config_text);
 
-		const unifi = {};
-		sanitizeUnifiFields(data, unifi);
-
 		const agent = await Agent.query().insertAndFetch({
 			name: data.name,
 			mode: sanitizeAgentMode(data.mode),
@@ -1296,10 +1085,6 @@ const internalAgent = {
 			mgmt_url: data.mgmt_url || null,
 			wg_link_name: data.wg_link_name || null,
 			preserve_lan_source_ip: sanitizeBool(data.preserve_lan_source_ip, false),
-			unifi_url: unifi.unifi_url ?? null,
-			unifi_user: unifi.unifi_user ?? null,
-			unifi_pass: unifi.unifi_pass ?? null,
-			unifi_site: unifi.unifi_site ?? "default",
 			last_seen: null,
 			status: "pending",
 			is_deleted: false,
@@ -1348,7 +1133,6 @@ const internalAgent = {
 		}
 		if (typeof data.mgmt_url !== "undefined") patch.mgmt_url = data.mgmt_url || null;
 		if (typeof data.wg_link_name !== "undefined") patch.wg_link_name = data.wg_link_name || null;
-		sanitizeUnifiFields(data, patch);
 		if (typeof data.allowed_sites !== "undefined") {
 			const sites = sanitizeAclSites(data.allowed_sites);
 			patch.allowed_sites = sites ? JSON.stringify(sites) : null;
@@ -1527,25 +1311,7 @@ const internalAgent = {
 		// never reach it. create()/update() enforce the same whitelist on write.
 		const wgInterface = sanitizeWgInterface(agent.wg_interface);
 		const mode = sanitizeAgentMode(agent.mode);
-		// Re-validate the UniFi fields at the sink too: they are interpolated raw
-		// into the same root-sourced config.env heredoc (UNIFI_PASS="...") and a
-		// legacy row written before sanitizeUnifiFields existed (pre-v1.3.21) may
-		// carry a quote/newline/$/backtick that closes the assignment and injects
-		// shell as root. sanitizeUnifiFields throws on such a poisoned row.
-		const unifiPatch = {};
-		sanitizeUnifiFields(agent, unifiPatch);
-		const unifiUrl = unifiPatch.unifi_url || "";
-		const unifiUser = unifiPatch.unifi_user || "";
-		const unifiPass = unifiPatch.unifi_pass || "";
-		const unifiSite = unifiPatch.unifi_site || "default";
-
-		// Extra env vars for UniFi mode
-		const unifiEnvLines =
-			mode === "unifi"
-				? `UNIFI_URL="${unifiUrl}"\nUNIFI_USER="${unifiUser}"\nUNIFI_PASS="${unifiPass}"\nUNIFI_SITE="${unifiSite}"\n`
-				: "";
-
-		const loopScript = buildLoopScript(mode);
+		const loopScript = buildLoopScript();
 
 		const installScript = `#!/bin/bash
 set -euo pipefail
@@ -1564,7 +1330,7 @@ FGAGENT_ID="${id}"
 AGENT_MODE="${mode}"
 WG_INTERFACE="${wgInterface}"
 POLL_INTERVAL=30
-${unifiEnvLines}ENVEOF
+ENVEOF
 chmod 600 /etc/floppyguard-agent/config.env
 
 # ── 3. Initial registration ─────────────────────────────────────────────────────
@@ -1742,7 +1508,7 @@ echo "[floppyguard-agent]   journalctl -u floppyguard-agent -f"
 			throw new error.AuthError("Invalid agent token", "error.auth");
 		}
 
-		const script = buildLoopScript(agent.mode || "native");
+		const script = buildLoopScript();
 		const signature = signScript(script, agentToken);
 		return { script, signature };
 	},
@@ -2229,7 +1995,6 @@ export const _testExports = {
 	_computeHubPeerAllowedIPs,
 	_collectSiteNetworks,
 	_computeOtherSiteNets,
-	sanitizeUnifiFields,
 	sanitizeAgentMode,
 	sanitizeWgInterface,
 	sanitizeAgentServices,

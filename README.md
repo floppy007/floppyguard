@@ -7,7 +7,7 @@
 > Nginx reverse proxy manager with integrated WireGuard VPN management, a visual topology map, remote agent support and a hardened host-based runtime.
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.2.1-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.2.2-blue.svg)](CHANGELOG.md)
 [![CI](https://github.com/floppy007/floppyguard/actions/workflows/ci.yml/badge.svg)](https://github.com/floppy007/floppyguard/actions/workflows/ci.yml)
 
 ---
@@ -35,7 +35,7 @@ Use it when you want one operational interface to publish services securely, man
 - DNS/nameserver auto-config per interface or link, with platform-aware AllowedIPs
 - Road warrior peers auto-inherit all remote site networks in AllowedIPs
 - Planning layer: links go through discover -> shape -> validate -> ready stages
-- Remote agent system - push WireGuard configs to remote hosts (native Linux + UniFi-compatible mode)
+- Remote agent system - push WireGuard configs to remote hosts
 - Auto-MASQUERADE - cross-site LAN traffic gets NAT rules auto-generated and pushed to agents
 - Live bandwidth monitoring with per-peer sparklines and donut gauges
 - Platform dashboard - proxy stats, WireGuard summary, gateway overview, fail2ban status in one view
