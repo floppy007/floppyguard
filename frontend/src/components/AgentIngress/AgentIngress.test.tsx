@@ -224,6 +224,8 @@ const restrictedCheck = {
 	unused_hub_rules: [],
 };
 let extraChecks: object[] = [];
+/** backend answer to saving a single rule (POST/PUT): null = success, else the error message (400) */
+let ruleSaveError: string | null = null;
 
 type Call = { url: string; method: string; body: any };
 let calls: Call[] = [];
@@ -287,6 +289,9 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => 
 			);
 		}
 		if (rest === "/rules/bulk-disable" && method === "POST") return json({ disabled: body.rule_ids });
+		if (ruleSaveError && (rest === "/rules" || rest.startsWith("/rules/")) && (method === "POST" || method === "PUT")) {
+			return json({ error: { message: ruleSaveError } }, 400);
+		}
 		if (rest === "/rules" && method === "POST") return json({ ...rules[0], id: 99, ...body }, 201);
 		if (rest.startsWith("/rules/") && method === "PUT") return json({ ...rules[0], ...body });
 	}
@@ -326,6 +331,7 @@ beforeEach(() => {
 	agentModes = { 1: "open", 2: "restricted" };
 	agent1Status = "active";
 	extraChecks = [];
+	ruleSaveError = null;
 	lastSearch = "";
 	try {
 		window.localStorage.clear();
@@ -796,7 +802,7 @@ describe("AgentIngressDialog", () => {
 			});
 		});
 		expect(await screen.findByText("2 created, 0 skipped")).toBeTruthy();
-		expect(screen.queryByTestId("ingress-wizard-proxy")).toBeNull();
+		await waitFor(() => expect(screen.queryByTestId("ingress-wizard-proxy")).toBeNull());
 	});
 
 	it("the site wizards need explicit choices before saving", async () => {
@@ -1009,6 +1015,121 @@ describe("AgentIngressDialog", () => {
 				note: "",
 			});
 		});
+	});
+});
+
+describe("editor dialog (rule form and wizards)", () => {
+	const onClose = vi.fn();
+	const renderDialog = () =>
+		render(<AgentIngressDialog agentId={1} agentName="site-a" visible onClose={onClose} />, {
+			wrapper: createWrapper(),
+		});
+	const editor = () => document.querySelector<HTMLElement>(".modal.ingress-editor-modal");
+	const writes = () => calls.filter((c) => c.method !== "GET");
+
+	beforeEach(() => onClose.mockReset());
+
+	it("'Edit' opens a dialog with the rule's values; saving PUTs, closes and highlights the rule", async () => {
+		renderDialog();
+		fireEvent.click(await screen.findByRole("menuitem", { name: "Edit Office LAN" }));
+		const dialog = await screen.findByRole("dialog", { name: "Edit rule" });
+		expect(dialog.className).toContain("ingress-editor-modal");
+		const form = within(dialog);
+		expect((form.getByLabelText("Name") as HTMLInputElement).value).toBe("Office LAN");
+		expect((form.getByLabelText("Note") as HTMLInputElement).value).toBe("Altlast aus VPN_MGR");
+		expect((form.getByLabelText("Active") as HTMLInputElement).checked).toBe(true);
+		// footer: Cancel + Save
+		expect(form.getByRole("button", { name: "Cancel" })).toBeTruthy();
+		fireEvent.change(form.getByLabelText("Name"), { target: { value: "Office LAN 2" } });
+		fireEvent.click(form.getByRole("button", { name: "Save" }));
+		await waitFor(() => {
+			const put = calls.find((c) => c.method === "PUT" && c.url === "/api/agents/1/ingress/rules/12");
+			expect(put?.body).toEqual({ name: "Office LAN 2" });
+		});
+		await waitFor(() => expect(editor()).toBeNull());
+		// the edited rule is highlighted in the list, the agent dialog stays open
+		await waitFor(() => expect(document.getElementById("ingress-rule-1-12")?.className).toContain("bg-primary-lt"));
+		expect(onClose).not.toHaveBeenCalled();
+	});
+
+	it("Cancel and Esc close the dialog without a request (Esc only the top dialog)", async () => {
+		renderDialog();
+		fireEvent.click(await screen.findByRole("menuitem", { name: "Edit Office LAN" }));
+		const dialog = await screen.findByRole("dialog", { name: "Edit rule" });
+		fireEvent.change(within(dialog).getByLabelText("Name"), { target: { value: "changed" } });
+		fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+		await waitFor(() => expect(editor()).toBeNull());
+		expect(writes()).toEqual([]);
+
+		fireEvent.click(screen.getByRole("menuitem", { name: "Edit Office LAN" }));
+		await screen.findByRole("dialog", { name: "Edit rule" });
+		// stacked over the agent dialog: two dialogs, the editor on top
+		expect(document.querySelectorAll(".modal").length).toBe(2);
+		fireEvent.keyDown(document, { key: "Escape", code: "Escape", keyCode: 27 });
+		await waitFor(() => expect(editor()).toBeNull());
+		expect(writes()).toEqual([]);
+		// the agent dialog itself did not close, and its backdrop is the only one left
+		expect(onClose).not.toHaveBeenCalled();
+		await waitFor(() => expect(document.querySelectorAll(".modal-backdrop").length).toBe(1));
+	});
+
+	it("shows backend errors inside the dialog and keeps it open", async () => {
+		ruleSaveError = "Rule overlaps an existing rule";
+		renderDialog();
+		fireEvent.click(await screen.findByRole("menuitem", { name: "Edit Office LAN" }));
+		const dialog = await screen.findByRole("dialog", { name: "Edit rule" });
+		fireEvent.change(within(dialog).getByLabelText("Name"), { target: { value: "Office LAN 2" } });
+		fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+		expect(await within(dialog).findByText("Rule overlaps an existing rule")).toBeTruthy();
+		expect(editor()).not.toBeNull();
+	});
+
+	it("'New rule' → own rule opens a dialog that POSTs and closes", async () => {
+		renderDialog();
+		await waitFor(() => expect(calls.some((c) => c.url === "/api/agents/1/ingress/catalog")).toBe(true));
+		fireEvent.click(await screen.findByRole("menuitem", { name: "Own rule (experts)" }));
+		const dialog = await screen.findByRole("dialog", { name: "New rule" });
+		const form = within(dialog);
+		await waitFor(() => expect(form.getByLabelText("Sources").tagName).toBe("INPUT"));
+		const src = form.getByLabelText("Sources");
+		fireEvent.change(src, { target: { value: "Branch" } });
+		fireEvent.keyDown(src, { key: "Enter", code: "Enter", keyCode: 13 });
+		fireEvent.click(form.getByLabelText("SSH (22)"));
+		fireEvent.change(form.getByLabelText("Name"), { target: { value: "Branch SSH" } });
+		fireEvent.click(form.getByRole("button", { name: "Save" }));
+		await waitFor(() => {
+			const post = calls.find((c) => c.method === "POST" && c.url === "/api/agents/1/ingress/rules");
+			expect(post?.body).toMatchObject({ name: "Branch SSH", ports: [{ proto: "tcp", port: "22" }] });
+		});
+		await waitFor(() => expect(editor()).toBeNull());
+		expect(await screen.findByText("Rule “Branch SSH” created.")).toBeTruthy();
+	});
+
+	it("each wizard opens in a dialog named after it", async () => {
+		renderDialog();
+		for (const [name, testId] of [
+			["Publish a service via the proxy", "ingress-wizard-proxy"],
+			["A site may access servers", "ingress-wizard-site"],
+			["A site gets full access", "ingress-wizard-full"],
+		]) {
+			fireEvent.click(await screen.findByRole("menuitem", { name }));
+			const dialog = await screen.findByRole("dialog", { name });
+			expect(within(dialog).getByTestId(testId)).toBeTruthy();
+			expect(within(dialog).getByRole("button", { name: "Next" })).toBeTruthy();
+			fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+			await waitFor(() => expect(editor()).toBeNull());
+		}
+		expect(writes()).toEqual([]);
+	});
+
+	it("works on the page too: 'Edit' opens the dialog instead of an inline form", async () => {
+		render(<IngressPageContent />, { wrapper: createWrapper(["/ingress?agent=1"]) });
+		const detail = await screen.findByTestId("ingress-detail-1");
+		fireEvent.click(await within(detail).findByRole("menuitem", { name: "Edit Hub -> Nextcloud" }));
+		const dialog = await screen.findByRole("dialog", { name: "Edit rule" });
+		expect(detail.contains(dialog)).toBe(false);
+		expect(within(detail).queryByTestId("ingress-form-title")).toBeNull();
+		expect((within(dialog).getByLabelText("Name") as HTMLInputElement).value).toBe("Hub -> Nextcloud");
 	});
 });
 

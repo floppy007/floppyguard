@@ -1,4 +1,6 @@
 import { type ReactNode, useEffect, useRef } from "react";
+import Modal from "react-bootstrap/Modal";
+import { Button } from "src/components";
 import { intl } from "src/locale/IntlProvider";
 import { ti } from "../utils";
 
@@ -23,11 +25,14 @@ interface Props {
 	children: ReactNode;
 }
 
+/** DOM id of a wizard's title (names the dialog, gets the focus). */
+export const ingressWizardTitleId = (agentId: number, wizard: string) => `ingress-${agentId}-wizard-${wizard}-title`;
+
 /**
- * Inline wizard card (the panel may already sit inside a modal, so no nested
- * modal): step indicator, Back / Next / Save, error area for client and server
- * errors. Focus: the title on open (the menu item that opened it is gone), the
- * step content whenever the step changes (Next/Back swap the content).
+ * A wizard as the header, body and footer of the panel's editor dialog: step
+ * indicator, error area for client and server errors, footer with Cancel and
+ * Back / Next / Save. Focus: the title on open, the step content whenever the
+ * step changes (Next/Back swap the content).
  */
 export function WizardShell({
 	agentId,
@@ -46,7 +51,7 @@ export function WizardShell({
 	children,
 }: Props) {
 	const last = step === steps.length - 1;
-	const titleId = `ingress-${agentId}-wizard-${wizard}-title`;
+	const titleId = ingressWizardTitleId(agentId, wizard);
 	const stepId = `ingress-${agentId}-wizard-${wizard}-step`;
 	const titleRef = useRef<HTMLDivElement>(null);
 	const stepRef = useRef<HTMLDivElement>(null);
@@ -63,12 +68,14 @@ export function WizardShell({
 	}, [step]);
 
 	return (
-		<section className="card card-sm mb-3" aria-labelledby={titleId} data-testid={`ingress-wizard-${wizard}`}>
-			<div className="card-body">
-				<div className="fw-medium mb-2" id={titleId} ref={titleRef} tabIndex={-1}>
+		<>
+			<Modal.Header closeButton>
+				<Modal.Title id={titleId} ref={titleRef} tabIndex={-1}>
 					{title}
-				</div>
-				<ol className="steps steps-counter steps-blue my-3 small">
+				</Modal.Title>
+			</Modal.Header>
+			<Modal.Body data-testid={`ingress-wizard-${wizard}`}>
+				<ol className="steps steps-counter steps-blue mt-0 mb-3 small">
 					{steps.map((s, i) => (
 						<li
 							key={s}
@@ -79,12 +86,7 @@ export function WizardShell({
 						</li>
 					))}
 				</ol>
-				<div
-					ref={stepRef}
-					tabIndex={-1}
-					id={stepId}
-					data-testid="ingress-wizard-step"
-				>
+				<div ref={stepRef} tabIndex={-1} id={stepId} data-testid="ingress-wizard-step">
 					{children}
 				</div>
 				{errors.length > 0 && (
@@ -95,41 +97,26 @@ export function WizardShell({
 					</ul>
 				)}
 				{info && <div className="small text-info mt-2">{info}</div>}
-				<div className="d-flex flex-wrap gap-2 mt-3">
+			</Modal.Body>
+			<Modal.Footer>
+				<Button onClick={onCancel}>{intl.formatMessage({ id: "cancel" })}</Button>
+				<div className="ms-auto d-flex flex-wrap gap-2">
 					{step > 0 && (
-						<button
-							type="button"
-							className="btn btn-sm btn-outline-secondary"
-							disabled={pending}
-							onClick={() => onStep(step - 1)}
-						>
+						<Button disabled={pending} onClick={() => onStep(step - 1)}>
 							{ti("wizard.back")}
-						</button>
+						</Button>
 					)}
 					{last ? (
-						<button
-							type="button"
-							className="btn btn-sm btn-primary"
-							disabled={pending || !canSave}
-							onClick={onSave}
-						>
+						<Button actionType="primary" isLoading={pending} disabled={pending || !canSave} onClick={onSave}>
 							{intl.formatMessage({ id: "save" })}
-						</button>
+						</Button>
 					) : (
-						<button
-							type="button"
-							className="btn btn-sm btn-primary"
-							disabled={!canNext}
-							onClick={() => onStep(step + 1)}
-						>
+						<Button actionType="primary" disabled={!canNext} onClick={() => onStep(step + 1)}>
 							{ti("wizard.next")}
-						</button>
+						</Button>
 					)}
-					<button type="button" className="btn btn-sm btn-outline-secondary ms-auto" onClick={onCancel}>
-						{intl.formatMessage({ id: "cancel" })}
-					</button>
 				</div>
-			</div>
-		</section>
+			</Modal.Footer>
+		</>
 	);
 }

@@ -19,14 +19,15 @@ import { intl } from "src/locale/IntlProvider";
 import { POPPER_FIXED } from "src/modules/Dropdown";
 import { AgentIngressCheckList } from "./CheckList";
 import { MissingProxyAction, PruneAction } from "./ComfortActions";
+import { IngressEditorModal } from "./EditorModal";
 import { IngressTester } from "./IngressTester";
-import { AgentIngressRuleForm } from "./RuleForm";
+import { AgentIngressRuleForm, ingressRuleFormTitleId } from "./RuleForm";
 import { AgentIngressRuleSentences } from "./RuleSentences";
-import { ingressRuleDomId } from "./RulesTable";
+import { ingressRuleDomId, rawRuleDomId } from "./RulesTable";
 import { isolatedSiteNamesFor, SITE_ISOLATION_ANCHOR } from "./SiteIsolation";
 import { AgentIngressTechTab } from "./TechTab";
 import { errMessage, ingressWarningCount, ti } from "./utils";
-import { PublishProxyWizard, SiteAccessWizard, SiteFullAccessWizard } from "./wizards";
+import { ingressWizardTitleId, PublishProxyWizard, SiteAccessWizard, SiteFullAccessWizard } from "./wizards";
 
 type Editing = "new" | number | "wizard:proxy" | "wizard:site" | "wizard:full" | null;
 export type IngressTab = "rules" | "check" | "tech";
@@ -278,18 +279,22 @@ export function AgentIngressDetail({ agentId, heading, dangerZone, linkName }: P
 	const [tab, setTabState] = useState<IngressTab>("rules");
 	// tabs once opened stay mounted (hidden): the tester keeps its input and result
 	const [visited, setVisited] = useState<Set<IngressTab>>(() => new Set<IngressTab>(["rules"]));
-	// Only the id: the form must always see the current rule from the query, not
-	// a snapshot from when "edit" was clicked.
+	// What the editor dialog shows. Only the id: the form must always see the
+	// current rule from the query, not a snapshot from when "edit" was clicked.
+	// Cleared only after the dialog faded out (editorOpen = shown).
 	const [editing, setEditing] = useState<Editing>(null);
+	const [editorOpen, setEditorOpen] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [info, setInfo] = useState<string | null>(null);
 	const [highlight, setHighlight] = useState<number | null>(null);
 	const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
-	// "Neue Freigabe" (unmounted while a form/wizard is open): focus goes back
-	// there when the form/wizard closes, or to the edited rule's menu button.
+	// When the editor dialog closed: focus goes to the saved / edited rule's
+	// menu button, else back to "Neue Freigabe".
 	const addRef = useRef<HTMLButtonElement>(null);
 	const prevEditing = useRef<Editing>(null);
 	const focusAfterClose = useRef<number | null>(null);
+	// the rule just saved: highlighted and scrolled to once the dialog is gone
+	const highlightAfterClose = useRef<{ ruleId: number; toRules: boolean } | null>(null);
 	const tabRefs = useRef<Partial<Record<IngressTab, HTMLButtonElement | null>>>({});
 
 	useEffect(
@@ -308,11 +313,11 @@ export function AgentIngressDetail({ agentId, heading, dangerZone, linkName }: P
 		const menuButton =
 			target !== null
 				? document
-						.getElementById(ingressRuleDomId(agentId, target))
+						.getElementById(tab === "tech" ? rawRuleDomId(agentId, target) : ingressRuleDomId(agentId, target))
 						?.querySelector<HTMLButtonElement>("button[data-ingress-edit]")
 				: null;
 		(menuButton ?? addRef.current)?.focus();
-	}, [editing, agentId]);
+	}, [editing, agentId, tab]);
 
 	const later = (fn: () => void, ms: number) => {
 		timers.current.push(setTimeout(fn, ms));
@@ -345,31 +350,54 @@ export function AgentIngressDetail({ agentId, heading, dangerZone, linkName }: P
 		setVisited((prev) => (prev.has(next) ? prev : new Set(prev).add(next)));
 	};
 
-	const focusRule = (ruleId: number) => {
-		setTab("rules");
+	/**
+	 * Highlight a rule and scroll it into view. `toRules`: in the Freigaben tab
+	 * (tester "go to rule", a new rule); else where it is shown now (an edit
+	 * from the Technik table stays there).
+	 */
+	const focusRule = (ruleId: number, toRules = true) => {
+		const inTech = !toRules && tab === "tech";
+		if (toRules) setTab("rules");
 		setHighlight(ruleId);
 		// after the Freigaben tab rendered (and opened the rule's section)
 		later(() => {
-			document.getElementById(ingressRuleDomId(agentId, ruleId))?.scrollIntoView?.({
-				behavior: "smooth",
-				block: "center",
-			});
+			document
+				.getElementById(inTech ? rawRuleDomId(agentId, ruleId) : ingressRuleDomId(agentId, ruleId))
+				?.scrollIntoView?.({
+					behavior: "smooth",
+					block: "center",
+				});
 		}, 50);
 		later(() => setHighlight((h) => (h === ruleId ? null : h)), 2000);
 	};
 
-	/** Close form/wizard; `ruleId` = the rule it created (highlighted, gets the focus). */
-	const closeEditor = (msg?: string, ruleId?: number | null) => {
-		if (typeof ruleId === "number") focusAfterClose.current = ruleId;
-		setEditing(null);
+	/**
+	 * Close the editor dialog; `ruleId` = the rule it saved (highlighted and
+	 * scrolled to after the dialog is gone, gets the focus), `toRules` = show it
+	 * in the Freigaben tab (new rules).
+	 */
+	const closeEditor = (msg?: string, ruleId?: number | null, toRules = true) => {
+		if (typeof ruleId === "number") {
+			focusAfterClose.current = ruleId;
+			highlightAfterClose.current = { ruleId, toRules };
+		}
+		setEditorOpen(false);
 		if (msg) setInfo(msg);
-		if (typeof ruleId === "number") focusRule(ruleId);
+	};
+
+	/** The dialog faded out: drop its content (focus effect above), then show the saved rule. */
+	const onEditorExited = () => {
+		setEditing(null);
+		const saved = highlightAfterClose.current;
+		highlightAfterClose.current = null;
+		if (saved) focusRule(saved.ruleId, saved.toRules);
 	};
 
 	const open = (next: Editing) => {
 		setInfo(null);
+		highlightAfterClose.current = null;
 		setEditing(next);
-		setTab("rules");
+		setEditorOpen(true);
 	};
 
 	const onModeChange = (next: AgentIngressMode) => {
@@ -412,12 +440,18 @@ export function AgentIngressDetail({ agentId, heading, dangerZone, linkName }: P
 		return ti("tab.tech");
 	};
 
-	const showNewButton = !formOpen && !wizardOpen;
+	const editorTitleId =
+		editing === null
+			? undefined
+			: typeof editing === "number" || editing === "new"
+				? ingressRuleFormTitleId(agentId, typeof editing === "number" ? editing : null)
+				: ingressWizardTitleId(agentId, editing.slice("wizard:".length));
+
 	const newButton = <NewRuleButton wizards={wizardsAvailable} onOpen={open} buttonRef={addRef} />;
 
 	const rulesTab = (
 		<div className="d-flex flex-column gap-3">
-			{rules.length > 0 && showNewButton && (
+			{rules.length > 0 && (
 				<div className="d-flex flex-wrap align-items-center gap-2">
 					<span className="text-secondary me-auto">
 						{ti("sentence.active-count", { active: activeRules, count: rules.length })}
@@ -440,30 +474,8 @@ export function AgentIngressDetail({ agentId, heading, dangerZone, linkName }: P
 				</div>
 			)}
 
-			{formOpen && (
-				<AgentIngressRuleForm
-					key={editingRule ? editingRule.id : "new"}
-					agentId={agentId}
-					rule={editingRule}
-					catalog={catalog}
-					onDone={(created) =>
-						closeEditor(created ? ti("result.created-one", { name: created.name }) : undefined, created?.id)
-					}
-				/>
-			)}
-			{catalog && editing === "wizard:proxy" && (
-				<PublishProxyWizard agentId={agentId} catalog={catalog} onDone={closeEditor} />
-			)}
-			{catalog && editing === "wizard:site" && (
-				<SiteAccessWizard agentId={agentId} catalog={catalog} onDone={closeEditor} />
-			)}
-			{catalog && editing === "wizard:full" && (
-				<SiteFullAccessWizard agentId={agentId} catalog={catalog} onDone={closeEditor} />
-			)}
-
 			{rules.length === 0 ? (
-				showNewButton && (
-					<div className="text-center py-4 px-2" data-testid="ingress-empty">
+				<div className="text-center py-4 px-2" data-testid="ingress-empty">
 						<span className="avatar avatar-lg bg-primary-lt text-primary mb-3" aria-hidden>
 							<IconShieldLock />
 						</span>
@@ -473,7 +485,6 @@ export function AgentIngressDetail({ agentId, heading, dangerZone, linkName }: P
 						</p>
 						<div className="d-inline-flex">{newButton}</div>
 					</div>
-				)
 			) : (
 				<AgentIngressRuleSentences
 					agentId={agentId}
@@ -526,6 +537,7 @@ export function AgentIngressDetail({ agentId, heading, dangerZone, linkName }: P
 				catalog={catalog}
 				onEdit={(rule) => open(rule.id)}
 				onError={setError}
+				highlightId={highlight}
 				dangerZone={dangerZone}
 			/>
 		),
@@ -599,6 +611,38 @@ export function AgentIngressDetail({ agentId, heading, dangerZone, linkName }: P
 					))}
 				</div>
 			</div>
+
+			<IngressEditorModal
+				show={editorOpen && (formOpen || (wizardOpen && !!catalog))}
+				labelledBy={editorTitleId}
+				onHide={() => closeEditor()}
+				onExited={onEditorExited}
+			>
+				{formOpen && (
+					<AgentIngressRuleForm
+						key={editingRule ? editingRule.id : "new"}
+						agentId={agentId}
+						rule={editingRule}
+						catalog={catalog}
+						onDone={(saved) =>
+							closeEditor(
+								saved?.created ? ti("result.created-one", { name: saved.rule.name }) : undefined,
+								saved?.rule.id,
+								!!saved?.created,
+							)
+						}
+					/>
+				)}
+				{catalog && editing === "wizard:proxy" && (
+					<PublishProxyWizard agentId={agentId} catalog={catalog} onDone={closeEditor} />
+				)}
+				{catalog && editing === "wizard:site" && (
+					<SiteAccessWizard agentId={agentId} catalog={catalog} onDone={closeEditor} />
+				)}
+				{catalog && editing === "wizard:full" && (
+					<SiteFullAccessWizard agentId={agentId} catalog={catalog} onDone={closeEditor} />
+				)}
+			</IngressEditorModal>
 		</div>
 	);
 }

@@ -29,7 +29,7 @@ export function HitCell({ rule }: { rule: AgentIngressRule }) {
 export const ingressRuleDomId = (agentId: number, ruleId: number) => `ingress-rule-${agentId}-${ruleId}`;
 
 /** DOM id of the same rule in the raw table (tab Technik) — distinct, both can be mounted. */
-const rawRuleDomId = (agentId: number, ruleId: number) => `${ingressRuleDomId(agentId, ruleId)}-raw`;
+export const rawRuleDomId = (agentId: number, ruleId: number) => `${ingressRuleDomId(agentId, ruleId)}-raw`;
 
 /** Toggle / delete shared by the table and the sentence view. */
 export function useRuleRowActions(agentId: number, onError: (msg: string | null) => void) {

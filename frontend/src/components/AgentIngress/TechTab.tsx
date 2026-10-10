@@ -20,6 +20,8 @@ interface Props {
 	catalog?: AgentIngressCatalog | null;
 	onEdit: (rule: AgentIngressRule) => void;
 	onError: (msg: string | null) => void;
+	/** rule to highlight briefly (just edited) */
+	highlightId?: number | null;
 	/** rare destructive actions (remove the agent), last section of the tab */
 	dangerZone?: ReactNode;
 }
@@ -48,6 +50,7 @@ export function AgentIngressTechTab({
 	catalog,
 	onEdit,
 	onError,
+	highlightId,
 	dangerZone,
 }: Props) {
 	const preview = useAgentIngressPreview(agentId);
@@ -111,6 +114,7 @@ export function AgentIngressTechTab({
 						catalog={catalog}
 						onEdit={onEdit}
 						onError={onError}
+						highlightId={highlightId}
 					/>
 				) : (
 					<p className="text-secondary small mb-0">{ti("empty")}</p>

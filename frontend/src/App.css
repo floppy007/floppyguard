@@ -210,6 +210,21 @@ body:not(.auth) {
 	display: none;
 }
 
+/* Freigaben editor dialog (rule form, wizards): it may open inside the agent
+   dialog, so it sits one layer above any other dialog and its backdrop. */
+.modal.ingress-editor-modal {
+	--tblr-modal-zindex: 1065;
+}
+
+.modal-backdrop.ingress-editor-backdrop {
+	--tblr-backdrop-zindex: 1060;
+}
+
+/* stacked over another dialog: one backdrop already dims the page */
+.modal ~ .modal-backdrop.ingress-editor-backdrop {
+	--tblr-backdrop-opacity: 0.35 !important;
+}
+
 /* "Standorte untereinander": compact matrix, equal cell widths, diagonal shaded */
 .site-isolation-matrix th,
 .site-isolation-matrix td {

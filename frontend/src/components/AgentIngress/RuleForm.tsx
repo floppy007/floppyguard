@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import Modal from "react-bootstrap/Modal";
 import type { AgentIngressCatalog, AgentIngressRule, AgentIngressRuleData } from "src/api/backend";
 import { useCreateAgentIngressRule, useUpdateAgentIngressRule } from "src/hooks";
+import { Button } from "src/components";
 import { intl } from "src/locale/IntlProvider";
 import { CatalogPicker } from "./CatalogPicker";
 import { autoRuleName, isBroadRule, lineCount, MAX_RULE_LINES } from "./catalog";
@@ -55,15 +57,24 @@ interface Props {
 	agentId: number;
 	/** null = create a new rule */
 	rule: AgentIngressRule | null;
-	/** created: the new rule (create only) — confirmed and highlighted by the panel */
-	onDone: (created?: AgentIngressRule) => void;
+	/**
+	 * Closes the dialog. After a save: the saved rule and whether it is new (the
+	 * panel confirms a new one and highlights either); without: cancelled or
+	 * nothing changed.
+	 */
+	onDone: (saved?: { rule: AgentIngressRule; created: boolean }) => void;
 	/** with a catalog: name pickers and port presets; without (loading, error, old backend): plain text fields */
 	catalog?: AgentIngressCatalog | null;
 }
 
+/** DOM id of the form's title (names the dialog, gets the focus). */
+export const ingressRuleFormTitleId = (agentId: number, ruleId: number | null) =>
+	`ingress-${agentId}-rule-${ruleId ?? "new"}-title`;
+
 /**
  * Add/edit form for one ingress rule ("own rule", for experts — the wizards are
- * the main path). Validates client-side, shows backend errors too. A rule
+ * the main path), as the header, body and footer of the panel's editor dialog.
+ * Validates client-side, shows backend errors in the dialog too. A rule
  * without a typed name is named after its sentence.
  */
 export function AgentIngressRuleForm({ agentId, rule, onDone, catalog }: Props) {
@@ -77,7 +88,7 @@ export function AgentIngressRuleForm({ agentId, rule, onDone, catalog }: Props) 
 	const idPrefix = `ingress-${agentId}-rule-${rule?.id ?? "new"}`;
 	const titleRef = useRef<HTMLDivElement>(null);
 
-	// The button that opened the form is gone now: move focus into the form
+	// The dialog opened over the button that opened it: move focus into the form
 	useEffect(() => {
 		titleRef.current?.focus();
 	}, []);
@@ -105,18 +116,28 @@ export function AgentIngressRuleForm({ agentId, rule, onDone, catalog }: Props) 
 				onDone();
 				return;
 			}
-			updateRule.mutate({ ruleId: rule.id, data }, { onSuccess: () => onDone() });
+			updateRule.mutate(
+				{ ruleId: rule.id, data },
+				{ onSuccess: (saved) => onDone({ rule: { ...rule, ...saved, id: rule.id }, created: false }) },
+			);
 		} else {
-			createRule.mutate(formToData(final), { onSuccess: (created) => onDone(created) });
+			createRule.mutate(formToData(final), { onSuccess: (created) => onDone({ rule: created, created: true }) });
 		}
 	};
 
 	return (
-		<div className="card card-sm mb-3">
-			<div className="card-body">
-				<div className="fw-medium mb-2" ref={titleRef} tabIndex={-1} data-testid="ingress-form-title">
+		<>
+			<Modal.Header closeButton>
+				<Modal.Title
+					id={ingressRuleFormTitleId(agentId, rule?.id ?? null)}
+					ref={titleRef}
+					tabIndex={-1}
+					data-testid="ingress-form-title"
+				>
 					{rule ? ti("form.edit-title") : ti("form.add-title")}
-				</div>
+				</Modal.Title>
+			</Modal.Header>
+			<Modal.Body data-testid="ingress-form">
 				<div className="row g-2">
 					<div className="col-md-6">
 						<label className="form-label mb-1 small" htmlFor={`${idPrefix}-name`}>
@@ -278,21 +299,24 @@ export function AgentIngressRuleForm({ agentId, rule, onDone, catalog }: Props) 
 						))}
 					</ul>
 				)}
-				{serverError && <div className="small text-danger mt-2">{serverError.message}</div>}
-				<div className="d-flex gap-2 mt-3">
-					<button
-						type="button"
-						className="btn btn-sm btn-primary"
-						disabled={pending || tooMany}
-						onClick={onSubmit}
-					>
-						{intl.formatMessage({ id: "save" })}
-					</button>
-					<button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => onDone()}>
-						{intl.formatMessage({ id: "cancel" })}
-					</button>
-				</div>
-			</div>
-		</div>
+				{serverError && (
+					<div className="alert d-block alert-danger py-2 px-3 small mt-2 mb-0" role="alert" data-testid="ingress-form-server-error">
+						{serverError.message}
+					</div>
+				)}
+			</Modal.Body>
+			<Modal.Footer>
+				<Button onClick={() => onDone()}>{intl.formatMessage({ id: "cancel" })}</Button>
+				<Button
+					actionType="primary"
+					className="ms-auto"
+					isLoading={pending}
+					disabled={pending || tooMany}
+					onClick={onSubmit}
+				>
+					{intl.formatMessage({ id: "save" })}
+				</Button>
+			</Modal.Footer>
+		</>
 	);
 }
