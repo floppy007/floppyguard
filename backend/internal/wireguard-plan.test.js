@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -262,8 +262,9 @@ test("buildPlanPreview marks unknown targets as invalid preview errors", () => {
 	assert.equal(preview.nextActions.includes("resolve-preview-errors"), true);
 });
 
-test("applyMetadata writes metadata-only changes and creates a backup", async () => {
+test("applyMetadata writes metadata-only changes and creates a backup", async (t) => {
 	const tempRoot = await mkdtemp(path.join(os.tmpdir(), "wg-plan-apply-"));
+	t.after(() => rm(tempRoot, { recursive: true, force: true }));
 	const confDir = path.join(tempRoot, "conf");
 	const metadataFile = path.join(tempRoot, "wireguard-metadata.json");
 	await mkdir(confDir, { recursive: true });
@@ -413,8 +414,9 @@ test("buildPlanPreview rejects duplicate subnet claims between non-client peers"
 	);
 });
 
-test("restoreMetadataBackup restores a known backup and records restore audit", async () => {
+test("restoreMetadataBackup restores a known backup and records restore audit", async (t) => {
 	const tempRoot = await mkdtemp(path.join(os.tmpdir(), "wg-plan-restore-"));
+	t.after(() => rm(tempRoot, { recursive: true, force: true }));
 	const confDir = path.join(tempRoot, "conf");
 	const metadataFile = path.join(tempRoot, "wireguard-metadata.json");
 	await mkdir(confDir, { recursive: true });

@@ -51,7 +51,9 @@ function IsolatedBadge({ sites }: { sites: string[] }) {
 			data-testid="ingress-list-isolated"
 		>
 			<IconLock size={12} className="flex-shrink-0" aria-hidden />
-			<span className="text-truncate">{label}</span>
+			<span className="text-truncate" style={{ lineHeight: 1.4, paddingBottom: "1px" }}>
+				{label}
+			</span>
 		</span>
 	);
 }
