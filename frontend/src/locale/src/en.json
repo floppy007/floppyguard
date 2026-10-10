@@ -1524,16 +1524,19 @@
 		"defaultMessage": "status unknown"
 	},
 	"wireguard.agent.ingress.badge.open": {
-		"defaultMessage": "Open"
+		"defaultMessage": "Ingress filter off"
 	},
 	"wireguard.agent.ingress.badge.restricted": {
-		"defaultMessage": "Filter on"
+		"defaultMessage": "Ingress filter on"
+	},
+	"wireguard.agent.ingress.banner.explain": {
+		"defaultMessage": "The ingress filter checks traffic that wants to enter this site’s network from the tunnel."
 	},
 	"wireguard.agent.ingress.banner.isolated-from": {
-		"defaultMessage": "Separated from: {sites}"
+		"defaultMessage": "Separated on the hub from: {sites}"
 	},
 	"wireguard.agent.ingress.banner.isolated-hint": {
-		"defaultMessage": "(see “Sites among each other”)"
+		"defaultMessage": "(see “Separation between sites”)"
 	},
 	"wireguard.agent.ingress.banner.networks": {
 		"defaultMessage": "Networks"
@@ -1541,23 +1544,29 @@
 	"wireguard.agent.ingress.banner.open": {
 		"defaultMessage": "All traffic from the tunnel gets through."
 	},
-	"wireguard.agent.ingress.banner.open-title": {
-		"defaultMessage": "Open – no filter"
+	"wireguard.agent.ingress.banner.open-except": {
+		"defaultMessage": "Ingress filter off – traffic from other sites gets through, except from: {sites} (separated on the hub)."
 	},
 	"wireguard.agent.ingress.banner.restricted": {
 		"defaultMessage": "Only released traffic from the tunnel reaches this network ({count, plural, one {# active rule} other {# active rules}})."
 	},
 	"wireguard.agent.ingress.banner.restricted-none": {
-		"defaultMessage": "Filter on, but no active rule – all traffic from the tunnel is dropped."
+		"defaultMessage": "Ingress filter on, but no active rule – all traffic from the tunnel is dropped."
+	},
+	"wireguard.agent.ingress.banner.title-off": {
+		"defaultMessage": "Ingress filter at this site: off"
+	},
+	"wireguard.agent.ingress.banner.title-on": {
+		"defaultMessage": "Ingress filter at this site: on"
 	},
 	"wireguard.agent.ingress.banner.to-check": {
 		"defaultMessage": "Show in Check"
 	},
 	"wireguard.agent.ingress.banner.turn-off": {
-		"defaultMessage": "Turn filter off"
+		"defaultMessage": "Turn ingress filter off"
 	},
 	"wireguard.agent.ingress.banner.turn-on": {
-		"defaultMessage": "Turn filter on"
+		"defaultMessage": "Turn ingress filter on"
 	},
 	"wireguard.agent.ingress.catalog.group.clients": {
 		"defaultMessage": "VPN clients"
@@ -1704,10 +1713,10 @@
 		"defaultMessage": "Hits only count NEW connections: long-lived sessions (LDAP, IMAP, iSCSI) look idle. Switched-off rules can be switched on again at any time."
 	},
 	"wireguard.agent.ingress.confirm-open": {
-		"defaultMessage": "Turn the filter off? All traffic from the tunnel then reaches this network unfiltered — the rules only count hits."
+		"defaultMessage": "Turn the ingress filter off? All traffic from the tunnel then reaches this network unfiltered — the rules only count hits. A separation between sites on the hub stays in place."
 	},
 	"wireguard.agent.ingress.confirm-restricted": {
-		"defaultMessage": "Turn the filter on? All traffic forwarded from the tunnel into the LAN that does not match an active rule will be dropped — a missing rule cuts the site off for that traffic. Services on the gateway itself are not filtered."
+		"defaultMessage": "Turn the ingress filter on? All traffic forwarded from the tunnel into the LAN that does not match an active rule will be dropped — a missing rule cuts the site off for that traffic. Services on the gateway itself are not filtered."
 	},
 	"wireguard.agent.ingress.danger.orphan": {
 		"defaultMessage": "The WireGuard connection of this agent no longer exists – it can only be removed here."
@@ -1808,6 +1817,9 @@
 	"wireguard.agent.ingress.legacy": {
 		"defaultMessage": "Legacy"
 	},
+	"wireguard.agent.ingress.list.isolated": {
+		"defaultMessage": "separated from {sites}"
+	},
 	"wireguard.agent.ingress.list.warnings": {
 		"defaultMessage": "{count, plural, one {# proxy target is dropped} other {# proxy targets are dropped}}"
 	},
@@ -1821,7 +1833,7 @@
 		"defaultMessage": "New rule"
 	},
 	"wireguard.agent.ingress.open-hint": {
-		"defaultMessage": "Before removing an external filter on the gateway (e.g. VPN_MGR): turn the filter on and wait until the agent reports it as applied."
+		"defaultMessage": "Before removing an external filter on the gateway (e.g. VPN_MGR): turn the ingress filter on and wait until the agent reports it as applied."
 	},
 	"wireguard.agent.ingress.open-page": {
 		"defaultMessage": "Show all ingress rules"
@@ -1839,7 +1851,7 @@
 		"defaultMessage": "Sites"
 	},
 	"wireguard.agent.ingress.page.sites-summary": {
-		"defaultMessage": "{restricted} filtered · {open} open"
+		"defaultMessage": "{restricted} with ingress filter · {open} without"
 	},
 	"wireguard.agent.ingress.page.title": {
 		"defaultMessage": "Access rules"
@@ -1947,7 +1959,7 @@
 		"defaultMessage": "Click to separate"
 	},
 	"wireguard.agent.ingress.sites.active": {
-		"defaultMessage": "active"
+		"defaultMessage": "active on the hub"
 	},
 	"wireguard.agent.ingress.sites.adopt-button": {
 		"defaultMessage": "Take over into FloppyGuard"
@@ -2028,7 +2040,7 @@
 		"defaultMessage": "Last changed: {time} by {user}"
 	},
 	"wireguard.agent.ingress.sites.lead": {
-		"defaultMessage": "Decide which sites may reach each other. Separation happens on the hub – in addition to the rules at each site. Applies to site links only; VPN devices (clients) are not affected."
+		"defaultMessage": "The hub drops all traffic between separated sites – regardless of the ingress filter at the site. Applies to site links only; VPN devices (clients) are not affected."
 	},
 	"wireguard.agent.ingress.sites.matrix-caption": {
 		"defaultMessage": "Which sites are separated from each other (each pair once)"
@@ -2052,7 +2064,7 @@
 		"defaultMessage": "separated – not in effect"
 	},
 	"wireguard.agent.ingress.sites.state.open": {
-		"defaultMessage": "not separated"
+		"defaultMessage": "connected"
 	},
 	"wireguard.agent.ingress.sites.summary": {
 		"defaultMessage": "{blocked, plural, =0 {{total, plural, one {The site pair is not separated} other {None of the # site pairs separated}}} other {# of {total} site pairs separated}}"
@@ -2061,7 +2073,7 @@
 		"defaultMessage": "Switch on = not separated (the site rules apply), off = separated on the hub."
 	},
 	"wireguard.agent.ingress.sites.title": {
-		"defaultMessage": "Sites among each other"
+		"defaultMessage": "Separation between sites (on the hub)"
 	},
 	"wireguard.agent.ingress.sites.too-few": {
 		"defaultMessage": "There are fewer than two site-to-site links – nothing to separate."

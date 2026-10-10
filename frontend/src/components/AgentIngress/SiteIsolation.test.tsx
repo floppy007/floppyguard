@@ -11,11 +11,14 @@ import { AgentIngressDetail } from "./Panel";
 import {
 	adoptManualPairs,
 	isolatedSiteNames,
+	isolatedSiteNamesFor,
 	nextSitePairs,
+	SITE_ISOLATION_COLLAPSED_KEY,
 	SiteIsolationCard,
 	sitePairKey,
-	sitePairState,
 	siteIsolationNeedsAttention,
+	siteLinkIdForName,
+	sitePairState,
 } from "./SiteIsolation";
 
 // ── fetch mock (snake_case like the backend; the API layer camelizes) ─────────
@@ -35,6 +38,8 @@ const site = (link_id: string, name: string, online = true) => ({
 let overview: any;
 let putStatus = 200;
 let testPayload: any;
+/** link id the catalog reports for agent 1 (null = older backend without it) */
+let catalogLinkId: string | null = H;
 
 const baseOverview = () => ({
 	sites: [site(D, "Daniel Home"), site(F, "Floppy Home"), site(H, "Hinderlich Office", false)],
@@ -133,7 +138,7 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => 
 			agent_name: "gw-h",
 			ingress_mode: "open",
 			link_found: true,
-			site: { link_id: H, name: "Hinderlich Office", networks: ["192.168.210.0/24"] },
+			site: { link_id: catalogLinkId, name: "Hinderlich Office", networks: ["192.168.210.0/24"] },
 			sources: [],
 			destinations: [],
 			port_presets: [],
@@ -162,6 +167,8 @@ beforeEach(() => {
 	overview = baseOverview();
 	putStatus = 200;
 	testPayload = null;
+	catalogLinkId = H;
+	window.localStorage.clear();
 	fetchMock.mockClear();
 	vi.stubGlobal("fetch", fetchMock);
 });
@@ -219,6 +226,20 @@ describe("site isolation helpers", () => {
 		expect(isolatedSiteNames(data, H)).toEqual(["Daniel Home"]);
 		expect(isolatedSiteNames(data, F)).toEqual([]);
 		expect(isolatedSiteNames(undefined, H)).toEqual([]);
+	});
+
+	it("finds an agent's site by its WireGuard link name (sites first, then stored pair names)", () => {
+		expect(siteLinkIdForName(data, "Hinderlich Office")).toBe(H);
+		expect(siteLinkIdForName(data, " Daniel Home ")).toBe(D);
+		expect(siteLinkIdForName(data, H)).toBe(H);
+		expect(siteLinkIdForName({ ...data, sites: [] }, "Hinderlich Office")).toBe(H);
+		expect(siteLinkIdForName(data, "Unknown")).toBeNull();
+		expect(siteLinkIdForName(data, null)).toBeNull();
+		expect(siteLinkIdForName(undefined, "Hinderlich Office")).toBeNull();
+		// the link id (catalog) wins, the link name is the fallback
+		expect(isolatedSiteNamesFor(data, D, "Floppy Home")).toEqual(["Hinderlich Office"]);
+		expect(isolatedSiteNamesFor(data, null, "Hinderlich Office")).toEqual(["Daniel Home"]);
+		expect(isolatedSiteNamesFor(data, undefined, "Floppy Home")).toEqual([]);
 	});
 
 	it("adopts manual pairs into the full set, skipping vanished links", () => {
@@ -283,26 +304,45 @@ describe("SiteIsolationCard", () => {
 		expect(cell(D, H).getAttribute("data-state")).toBe("blocked");
 		expect(cell(D, H).textContent).toContain("separated");
 		expect(cell(D, F).getAttribute("data-state")).toBe("open");
-		expect(cell(D, F).textContent).toContain("not separated");
+		expect(cell(D, F).textContent).toContain("connected");
+		expect(cell(D, F).textContent).not.toContain("separated");
 		expect(cell(D, F).className).not.toContain("bg-green-lt");
 		expect(cell(D, H).getAttribute("aria-label")).toContain("1,234 packets dropped");
 		expect(screen.getByTestId("site-isolation-summary").textContent).toBe("1 of 3 site pairs separated");
 	});
 
-	it("collapsed to one line when nothing needs attention; Edit opens it", async () => {
+	it("expanded by default; the collapse choice is remembered in this browser", async () => {
 		calm();
-		render(<SiteIsolationCard />, { wrapper: createWrapper() });
+		const { unmount } = render(<SiteIsolationCard />, { wrapper: createWrapper() });
 		const toggle = await screen.findByTestId("site-isolation-toggle");
-		expect(screen.getByTestId("site-isolation").getAttribute("data-expanded")).toBe("false");
+		expect(screen.getByTestId("site-isolation").getAttribute("data-expanded")).toBe("true");
+		expect(screen.getByTestId("site-isolation-matrix")).toBeTruthy();
+		expect(screen.getByTestId("site-isolation").textContent).toContain(
+			"The hub drops all traffic between separated sites – regardless of the ingress filter at the site.",
+		);
+		expect(toggle.textContent).toBe("Collapse");
+		expect(toggle.getAttribute("aria-expanded")).toBe("true");
+		fireEvent.click(toggle);
 		expect(screen.queryByTestId("site-isolation-matrix")).toBeNull();
 		expect(screen.getByTestId("site-isolation-summary").textContent).toBe("1 of 3 site pairs separated");
 		expect(toggle.textContent).toBe("Edit");
-		expect(toggle.getAttribute("aria-expanded")).toBe("false");
-		fireEvent.click(toggle);
+		expect(window.localStorage.getItem(SITE_ISOLATION_COLLAPSED_KEY)).toBe("1");
+		unmount();
+
+		// next visit: stays collapsed; opening again forgets the choice
+		render(<SiteIsolationCard />, { wrapper: createWrapper() });
+		const again = await screen.findByTestId("site-isolation-toggle");
+		expect(screen.getByTestId("site-isolation").getAttribute("data-expanded")).toBe("false");
+		fireEvent.click(again);
 		expect(await screen.findByTestId("site-isolation-matrix")).toBeTruthy();
-		expect(toggle.textContent).toBe("Collapse");
-		fireEvent.click(toggle);
-		expect(screen.queryByTestId("site-isolation-matrix")).toBeNull();
+		expect(window.localStorage.getItem(SITE_ISOLATION_COLLAPSED_KEY)).toBeNull();
+	});
+
+	it("a remembered collapse still opens when something needs attention", async () => {
+		window.localStorage.setItem(SITE_ISOLATION_COLLAPSED_KEY, "1");
+		render(<SiteIsolationCard />, { wrapper: createWrapper() });
+		await screen.findByTestId("site-isolation-warnings");
+		expect(screen.getByTestId("site-isolation").getAttribute("data-expanded")).toBe("true");
 	});
 
 	it("summary with nothing separated", async () => {
@@ -518,7 +558,6 @@ describe("SiteIsolationCard", () => {
 		overview = { ...overview, sites: [site(D, "Daniel Home")], pairs: [], warnings: [] };
 		render(<SiteIsolationCard />, { wrapper: createWrapper() });
 		expect((await screen.findByTestId("site-isolation-summary")).textContent).toBe("Fewer than two sites");
-		fireEvent.click(screen.getByTestId("site-isolation-toggle"));
 		expect(await screen.findByTestId("site-isolation-too-few")).toBeTruthy();
 		expect(screen.queryByTestId("site-isolation-matrix")).toBeNull();
 	});
@@ -533,9 +572,30 @@ describe("SiteIsolationCard", () => {
 	it("sits on the Freigaben page above the per-site view", async () => {
 		render(<IngressPageContent />, { wrapper: createWrapper() });
 		const card = await screen.findByTestId("site-isolation");
-		expect(within(card).getByRole("heading", { name: "Sites among each other" })).toBeTruthy();
+		expect(within(card).getByRole("heading", { name: "Separation between sites (on the hub)" })).toBeTruthy();
 		const detail = await screen.findByTestId("ingress-detail-1");
 		expect(card.compareDocumentPosition(detail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+	});
+
+	it("the site list marks a site the hub separates, next to its ingress filter state", async () => {
+		render(<IngressPageContent />, { wrapper: createWrapper() });
+		const item = await screen.findByTestId("ingress-agent-1");
+		expect(item.textContent).toContain("Ingress filter off");
+		const badge = await within(item).findByTestId("ingress-list-isolated");
+		expect(badge.textContent).toBe("separated from Daniel Home");
+		expect(badge.getAttribute("title")).toBe("separated from Daniel Home");
+		expect(badge.className).toContain("text-truncate");
+		const option = within(screen.getByTestId("ingress-agent-select")).getByRole("option");
+		expect(option.textContent).toContain("Ingress filter off · separated from Daniel Home");
+	});
+
+	it("no separation badge for a site without separated pairs", async () => {
+		overview = { ...overview, pairs: [] };
+		render(<IngressPageContent />, { wrapper: createWrapper() });
+		await screen.findByTestId("ingress-agent-1");
+		await waitFor(() => expect(calls.some((c) => c.url === "/api/site-isolation")).toBe(true));
+		await screen.findByTestId("site-isolation-matrix");
+		expect(screen.queryByTestId("ingress-list-isolated")).toBeNull();
 	});
 });
 
@@ -545,12 +605,23 @@ describe("site isolation in the per-site view", () => {
 	it("the status banner lists the sites this one is cut off from", async () => {
 		render(<AgentIngressDetail agentId={1} />, { wrapper: createWrapper() });
 		const line = await screen.findByTestId("ingress-banner-isolated");
-		expect(line.textContent).toContain("Separated from: Daniel Home");
+		expect(line.textContent).toContain("Separated on the hub from: Daniel Home");
+		// ingress filter off: the text says what still gets through — and what the hub drops
+		expect(screen.getByTestId("ingress-banner-text").textContent).toBe(
+			"Ingress filter off – traffic from other sites gets through, except from: Daniel Home (separated on the hub).",
+		);
 		// the hint links to the card (which then opens), no duplicate tooltip
 		const link = screen.getByTestId("ingress-banner-isolated-link");
 		expect(link.getAttribute("href")).toBe("/ingress#site-isolation");
-		expect(link.textContent).toBe("(see “Sites among each other”)");
+		expect(link.textContent).toBe("(see “Separation between sites”)");
 		expect(line.getAttribute("title")).toBeNull();
+	});
+
+	it("finds the site by the agent's link name when the catalog has no link id", async () => {
+		catalogLinkId = null;
+		render(<AgentIngressDetail agentId={1} linkName="Hinderlich Office" />, { wrapper: createWrapper() });
+		const line = await screen.findByTestId("ingress-banner-isolated");
+		expect(line.textContent).toContain("Separated on the hub from: Daniel Home");
 	});
 
 	it("no isolation line when the site is not isolated", async () => {
@@ -560,6 +631,7 @@ describe("site isolation in the per-site view", () => {
 		await waitFor(() => expect(calls.some((c) => c.url === "/api/site-isolation")).toBe(true));
 		await waitFor(() => expect(calls.some((c) => c.url === "/api/agents/1/ingress/catalog")).toBe(true));
 		expect(screen.queryByTestId("ingress-banner-isolated")).toBeNull();
+		expect(screen.getByTestId("ingress-banner-text").textContent).toBe("All traffic from the tunnel gets through.");
 	});
 
 	it("the tester names the blocked pair when the hub's site isolation drops the flow", async () => {

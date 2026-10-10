@@ -525,8 +525,9 @@ describe("AgentIngressDialog", () => {
 		confirmMock.mockReturnValue(true);
 		renderDialog();
 		const banner = await screen.findByTestId("ingress-banner");
-		expect(banner.textContent).toContain("Open – no filter");
-		fireEvent.click(within(banner).getByRole("button", { name: "Turn filter on" }));
+		expect(banner.textContent).toContain("Ingress filter at this site: off");
+		expect(banner.textContent).toContain("checks traffic that wants to enter this site’s network from the tunnel");
+		fireEvent.click(within(banner).getByRole("button", { name: "Turn ingress filter on" }));
 		expect(confirmMock).toHaveBeenCalled();
 		await waitFor(() => {
 			const put = calls.find((c) => c.method === "PUT" && c.url === "/api/agents/1/ingress");
@@ -537,7 +538,7 @@ describe("AgentIngressDialog", () => {
 	it("does not switch when the confirmation is declined", async () => {
 		confirmMock.mockReturnValue(false);
 		renderDialog();
-		fireEvent.click(await screen.findByRole("button", { name: "Turn filter on" }));
+		fireEvent.click(await screen.findByRole("button", { name: "Turn ingress filter on" }));
 		expect(confirmMock).toHaveBeenCalled();
 		expect(calls.some((c) => c.method === "PUT")).toBe(false);
 	});
@@ -914,7 +915,7 @@ describe("AgentIngressDialog", () => {
 		});
 		// banner: filter on, hint link to the check tab; the tab carries the count
 		const banner = await screen.findByTestId("ingress-banner");
-		expect(banner.textContent).toContain("Filter on");
+		expect(banner.textContent).toContain("Ingress filter at this site: on");
 		expect(banner.textContent).toContain("1 active rule");
 		expect(await within(banner).findByText(/1 proxy target is dropped/)).toBeTruthy();
 		expect((await screen.findByTestId("ingress-tab-check-badge")).textContent).toBe("1");
@@ -935,8 +936,8 @@ describe("AgentIngressDialog", () => {
 		render(<AgentIngressDialog agentId={2} agentName="site-b" visible onClose={() => {}} />, {
 			wrapper: createWrapper(),
 		});
-		fireEvent.click(await screen.findByRole("button", { name: "Turn filter off" }));
-		expect(String((confirmMock.mock.calls[0] as unknown[])[0])).toContain("Turn the filter off?");
+		fireEvent.click(await screen.findByRole("button", { name: "Turn ingress filter off" }));
+		expect(String((confirmMock.mock.calls[0] as unknown[])[0])).toContain("Turn the ingress filter off?");
 		await waitFor(() => {
 			const put = calls.find((c) => c.method === "PUT" && c.url === "/api/agents/2/ingress");
 			expect(put?.body).toEqual({ ingress_mode: "open" });
@@ -1331,10 +1332,10 @@ describe("Ingress page", () => {
 		const items = within(list).getAllByRole("button");
 		expect(items.map((b) => b.getAttribute("data-testid"))).toEqual(["ingress-agent-2", "ingress-agent-1"]);
 		expect(items[0].getAttribute("aria-current")).toBe("true");
-		expect(items[0].textContent).toContain("Filter on");
-		expect(items[1].textContent).toContain("Open");
+		expect(items[0].textContent).toContain("Ingress filter on");
+		expect(items[1].textContent).toContain("Ingress filter off");
 		await waitFor(() => expect(items[0].textContent).toContain("1 active rule"));
-		expect(screen.getByTestId("ingress-sites-summary").textContent).toBe("1 filtered · 1 open");
+		expect(screen.getByTestId("ingress-sites-summary").textContent).toBe("1 with ingress filter · 1 without");
 		// detail of agent 2 with its name as the banner heading
 		const detail = await screen.findByTestId("ingress-detail-2");
 		expect(within(detail).getByRole("heading", { name: "site-b" })).toBeTruthy();
@@ -1345,7 +1346,7 @@ describe("Ingress page", () => {
 		// link name equals the agent name: no repeated secondary line
 		expect(within(items[1]).queryByTestId("ingress-list-agent")).toBeNull();
 		const option = within(screen.getByTestId("ingress-agent-select")).getByRole("option", { name: /^site-b/ });
-		expect(option.textContent).toContain("site-b · (VM-B (10.0.0.2)) · Filter on");
+		expect(option.textContent).toContain("site-b · (VM-B (10.0.0.2)) · Ingress filter on");
 		await waitFor(() => expect(detail.textContent).toContain("Site B rule"));
 		expect(screen.queryByTestId("ingress-detail-1")).toBeNull();
 		// compact header, no KPI cards, no extra header button
@@ -1378,11 +1379,11 @@ describe("Ingress page", () => {
 		render(<IngressPageContent />, { wrapper: createWrapper(["/ingress"]) });
 		const banner = await within(await screen.findByTestId("ingress-detail-2")).findByTestId("ingress-banner");
 		await waitFor(() => expect(lastSearch).toBe("?agent=2"));
-		fireEvent.click(within(banner).getByRole("button", { name: "Turn filter off" }));
+		fireEvent.click(within(banner).getByRole("button", { name: "Turn ingress filter off" }));
 		await waitFor(() => expect(agentModes[2]).toBe("open"));
 		// agents refetched as open: agent 1 (missing target) would now be the default
 		await waitFor(() =>
-			expect(within(screen.getByTestId("ingress-agent-2")).queryByText("Filter on")).toBeNull(),
+			expect(within(screen.getByTestId("ingress-agent-2")).queryByText("Ingress filter on")).toBeNull(),
 		);
 		await waitFor(() => expect(screen.getByTestId("ingress-banner").getAttribute("data-mode")).toBe("open"));
 		expect(screen.getByTestId("ingress-detail-2")).toBeTruthy();

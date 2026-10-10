@@ -1,3 +1,4 @@
+import { IconLock } from "@tabler/icons-react";
 import { useEffect } from "react";
 import Alert from "react-bootstrap/Alert";
 import { useSearchParams } from "react-router-dom";
@@ -11,11 +12,12 @@ import {
 	ingressAgentSubName,
 	ingressSiteName,
 	isIngressAppliedProblem,
+	isolatedSiteNamesFor,
 	pickDefaultIngressAgent,
 	SiteIsolationCard,
 	ti,
 } from "src/components/AgentIngress";
-import { useAgentIngress, useAgentIngressCheck, useAgents } from "src/hooks";
+import { useAgentIngress, useAgentIngressCheck, useAgents, useSiteIsolation } from "src/hooks";
 import { intl } from "src/locale/IntlProvider";
 import { showDeleteConfirmModal } from "src/modals";
 import { ADMIN, VIEW } from "src/modules/Permissions";
@@ -31,6 +33,26 @@ function ModeBadge({ mode }: { mode: IngressAgentEntry["mode"] }) {
 		<span className="badge bg-green-lt text-green">{ti("badge.restricted")}</span>
 	) : (
 		<span className="badge bg-secondary-lt text-secondary">{ti("badge.open")}</span>
+	);
+}
+
+/**
+ * Lock badge: the hub separates this site from others ("Trennung zwischen
+ * Standorten") — shown next to the ingress filter state, which is a different layer.
+ */
+function IsolatedBadge({ sites }: { sites: string[] }) {
+	if (sites.length === 0) return null;
+	const label = ti("list.isolated", { sites: sites.join(", ") });
+	return (
+		<span
+			className="badge bg-red-lt text-red d-inline-flex align-items-center gap-1 text-truncate"
+			style={{ maxWidth: "100%" }}
+			title={label}
+			data-testid="ingress-list-isolated"
+		>
+			<IconLock size={12} className="flex-shrink-0" aria-hidden />
+			<span className="text-truncate">{label}</span>
+		</span>
 	);
 }
 
@@ -111,10 +133,13 @@ function WarningDot({ count }: { count: number }) {
 function AgentListItem({
 	entry,
 	selected,
+	isolatedFrom,
 	onSelect,
 }: {
 	entry: IngressAgentEntry;
 	selected: boolean;
+	/** sites the hub separates this one from */
+	isolatedFrom: string[];
 	onSelect: (id: number) => void;
 }) {
 	const ingress = useAgentIngress(entry.agent.id);
@@ -144,6 +169,11 @@ function AgentListItem({
 				<AppliedBadge entry={entry} />
 				{active !== null && <span className="text-secondary">{ti("summary.rules", { count: active })}</span>}
 			</div>
+			{isolatedFrom.length > 0 && (
+				<div className="d-flex mt-1 small" style={{ minWidth: 0 }}>
+					<IsolatedBadge sites={isolatedFrom} />
+				</div>
+			)}
 		</button>
 	);
 }
@@ -152,6 +182,8 @@ function AgentListItem({
 export function IngressPageContent() {
 	const agents = useAgents();
 	const check = useAgentIngressCheck();
+	// optional (older backend: no endpoint) — only adds the "getrennt von" hints
+	const isolation = useSiteIsolation();
 	const [params, setParams] = useSearchParams();
 
 	const entries = buildIngressAgentEntries(agents.data ?? [], check.data);
@@ -162,6 +194,7 @@ export function IngressPageContent() {
 	const selectedId = fromUrl ?? pickDefaultIngressAgent(entries);
 	const selected = entries.find((e) => e.agent.id === selectedId) ?? null;
 	const restrictedCount = entries.filter((e) => e.mode === "restricted").length;
+	const isolatedFrom = (e: IngressAgentEntry) => isolatedSiteNamesFor(isolation.data, null, e.agent.wgLinkName);
 
 	const select = (id: number) => {
 		const next = new URLSearchParams(params);
@@ -233,6 +266,9 @@ export function IngressPageContent() {
 										ti(e.mode === "restricted" ? "badge.restricted" : "badge.open"),
 										isIngressAppliedProblem(e) ? ti(`applied.${e.applied}-short`) : null,
 										e.warnings > 0 ? ti("list.warnings", { count: e.warnings }) : null,
+										isolatedFrom(e).length > 0
+											? ti("list.isolated", { sites: isolatedFrom(e).join(", ") })
+											: null,
 									]
 										.filter(Boolean)
 										.join(" · ")}
@@ -262,6 +298,7 @@ export function IngressPageContent() {
 									key={e.agent.id}
 									entry={e}
 									selected={e.agent.id === selectedId}
+									isolatedFrom={isolatedFrom(e)}
 									onSelect={select}
 								/>
 							))}
@@ -272,6 +309,7 @@ export function IngressPageContent() {
 							<AgentIngressDetail
 								key={selected.agent.id}
 								agentId={selected.agent.id}
+								linkName={selected.agent.wgLinkName}
 								dangerZone={
 									<AgentDangerZone agent={selected.agent} linkMissing={selectedCheck?.linkFound === false} />
 								}

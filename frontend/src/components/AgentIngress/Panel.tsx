@@ -23,7 +23,7 @@ import { IngressTester } from "./IngressTester";
 import { AgentIngressRuleForm } from "./RuleForm";
 import { AgentIngressRuleSentences } from "./RuleSentences";
 import { ingressRuleDomId } from "./RulesTable";
-import { isolatedSiteNames, SITE_ISOLATION_ANCHOR } from "./SiteIsolation";
+import { isolatedSiteNamesFor, SITE_ISOLATION_ANCHOR } from "./SiteIsolation";
 import { AgentIngressTechTab } from "./TechTab";
 import { errMessage, ingressWarningCount, ti } from "./utils";
 import { PublishProxyWizard, SiteAccessWizard, SiteFullAccessWizard } from "./wizards";
@@ -61,7 +61,7 @@ interface BannerProps {
 	networks: string[];
 	/** proxy targets the filter drops (restricted only) */
 	dropped: number;
-	/** sites this one is cut off from at the hub ("Standorte untereinander") */
+	/** sites this one is cut off from at the hub ("Trennung zwischen Standorten"), independent of the mode */
 	isolatedFrom: string[];
 	pending: boolean;
 	heading?: ReactNode;
@@ -69,7 +69,12 @@ interface BannerProps {
 	onShowCheck: () => void;
 }
 
-/** Status card: is the filter on, what does that mean, and the one switch to change it. */
+/**
+ * Status card of the site's ingress filter (at the site's gateway): on or off,
+ * what that means, and the one switch to change it. The hub-side separation
+ * between sites is a separate layer; it is named here as its own line so an
+ * "off" filter never reads as "everything gets in".
+ */
 function StatusBanner({
 	agentId,
 	mode,
@@ -106,15 +111,22 @@ function StatusBanner({
 				</span>
 				<div className="flex-fill" style={{ minWidth: 0 }}>
 					<div className="fw-bold" id={titleId}>
-						{restricted ? ti("badge.restricted") : ti("banner.open-title")}
+						{ti(restricted ? "banner.title-on" : "banner.title-off")}
+					</div>
+					<div className="small text-secondary mb-1" data-testid="ingress-banner-explain">
+						{ti("banner.explain")}
 					</div>
 					{blocked ? (
 						<div className="text-danger fw-medium" data-testid="ingress-banner-blocked">
 							{ti("banner.restricted-none")}
 						</div>
 					) : (
-						<div className="text-secondary">
-							{restricted ? ti("banner.restricted", { count: activeRules }) : ti("banner.open")}
+						<div className="text-secondary" data-testid="ingress-banner-text">
+							{restricted
+								? ti("banner.restricted", { count: activeRules })
+								: isolatedFrom.length > 0
+									? ti("banner.open-except", { sites: isolatedFrom.join(", ") })
+									: ti("banner.open")}
 						</div>
 					)}
 					{!restricted && hasEnabledRules && (
@@ -246,6 +258,8 @@ interface Props {
 	heading?: ReactNode;
 	/** rare destructive actions (remove the agent), shown at the end of the Technik tab */
 	dangerZone?: ReactNode;
+	/** the agent's WireGuard link name: finds the site in the hub separation when the catalog has no link id */
+	linkName?: string | null;
 }
 
 /**
@@ -254,7 +268,7 @@ interface Props {
  * Technik (raw table, generated rules). Used by the Freigaben page and the
  * agent dialog.
  */
-export function AgentIngressDetail({ agentId, heading, dangerZone }: Props) {
+export function AgentIngressDetail({ agentId, heading, dangerZone, linkName }: Props) {
 	const ingress = useAgentIngress(agentId);
 	const checkQuery = useAgentIngressCheck();
 	const catalogQuery = useAgentIngressCatalog(agentId);
@@ -526,7 +540,7 @@ export function AgentIngressDetail({ agentId, heading, dangerZone }: Props) {
 				hasEnabledRules={activeRules > 0}
 				networks={catalog?.site?.networks ?? []}
 				dropped={dropped}
-				isolatedFrom={isolatedSiteNames(isolation.data, catalog?.site?.linkId)}
+				isolatedFrom={isolatedSiteNamesFor(isolation.data, catalog?.site?.linkId, linkName)}
 				pending={setMode.isPending}
 				heading={heading}
 				onModeChange={onModeChange}

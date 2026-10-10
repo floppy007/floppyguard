@@ -1524,16 +1524,19 @@
 		"defaultMessage": "Status unbekannt"
 	},
 	"wireguard.agent.ingress.badge.open": {
-		"defaultMessage": "Offen"
+		"defaultMessage": "Eingangsfilter aus"
 	},
 	"wireguard.agent.ingress.badge.restricted": {
-		"defaultMessage": "Filter aktiv"
+		"defaultMessage": "Eingangsfilter an"
+	},
+	"wireguard.agent.ingress.banner.explain": {
+		"defaultMessage": "Der Eingangsfilter prüft Verkehr, der aus dem Tunnel in das Netz dieses Standorts will."
 	},
 	"wireguard.agent.ingress.banner.isolated-from": {
-		"defaultMessage": "Getrennt von: {sites}"
+		"defaultMessage": "Am Hub getrennt von: {sites}"
 	},
 	"wireguard.agent.ingress.banner.isolated-hint": {
-		"defaultMessage": "(siehe „Standorte untereinander“)"
+		"defaultMessage": "(siehe „Trennung zwischen Standorten“)"
 	},
 	"wireguard.agent.ingress.banner.networks": {
 		"defaultMessage": "Netze"
@@ -1541,23 +1544,29 @@
 	"wireguard.agent.ingress.banner.open": {
 		"defaultMessage": "Aller Verkehr aus dem Tunnel kommt durch."
 	},
-	"wireguard.agent.ingress.banner.open-title": {
-		"defaultMessage": "Offen – kein Filter"
+	"wireguard.agent.ingress.banner.open-except": {
+		"defaultMessage": "Eingangsfilter aus – Verkehr von anderen Standorten kommt durch, außer von: {sites} (am Hub getrennt)."
 	},
 	"wireguard.agent.ingress.banner.restricted": {
 		"defaultMessage": "Nur freigegebener Verkehr aus dem Tunnel erreicht dieses Netz ({count, plural, one {# aktive Freigabe} other {# aktive Freigaben}})."
 	},
 	"wireguard.agent.ingress.banner.restricted-none": {
-		"defaultMessage": "Filter aktiv, aber keine aktive Freigabe – sämtlicher Verkehr aus dem Tunnel wird verworfen."
+		"defaultMessage": "Eingangsfilter an, aber keine aktive Freigabe – sämtlicher Verkehr aus dem Tunnel wird verworfen."
+	},
+	"wireguard.agent.ingress.banner.title-off": {
+		"defaultMessage": "Eingangsfilter am Standort: aus"
+	},
+	"wireguard.agent.ingress.banner.title-on": {
+		"defaultMessage": "Eingangsfilter am Standort: an"
 	},
 	"wireguard.agent.ingress.banner.to-check": {
 		"defaultMessage": "In „Prüfen“ ansehen"
 	},
 	"wireguard.agent.ingress.banner.turn-off": {
-		"defaultMessage": "Filter ausschalten"
+		"defaultMessage": "Eingangsfilter ausschalten"
 	},
 	"wireguard.agent.ingress.banner.turn-on": {
-		"defaultMessage": "Filter einschalten"
+		"defaultMessage": "Eingangsfilter einschalten"
 	},
 	"wireguard.agent.ingress.catalog.group.clients": {
 		"defaultMessage": "VPN-Clients"
@@ -1704,10 +1713,10 @@
 		"defaultMessage": "Treffer zählen nur NEUE Verbindungen: langlebige Sitzungen (LDAP, IMAP, iSCSI) wirken ungenutzt. Abgeschaltete Freigaben lassen sich jederzeit wieder einschalten."
 	},
 	"wireguard.agent.ingress.confirm-open": {
-		"defaultMessage": "Filter ausschalten? Danach erreicht aller Verkehr aus dem Tunnel dieses Netz ungefiltert – die Freigaben zählen dann nur noch Treffer."
+		"defaultMessage": "Eingangsfilter ausschalten? Danach erreicht aller Verkehr aus dem Tunnel dieses Netz ungefiltert – die Freigaben zählen dann nur noch Treffer. Eine Trennung zwischen Standorten am Hub bleibt bestehen."
 	},
 	"wireguard.agent.ingress.confirm-restricted": {
-		"defaultMessage": "Filter einschalten? Jeder durch den Tunnel ins LAN weitergeleitete Verkehr, der keine aktive Freigabe trifft, wird verworfen – fehlt eine Freigabe, ist der Standort für diesen Verkehr abgeschnitten. Dienste auf dem Gateway selbst filtert die Freigabe nicht."
+		"defaultMessage": "Eingangsfilter einschalten? Jeder durch den Tunnel ins LAN weitergeleitete Verkehr, der keine aktive Freigabe trifft, wird verworfen – fehlt eine Freigabe, ist der Standort für diesen Verkehr abgeschnitten. Dienste auf dem Gateway selbst filtert die Freigabe nicht."
 	},
 	"wireguard.agent.ingress.danger.orphan": {
 		"defaultMessage": "Die WireGuard-Verbindung dieses Agents gibt es nicht mehr – entfernen lässt er sich nur noch hier."
@@ -1808,6 +1817,9 @@
 	"wireguard.agent.ingress.legacy": {
 		"defaultMessage": "Altlast"
 	},
+	"wireguard.agent.ingress.list.isolated": {
+		"defaultMessage": "getrennt von {sites}"
+	},
 	"wireguard.agent.ingress.list.warnings": {
 		"defaultMessage": "{count, plural, one {# Proxy-Ziel wird verworfen} other {# Proxy-Ziele werden verworfen}}"
 	},
@@ -1821,7 +1833,7 @@
 		"defaultMessage": "Neue Freigabe"
 	},
 	"wireguard.agent.ingress.open-hint": {
-		"defaultMessage": "Bevor ein externer Filter auf dem Gateway (z. B. VPN_MGR) entfernt wird: Filter einschalten und warten, bis der Agent ihn als gesetzt meldet."
+		"defaultMessage": "Bevor ein externer Filter auf dem Gateway (z. B. VPN_MGR) entfernt wird: Eingangsfilter einschalten und warten, bis der Agent ihn als gesetzt meldet."
 	},
 	"wireguard.agent.ingress.open-page": {
 		"defaultMessage": "Alle Freigaben anzeigen"
@@ -1839,7 +1851,7 @@
 		"defaultMessage": "Standorte"
 	},
 	"wireguard.agent.ingress.page.sites-summary": {
-		"defaultMessage": "{restricted} gefiltert · {open} offen"
+		"defaultMessage": "{restricted} mit Eingangsfilter · {open} ohne"
 	},
 	"wireguard.agent.ingress.page.title": {
 		"defaultMessage": "Freigaben"
@@ -1947,7 +1959,7 @@
 		"defaultMessage": "Klicken zum Trennen"
 	},
 	"wireguard.agent.ingress.sites.active": {
-		"defaultMessage": "aktiv"
+		"defaultMessage": "am Hub aktiv"
 	},
 	"wireguard.agent.ingress.sites.adopt-button": {
 		"defaultMessage": "In FloppyGuard übernehmen"
@@ -2028,7 +2040,7 @@
 		"defaultMessage": "Zuletzt geändert: {time} von {user}"
 	},
 	"wireguard.agent.ingress.sites.lead": {
-		"defaultMessage": "Lege fest, welche Standorte sich gegenseitig erreichen dürfen. Getrennt wird am Hub – zusätzlich zu den Freigaben am jeweiligen Standort. Gilt nur für Standort-Verbindungen; VPN-Geräte (Clients) sind nicht betroffen."
+		"defaultMessage": "Der Hub verwirft jeden Verkehr zwischen getrennten Standorten – unabhängig vom Eingangsfilter am Standort. Gilt nur für Standort-Verbindungen; VPN-Geräte (Clients) sind nicht betroffen."
 	},
 	"wireguard.agent.ingress.sites.matrix-caption": {
 		"defaultMessage": "Welche Standorte voneinander getrennt sind (jedes Paar einmal)"
@@ -2052,7 +2064,7 @@
 		"defaultMessage": "getrennt – greift nicht"
 	},
 	"wireguard.agent.ingress.sites.state.open": {
-		"defaultMessage": "nicht getrennt"
+		"defaultMessage": "verbunden"
 	},
 	"wireguard.agent.ingress.sites.summary": {
 		"defaultMessage": "{blocked, plural, =0 {{total, plural, one {Das Standortpaar ist nicht getrennt} other {Keines der # Standortpaare getrennt}}} one {# von {total} Standortpaaren getrennt} other {# von {total} Standortpaaren getrennt}}"
@@ -2061,7 +2073,7 @@
 		"defaultMessage": "Schalter an = nicht getrennt (die Freigaben gelten), aus = am Hub getrennt."
 	},
 	"wireguard.agent.ingress.sites.title": {
-		"defaultMessage": "Standorte untereinander"
+		"defaultMessage": "Trennung zwischen Standorten (am Hub)"
 	},
 	"wireguard.agent.ingress.sites.too-few": {
 		"defaultMessage": "Es gibt weniger als zwei Standort-Verbindungen – nichts zu trennen."

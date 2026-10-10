@@ -1422,16 +1422,19 @@
 		"defaultMessage": "état inconnu"
 	},
 	"wireguard.agent.ingress.badge.open": {
-		"defaultMessage": "Ouvert"
+		"defaultMessage": "Filtre d’entrée désactivé"
 	},
 	"wireguard.agent.ingress.badge.restricted": {
-		"defaultMessage": "Filtre actif"
+		"defaultMessage": "Filtre d’entrée activé"
+	},
+	"wireguard.agent.ingress.banner.explain": {
+		"defaultMessage": "Le filtre d’entrée contrôle le trafic qui veut entrer depuis le tunnel dans le réseau de ce site."
 	},
 	"wireguard.agent.ingress.banner.isolated-from": {
-		"defaultMessage": "Séparé de : {sites}"
+		"defaultMessage": "Séparé sur le hub de : {sites}"
 	},
 	"wireguard.agent.ingress.banner.isolated-hint": {
-		"defaultMessage": "(voir « Sites entre eux »)"
+		"defaultMessage": "(voir « Séparation entre sites »)"
 	},
 	"wireguard.agent.ingress.banner.networks": {
 		"defaultMessage": "Réseaux"
@@ -1439,23 +1442,29 @@
 	"wireguard.agent.ingress.banner.open": {
 		"defaultMessage": "Tout le trafic venant du tunnel passe."
 	},
-	"wireguard.agent.ingress.banner.open-title": {
-		"defaultMessage": "Ouvert – aucun filtre"
+	"wireguard.agent.ingress.banner.open-except": {
+		"defaultMessage": "Filtre d’entrée désactivé – le trafic des autres sites passe, sauf depuis : {sites} (séparé sur le hub)."
 	},
 	"wireguard.agent.ingress.banner.restricted": {
 		"defaultMessage": "Seul le trafic autorisé venant du tunnel atteint ce réseau ({count, plural, one {# autorisation active} other {# autorisations actives}})."
 	},
 	"wireguard.agent.ingress.banner.restricted-none": {
-		"defaultMessage": "Filtre actif, mais aucune autorisation active – tout le trafic venant du tunnel est rejeté."
+		"defaultMessage": "Filtre d’entrée activé, mais aucune autorisation active – tout le trafic venant du tunnel est rejeté."
+	},
+	"wireguard.agent.ingress.banner.title-off": {
+		"defaultMessage": "Filtre d’entrée du site : désactivé"
+	},
+	"wireguard.agent.ingress.banner.title-on": {
+		"defaultMessage": "Filtre d’entrée du site : activé"
 	},
 	"wireguard.agent.ingress.banner.to-check": {
 		"defaultMessage": "Voir dans « Vérifier »"
 	},
 	"wireguard.agent.ingress.banner.turn-off": {
-		"defaultMessage": "Désactiver le filtre"
+		"defaultMessage": "Désactiver le filtre d’entrée"
 	},
 	"wireguard.agent.ingress.banner.turn-on": {
-		"defaultMessage": "Activer le filtre"
+		"defaultMessage": "Activer le filtre d’entrée"
 	},
 	"wireguard.agent.ingress.catalog.group.clients": {
 		"defaultMessage": "Clients VPN"
@@ -1602,10 +1611,10 @@
 		"defaultMessage": "Les compteurs ne voient que les NOUVELLES connexions : les sessions longues (LDAP, IMAP, iSCSI) semblent inactives. Les règles désactivées peuvent être réactivées à tout moment."
 	},
 	"wireguard.agent.ingress.confirm-open": {
-		"defaultMessage": "Désactiver le filtre ? Tout le trafic du tunnel atteint alors ce réseau sans filtre — les autorisations ne font plus que compter les correspondances."
+		"defaultMessage": "Désactiver le filtre d’entrée ? Tout le trafic du tunnel atteint alors ce réseau sans filtre — les autorisations ne font plus que compter les correspondances. Une séparation entre sites sur le hub reste en place."
 	},
 	"wireguard.agent.ingress.confirm-restricted": {
-		"defaultMessage": "Activer le filtre ? Tout trafic routé du tunnel vers le réseau local qui ne correspond à aucune autorisation active sera rejeté — une autorisation manquante coupe le site pour ce trafic. Les services de la passerelle elle-même ne sont pas filtrés."
+		"defaultMessage": "Activer le filtre d’entrée ? Tout trafic routé du tunnel vers le réseau local qui ne correspond à aucune autorisation active sera rejeté — une autorisation manquante coupe le site pour ce trafic. Les services de la passerelle elle-même ne sont pas filtrés."
 	},
 	"wireguard.agent.ingress.danger.orphan": {
 		"defaultMessage": "La connexion WireGuard de cet agent n'existe plus – il ne peut être retiré qu'ici."
@@ -1706,6 +1715,9 @@
 	"wireguard.agent.ingress.legacy": {
 		"defaultMessage": "Héritage"
 	},
+	"wireguard.agent.ingress.list.isolated": {
+		"defaultMessage": "séparé de {sites}"
+	},
 	"wireguard.agent.ingress.list.warnings": {
 		"defaultMessage": "{count, plural, one {# cible proxy est rejetée} other {# cibles proxy sont rejetées}}"
 	},
@@ -1719,7 +1731,7 @@
 		"defaultMessage": "Nouvelle autorisation"
 	},
 	"wireguard.agent.ingress.open-hint": {
-		"defaultMessage": "Avant de supprimer un filtre externe sur la passerelle (p. ex. VPN_MGR) : activez le filtre et attendez que l'agent le signale comme appliqué."
+		"defaultMessage": "Avant de supprimer un filtre externe sur la passerelle (p. ex. VPN_MGR) : activez le filtre d’entrée et attendez que l’agent le signale comme appliqué."
 	},
 	"wireguard.agent.ingress.open-page": {
 		"defaultMessage": "Afficher toutes les autorisations"
@@ -1737,7 +1749,7 @@
 		"defaultMessage": "Sites"
 	},
 	"wireguard.agent.ingress.page.sites-summary": {
-		"defaultMessage": "{restricted} filtré(s) · {open} ouvert(s)"
+		"defaultMessage": "{restricted} avec filtre d’entrée · {open} sans"
 	},
 	"wireguard.agent.ingress.page.title": {
 		"defaultMessage": "Règles d'accès"
@@ -1845,7 +1857,7 @@
 		"defaultMessage": "Cliquer pour séparer"
 	},
 	"wireguard.agent.ingress.sites.active": {
-		"defaultMessage": "actif"
+		"defaultMessage": "actif sur le hub"
 	},
 	"wireguard.agent.ingress.sites.adopt-button": {
 		"defaultMessage": "Reprendre dans FloppyGuard"
@@ -1926,7 +1938,7 @@
 		"defaultMessage": "Dernière modification : {time} par {user}"
 	},
 	"wireguard.agent.ingress.sites.lead": {
-		"defaultMessage": "Définissez quels sites peuvent se joindre mutuellement. La séparation a lieu sur le hub – en plus des autorisations de chaque site. Ne concerne que les liaisons de sites ; les appareils VPN (clients) ne sont pas concernés."
+		"defaultMessage": "Le hub rejette tout trafic entre des sites séparés – indépendamment du filtre d’entrée du site. Ne concerne que les liaisons de sites ; les appareils VPN (clients) ne sont pas concernés."
 	},
 	"wireguard.agent.ingress.sites.matrix-caption": {
 		"defaultMessage": "Quels sites sont séparés les uns des autres (chaque paire une fois)"
@@ -1950,7 +1962,7 @@
 		"defaultMessage": "séparé – sans effet"
 	},
 	"wireguard.agent.ingress.sites.state.open": {
-		"defaultMessage": "non séparé"
+		"defaultMessage": "connecté"
 	},
 	"wireguard.agent.ingress.sites.summary": {
 		"defaultMessage": "{blocked, plural, =0 {{total, plural, one {La paire de sites n’est pas séparée} other {Aucune des # paires de sites séparée}}} one {# paire de sites sur {total} séparée} other {# paires de sites sur {total} séparées}}"
@@ -1959,7 +1971,7 @@
 		"defaultMessage": "Interrupteur activé = non séparé (les autorisations s’appliquent), désactivé = séparé sur le hub."
 	},
 	"wireguard.agent.ingress.sites.title": {
-		"defaultMessage": "Sites entre eux"
+		"defaultMessage": "Séparation entre sites (sur le hub)"
 	},
 	"wireguard.agent.ingress.sites.too-few": {
 		"defaultMessage": "Il y a moins de deux liaisons site à site – rien à séparer."

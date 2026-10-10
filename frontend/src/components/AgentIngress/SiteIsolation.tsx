@@ -93,6 +93,55 @@ export const isolatedSiteNames = (
 		.sort((x, y) => x.localeCompare(y));
 };
 
+/**
+ * Link id of a site, found by the agent's WireGuard link name (or id): first
+ * among the current sites, then among the stored pairs' names. null = unknown.
+ */
+export const siteLinkIdForName = (
+	data: Pick<SiteIsolationOverview, "sites" | "pairs"> | undefined,
+	linkName: string | null | undefined,
+): string | null => {
+	const name = linkName?.trim();
+	if (!data || !name) return null;
+	const site = data.sites.find((s) => s.name === name || s.linkId === name);
+	if (site) return site.linkId;
+	for (const p of data.pairs) {
+		if (p.nameA === name) return p.linkA;
+		if (p.nameB === name) return p.linkB;
+	}
+	return null;
+};
+
+/**
+ * Sites the given site is separated from at the hub: by its link id when known
+ * (catalog), else by the agent's link name.
+ */
+export const isolatedSiteNamesFor = (
+	data: Pick<SiteIsolationOverview, "sites" | "pairs"> | undefined,
+	linkId: string | null | undefined,
+	linkName?: string | null,
+): string[] => isolatedSiteNames(data, linkId || siteLinkIdForName(data, linkName));
+
+/** localStorage key of the user's collapse choice for the card (per browser only). */
+export const SITE_ISOLATION_COLLAPSED_KEY = "floppyguard.site-isolation.collapsed";
+
+const readCollapsed = (): boolean => {
+	try {
+		return window.localStorage.getItem(SITE_ISOLATION_COLLAPSED_KEY) === "1";
+	} catch {
+		return false;
+	}
+};
+
+const writeCollapsed = (collapsed: boolean) => {
+	try {
+		if (collapsed) window.localStorage.setItem(SITE_ISOLATION_COLLAPSED_KEY, "1");
+		else window.localStorage.removeItem(SITE_ISOLATION_COLLAPSED_KEY);
+	} catch {
+		// storage unavailable (private mode): the choice simply is not remembered
+	}
+};
+
 /** Every pair of distinct sites once, in site order (rows of the narrow list). */
 export const allSitePairs = (sites: SiteIsolationSite[]): Array<[SiteIsolationSite, SiteIsolationSite]> => {
 	const out: Array<[SiteIsolationSite, SiteIsolationSite]> = [];
@@ -110,7 +159,7 @@ export const sitePairState = (pair: SiteIsolationPair | undefined, manual: boole
 	return manual ? "manual" : "open";
 };
 
-/** Something on the card needs attention → it opens by itself. */
+/** Something on the card needs attention → it opens even when the user collapsed it before. */
 export const siteIsolationNeedsAttention = (
 	data: Pick<SiteIsolationOverview, "sites" | "pairs" | "applied" | "warnings" | "manualPairs">,
 ) =>
@@ -315,9 +364,10 @@ function SiteNets({ site }: { site: SiteIsolationSite }) {
 }
 
 /**
- * "Standorte untereinander": which sites may reach each other through the hub.
- * Separation happens on the hub (own nft table), independent of the per-site
- * Freigaben. Collapsed to one line unless something needs attention; upper
+ * "Trennung zwischen Standorten (am Hub)": which sites may reach each other
+ * through the hub. Separation happens on the hub (own nft table), independent
+ * of the per-site ingress filter. Expanded by default; a collapse is remembered
+ * in this browser (attention still opens it); upper
  * triangle of the matrix on wide screens (each pair once), a list of pairs with
  * switches on narrow ones.
  */
@@ -326,8 +376,9 @@ export function SiteIsolationCard() {
 	const save = useSetSiteIsolation();
 	const location = useLocation();
 	const [error, setError] = useState<string | null>(null);
-	// null = automatic (open when something needs attention), else the user's choice
+	// null = no choice in this view yet (expanded, unless collapsed before and calm), else the user's choice
 	const [open, setOpen] = useState<boolean | null>(null);
+	const [storedCollapsed] = useState(readCollapsed);
 	const ref = useRef<HTMLElement>(null);
 	const titleId = "site-isolation-title";
 	const bodyId = "site-isolation-body";
@@ -388,7 +439,7 @@ export function SiteIsolationCard() {
 	const isManual = (a: SiteIsolationSite, b: SiteIsolationSite) => manualKeys.has(sitePairKey(a.linkId, b.linkId));
 	const pairs = allSitePairs(sites);
 	const busy = save.isPending;
-	const expanded = open ?? siteIsolationNeedsAttention(data);
+	const expanded = open ?? (!storedCollapsed || siteIsolationNeedsAttention(data));
 	const toAdopt = unadoptedManualPairs(data);
 	const hasStale = data.pairs.length > currentSitePairs(data).length;
 
@@ -467,7 +518,10 @@ export function SiteIsolationCard() {
 						className="btn btn-sm"
 						aria-expanded={expanded}
 						aria-controls={bodyId}
-						onClick={() => setOpen(!expanded)}
+						onClick={() => {
+							writeCollapsed(expanded);
+							setOpen(!expanded);
+						}}
 						data-testid="site-isolation-toggle"
 					>
 						{ti(expanded ? "sites.collapse" : "sites.edit")}
