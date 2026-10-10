@@ -7,6 +7,7 @@ import {
 	entryLabel,
 	expandEntries,
 	flatEntries,
+	groupLabelOf,
 	groupRulesBySource,
 	labelForCidr,
 	lineCount,
@@ -212,12 +213,34 @@ describe("catalog labels", () => {
 		expect(groups.map((g) => g.label)).toEqual([
 			"Reverse proxy (hub)",
 			"Daniel Home",
-			"Hinderlich Office · 192.168.200.0/24",
+			"Hinderlich Office",
 			"Notebook Flo",
 			"8.8.8.8",
 		]);
 		expect(groups[0].rules.map((r) => r.id)).toEqual([5, 6]);
 		expect(groups[0].key).toBe("10.10.0.1/32");
+	});
+
+	it("groupRulesBySource: one site name per group, CIDRs once, names deduplicated", () => {
+		const groups = groupRulesBySource(
+			[
+				// two nets of one site (not the whole site): the site once, not "X · net, X · net"
+				rule({ id: 1, sources: ["192.168.200.0/24", "10.4.10.0/24"] }),
+				// a host inside the site
+				rule({ id: 2, sources: ["192.168.200.7"] }),
+				// site net + hub: both names, each once
+				rule({ id: 3, sources: ["192.168.200.0/24", "10.4.10.0/24", "10.10.0.1"] }),
+			],
+			cat,
+		);
+		const byId = (id: number) => groups.find((g) => g.rules.some((r) => r.id === id));
+		expect(byId(1)?.label).toBe("Hinderlich Office");
+		expect(byId(1)?.cidrs).toEqual(["10.4.10.0/24", "192.168.200.0/24"]);
+		expect(byId(2)?.label).toBe("Hinderlich Office");
+		expect(byId(3)?.label).toBe("Hinderlich Office, Reverse proxy (hub)");
+		expect(groupLabelOf(["192.168.200.0/24", "10.4.10.0/24"], cat)).toBe("Hinderlich Office");
+		// without catalog: the raw CIDRs, each once
+		expect(groupLabelOf(["10.0.0.1/32", "10.0.0.1"], null)).toBe("10.0.0.1");
 	});
 
 	it("targetsFromValue and expandEntries", () => {

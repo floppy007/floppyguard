@@ -61,7 +61,7 @@ export function SiteFullAccessWizard({ agentId, catalog, onDone }: Props) {
 			)}
 			{step === 1 && (
 				<>
-					<div className="alert alert-warning py-2 px-3 small" data-testid="ingress-wizard-full-warning">
+					<div className="alert d-block alert-warning py-2 px-3 small" data-testid="ingress-wizard-full-warning">
 						{ti("wizard.full.warning", { site: catalog.site?.name ?? catalog.agentName ?? "" })}
 					</div>
 					<RulePreviewList rules={rules} catalog={catalog} />

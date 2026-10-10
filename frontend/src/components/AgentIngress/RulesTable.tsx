@@ -1,16 +1,18 @@
-import { IconInfoCircle, IconPencil, IconTrash } from "@tabler/icons-react";
+import { IconDotsVertical, IconInfoCircle, IconPencil, IconTrash } from "@tabler/icons-react";
 import { type AgentIngressCatalog, type AgentIngressRule, deleteAgentIngressRule } from "src/api/backend";
 import { useUpdateAgentIngressRule } from "src/hooks";
 import { intl } from "src/locale/IntlProvider";
+import { POPPER_FIXED } from "src/modules/Dropdown";
 import { showDeleteConfirmModal } from "src/modals/DeleteConfirmModal";
 import { labelsForCidrs } from "./catalog";
 import { errMessage, formatPorts, INGRESS_INVALIDATIONS, isLegacyNote, isStaleRule, relativeTime, ti } from "./utils";
 
+/** Hit info: "zuletzt: vor 2 Stunden" / "noch kein Treffer"; packets and the stale hint in the tooltip. */
 export function HitCell({ rule }: { rule: AgentIngressRule }) {
 	// Hits count NEW connections only, so "no new connection" is a hint (info
 	// icon), not a warning: a rule carrying only long-lived flows looks idle.
 	const stale = isStaleRule(rule);
-	const label = rule.lastHitAt === null ? ti("hit.never") : ti("hit.last", { ago: relativeTime(rule.lastHitAt) });
+	const label = rule.lastHitAt === null ? ti("hit.never") : ti("hit.short", { ago: relativeTime(rule.lastHitAt) });
 	return (
 		<span
 			className="text-secondary"
@@ -23,8 +25,11 @@ export function HitCell({ rule }: { rule: AgentIngressRule }) {
 	);
 }
 
-/** DOM id of a rule row (sentence or table) — the tester scrolls to it. */
+/** DOM id of a rule row in the Freigaben list — the tester scrolls to it. */
 export const ingressRuleDomId = (agentId: number, ruleId: number) => `ingress-rule-${agentId}-${ruleId}`;
+
+/** DOM id of the same rule in the raw table (tab Technik) — distinct, both can be mounted. */
+const rawRuleDomId = (agentId: number, ruleId: number) => `${ingressRuleDomId(agentId, ruleId)}-raw`;
 
 /** Toggle / delete shared by the table and the sentence view. */
 export function useRuleRowActions(agentId: number, onError: (msg: string | null) => void) {
@@ -71,8 +76,11 @@ export function RuleToggle({
 	);
 }
 
-/** Edit / delete buttons of one rule. */
-export function RuleButtons({
+/**
+ * Kebab menu of one rule: Bearbeiten, Löschen. The toggle carries
+ * data-ingress-edit so the focus returns to it when the edit form closes.
+ */
+export function RuleMenu({
 	rule,
 	onEdit,
 	onDelete,
@@ -81,28 +89,47 @@ export function RuleButtons({
 	onEdit: (rule: AgentIngressRule) => void;
 	onDelete: (rule: AgentIngressRule) => void;
 }) {
+	const edit = intl.formatMessage({ id: "action.edit" });
+	const del = intl.formatMessage({ id: "action.delete" });
 	return (
-		<>
+		<div className="dropdown">
 			<button
 				type="button"
-				className="btn btn-sm btn-ghost-secondary p-1"
-				title={intl.formatMessage({ id: "action.edit" })}
-				aria-label={`${intl.formatMessage({ id: "action.edit" })} ${rule.name}`}
+				className="btn btn-sm btn-ghost-secondary btn-icon"
+				data-bs-toggle="dropdown"
+				data-bs-popper-config={POPPER_FIXED}
+				aria-expanded="false"
+				aria-haspopup="menu"
+				aria-label={ti("row.menu", { name: rule.name })}
+				title={ti("row.menu", { name: rule.name })}
 				data-ingress-edit={rule.id}
-				onClick={() => onEdit(rule)}
 			>
-				<IconPencil size={16} aria-hidden />
+				<IconDotsVertical size={16} aria-hidden />
 			</button>
-			<button
-				type="button"
-				className="btn btn-sm btn-ghost-danger p-1"
-				title={intl.formatMessage({ id: "action.delete" })}
-				aria-label={`${intl.formatMessage({ id: "action.delete" })} ${rule.name}`}
-				onClick={() => onDelete(rule)}
-			>
-				<IconTrash size={16} aria-hidden />
-			</button>
-		</>
+			<div className="dropdown-menu dropdown-menu-end" role="menu">
+				<button
+					type="button"
+					role="menuitem"
+					className="dropdown-item"
+					aria-label={`${edit} ${rule.name}`}
+					onClick={() => onEdit(rule)}
+				>
+					<IconPencil size={16} className="me-2" aria-hidden />
+					{edit}
+				</button>
+				<div className="dropdown-divider" />
+				<button
+					type="button"
+					role="menuitem"
+					className="dropdown-item text-danger"
+					aria-label={`${del} ${rule.name}`}
+					onClick={() => onDelete(rule)}
+				>
+					<IconTrash size={16} className="me-2" aria-hidden />
+					{del}
+				</button>
+			</div>
+		</div>
 	);
 }
 
@@ -117,7 +144,7 @@ interface Props {
 	highlightId?: number | null;
 }
 
-/** Rule list with hit info, active toggle, edit and delete. */
+/** Raw rule table (tab Technik): CIDRs, ports, hit counters, active toggle, edit and delete. */
 export function AgentIngressRulesTable({ agentId, rules, onEdit, onError, catalog, highlightId }: Props) {
 	const { onToggle, onDelete, togglePending } = useRuleRowActions(agentId, onError);
 	const all = ti("all");
@@ -130,7 +157,7 @@ export function AgentIngressRulesTable({ agentId, rules, onEdit, onError, catalo
 		catalog && cidrs.length ? labelsForCidrs(cidrs, catalog[kind], catalog).join(", ") : undefined;
 
 	return (
-		<div className="table-responsive mb-3">
+		<div className="table-responsive border rounded">
 			<table className="table table-sm table-vcenter card-table small mb-0">
 				<thead>
 					<tr>
@@ -147,7 +174,7 @@ export function AgentIngressRulesTable({ agentId, rules, onEdit, onError, catalo
 					{rules.map((rule) => (
 						<tr
 							key={rule.id}
-							id={ingressRuleDomId(agentId, rule.id)}
+							id={rawRuleDomId(agentId, rule.id)}
 							className={
 								[rule.enabled ? "" : "text-secondary", highlightId === rule.id ? "bg-primary-lt" : ""]
 									.filter(Boolean)
@@ -170,14 +197,15 @@ export function AgentIngressRulesTable({ agentId, rules, onEdit, onError, catalo
 								{rule.destinations.length ? rule.destinations.join(", ") : all}
 							</td>
 							<td className="font-monospace">{rule.ports.length ? formatPorts(rule.ports) : all}</td>
-							<td>
+							<td className="text-nowrap">
 								<HitCell rule={rule} />
+								<div className="text-secondary">{ti("hit.packets", { count: rule.hitPackets ?? 0 })}</div>
 							</td>
 							<td>
 								<RuleToggle rule={rule} disabled={togglePending} onToggle={onToggle} />
 							</td>
-							<td className="text-end text-nowrap">
-								<RuleButtons rule={rule} onEdit={onEdit} onDelete={onDelete} />
+							<td className="text-end">
+								<RuleMenu rule={rule} onEdit={onEdit} onDelete={onDelete} />
 							</td>
 						</tr>
 					))}

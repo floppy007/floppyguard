@@ -25,7 +25,7 @@ export function AgentIngressSummary({ agent }: { agent: Agent }) {
 				{t("title")}
 			</span>
 			<span className={`badge ${restricted ? "bg-green-lt text-green" : "bg-secondary-lt"}`}>
-				{t(`mode.${mode}-short`)}
+				{t(restricted ? "badge.restricted" : "badge.open")}
 			</span>
 			{activeRules !== null && <span className="small">{t("summary.rules", { count: activeRules })}</span>}
 			{warnings !== null && warnings > 0 && (

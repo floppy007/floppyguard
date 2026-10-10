@@ -1,13 +1,21 @@
 import { QueryClient, QueryClientProvider, QueryObserver } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { ThemeProvider } from "src/context";
 import { AgentIngressDialog } from "src/modals/AgentIngressModal";
 import { IngressPageContent } from "src/pages/Ingress";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	buildIngressAgentEntries,
+	ingressAgentSubName,
+	ingressSiteName,
+	pickDefaultIngressAgent,
+	resolveIngressAgent,
+} from "./agentList";
 import { missingProxySuggestions } from "./ComfortActions";
 import { changedRuleData } from "./RuleForm";
+import { AgentIngressRuleSentences } from "./RuleSentences";
 import {
 	ingressPendingInterval,
 	invalidateAgentIngress,
@@ -104,9 +112,14 @@ const checkPayload = [
 	},
 ];
 
-const agentsPayload = [
-	{ id: 1, name: "site-a", status: "active", wg_link_name: "site-a", ingress_mode: "open", services: [] },
-	{ id: 2, name: "site-b", status: "active", wg_link_name: "site-b", ingress_mode: "restricted", services: [] },
+/** current filter mode per agent (a PUT changes it, like the backend) */
+let agentModes: Record<number, "open" | "restricted"> = { 1: "open", 2: "restricted" };
+/** status of agent 1 as the API reports it */
+let agent1Status = "active";
+
+const agentsPayload = () => [
+	{ id: 1, name: "site-a", status: agent1Status, wg_link_name: "site-a", ingress_mode: agentModes[1], services: [] },
+	{ id: 2, name: "VM-B (10.0.0.2)", status: "active", wg_link_name: "site-b", ingress_mode: agentModes[2], services: [] },
 ];
 
 // snake_case like the backend; the API layer camelizes it
@@ -187,6 +200,30 @@ const testResult = {
 
 /** status of the catalog endpoint (500 = old/failing backend → plain form) */
 let catalogStatus = 200;
+/** agent whose ingress state has no rules (empty state) */
+let emptyAgent: number | null = null;
+
+/** Check entry of the restricted agent 2 with one dropped proxy target. */
+const restrictedCheck = {
+	agent_id: 2,
+	agent_name: "site-b",
+	ingress_mode: "restricted",
+	hub_sources: ["10.10.0.1"],
+	missing: [
+		{
+			kind: "proxy-host",
+			id: 8,
+			label: "wiki.example.com",
+			host: "192.168.60.40",
+			port: 443,
+			proto: "tcp",
+			enabled: true,
+			suggestion: { ...suggestion, name: "Proxy wiki.example.com", destinations: ["192.168.60.40"] },
+		},
+	],
+	unused_hub_rules: [],
+};
+let extraChecks: object[] = [];
 
 type Call = { url: string; method: string; body: any };
 let calls: Call[] = [];
@@ -200,8 +237,8 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => 
 	const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
 	calls.push({ url, method, body });
 
-	if (url === "/api/agents" && method === "GET") return json(agentsPayload);
-	if (url === "/api/agent-ingress/check") return json(checkPayload);
+	if (url === "/api/agents" && method === "GET") return json(agentsPayload());
+	if (url === "/api/agent-ingress/check") return json([...checkPayload, ...extraChecks]);
 	const m = url.match(/^\/api\/agents\/(\d+)\/ingress(\/.*)?$/);
 	if (m) {
 		const agentId = Number(m[1]);
@@ -209,8 +246,13 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => 
 		if (rest === "" && method === "GET") {
 			return json({
 				agent_id: agentId,
-				ingress_mode: agentId === 2 ? "restricted" : "open",
-				rules: agentId === 1 ? rules : [{ ...rules[0], id: 21, agent_id: 2, name: "Site B rule" }],
+				ingress_mode: agentModes[agentId] ?? "open",
+				rules:
+					agentId === emptyAgent
+						? []
+						: agentId === 1
+							? rules
+							: [{ ...rules[0], id: 21, agent_id: 2, name: "Site B rule" }],
 				applied:
 					agentId === 2
 						? {
@@ -223,6 +265,7 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => 
 			});
 		}
 		if (rest === "" && method === "PUT") {
+			agentModes[agentId] = body.ingress_mode;
 			return json({ agent_id: agentId, ingress_mode: body.ingress_mode, rules });
 		}
 		if (rest === "/preview") {
@@ -250,22 +293,40 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => 
 	return json({ error: { message: `unexpected ${method} ${url}` } }, 500);
 });
 
-const createWrapper = () => {
+/** Current router location, for asserting ?agent= */
+let lastSearch = "";
+function LocationProbe() {
+	lastSearch = useLocation().search;
+	return null;
+}
+
+const createWrapper = (initialEntries: string[] = ["/"]) => {
 	const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 	return ({ children }: { children: ReactNode }) => (
 		<QueryClientProvider client={queryClient}>
 			<ThemeProvider>
-				<MemoryRouter>{children}</MemoryRouter>
+				<MemoryRouter initialEntries={initialEntries}>
+					{children}
+					<LocationProbe />
+				</MemoryRouter>
 			</ThemeProvider>
 		</QueryClientProvider>
 	);
 };
+
+/** Open a tab of the agent detail ("Rules (2)", "Check", "Technical"). */
+const openTab = async (name: string | RegExp) => fireEvent.click(await screen.findByRole("tab", { name }));
 
 const confirmMock = vi.fn(() => true);
 
 beforeEach(() => {
 	calls = [];
 	catalogStatus = 200;
+	emptyAgent = null;
+	agentModes = { 1: "open", 2: "restricted" };
+	agent1Status = "active";
+	extraChecks = [];
+	lastSearch = "";
 	try {
 		window.localStorage.clear();
 	} catch {
@@ -440,27 +501,32 @@ describe("AgentIngressDialog", () => {
 			wrapper: createWrapper(),
 		});
 
-	it("renders the rules from the API", async () => {
+	it("renders the raw rules from the API in the Technical tab", async () => {
 		renderDialog();
-		// table view (the sentence view is the default)
-		fireEvent.click(await screen.findByRole("button", { name: "Table" }));
-		expect(screen.getByRole("button", { name: "Table" }).getAttribute("aria-pressed")).toBe("true");
-		// also listed under "unused hub rules" in the check section
-		expect((await screen.findAllByText("Hub -> Nextcloud")).length).toBe(2);
-		expect(screen.getByText("Office LAN")).toBeTruthy();
-		expect(screen.getByText("tcp/443")).toBeTruthy();
-		// empty destinations/ports → "all", legacy note badge, never-hit marker
-		expect(screen.getAllByText("all").length).toBe(2);
-		expect(screen.getByText("Legacy")).toBeTruthy();
-		expect(screen.getByText("no hit yet")).toBeTruthy();
-		expect(screen.getByText(/^last /)).toBeTruthy();
+		// the raw table lives in "Technical", the sentence view is the default
+		await openTab("Technical");
+		const tech = await screen.findByTestId("ingress-tech");
+		const table = within(tech);
+		expect(table.getByText("Hub -> Nextcloud")).toBeTruthy();
+		expect(table.getByText("Office LAN")).toBeTruthy();
+		expect(table.getByText("tcp/443")).toBeTruthy();
+		// empty destinations/ports → "all", legacy note badge, never-hit marker, hit counter
+		expect(table.getAllByText("all").length).toBe(2);
+		expect(table.getByText("Legacy")).toBeTruthy();
+		expect(table.getByText("no hit yet")).toBeTruthy();
+		expect(table.getByText(/^last: .*ago/)).toBeTruthy();
+		expect(table.getByText("42 packets")).toBeTruthy();
+		// interface and generated rules (fetched with the tab)
+		await waitFor(() => expect(tech.textContent).toContain("wg1"));
+		expect(tech.textContent).toContain("No filter active (filter off).");
 	});
 
 	it("switching to restricted asks for confirmation and PUTs the mode", async () => {
 		confirmMock.mockReturnValue(true);
 		renderDialog();
-		const radio = await screen.findByLabelText("Rules only (forwarded traffic without a rule is dropped)");
-		fireEvent.click(radio);
+		const banner = await screen.findByTestId("ingress-banner");
+		expect(banner.textContent).toContain("Open – no filter");
+		fireEvent.click(within(banner).getByRole("button", { name: "Turn filter on" }));
 		expect(confirmMock).toHaveBeenCalled();
 		await waitFor(() => {
 			const put = calls.find((c) => c.method === "PUT" && c.url === "/api/agents/1/ingress");
@@ -471,12 +537,14 @@ describe("AgentIngressDialog", () => {
 	it("does not switch when the confirmation is declined", async () => {
 		confirmMock.mockReturnValue(false);
 		renderDialog();
-		fireEvent.click(await screen.findByLabelText("Rules only (forwarded traffic without a rule is dropped)"));
+		fireEvent.click(await screen.findByRole("button", { name: "Turn filter on" }));
+		expect(confirmMock).toHaveBeenCalled();
 		expect(calls.some((c) => c.method === "PUT")).toBe(false);
 	});
 
 	it("'Create rule' on a missing upstream POSTs the suggestion", async () => {
 		renderDialog();
+		await openTab("Check");
 		expect(await screen.findByText("cloud.example.com")).toBeTruthy();
 		expect(screen.getByText(/no proxy host\/stream uses this target/)).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Create rule" }));
@@ -504,6 +572,7 @@ describe("AgentIngressDialog", () => {
 		];
 		try {
 			renderDialog();
+			await openTab("Check");
 			expect(await screen.findByText("var.example.com")).toBeTruthy();
 			// only the upstream with a port has the button
 			expect(screen.getAllByRole("button", { name: "Create rule" }).length).toBe(1);
@@ -520,6 +589,7 @@ describe("AgentIngressDialog", () => {
 
 	it("disabled upstreams are info only, unresolvable host names are listed as not checkable", async () => {
 		renderDialog();
+		await openTab("Check");
 		expect(await screen.findByText("edge.example.com")).toBeTruthy();
 		expect(screen.getByText(/Disabled proxy hosts\/streams without a rule/)).toBeTruthy();
 		expect(screen.getByText(/Not checkable/)).toBeTruthy();
@@ -550,7 +620,7 @@ describe("AgentIngressDialog", () => {
 
 	it("saving an edit form does not undo a toggle made while it was open", async () => {
 		renderDialog();
-		fireEvent.click(await screen.findByRole("button", { name: "Edit Office LAN" }));
+		fireEvent.click(await screen.findByRole("menuitem", { name: "Edit Office LAN" }));
 		// toggle the same rule in the table while the form is open
 		fireEvent.click(screen.getByLabelText("Rule Office LAN active"));
 		await waitFor(() =>
@@ -569,7 +639,7 @@ describe("AgentIngressDialog", () => {
 		// plain text fields (catalog unavailable)
 		catalogStatus = 500;
 		renderDialog();
-		fireEvent.click(await screen.findByRole("button", { name: /Add rule/ }));
+		fireEvent.click(await screen.findByRole("button", { name: /New rule/ }));
 		fireEvent.change(screen.getByLabelText("Name"), { target: { value: "x" } });
 		fireEvent.change(screen.getByLabelText("Sources"), { target: { value: "10.0.0.999" } });
 		fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -582,20 +652,108 @@ describe("AgentIngressDialog", () => {
 		await waitFor(() => expect(screen.getAllByTestId("ingress-source-group")).toHaveLength(2));
 		const [hub, branch] = screen.getAllByTestId("ingress-source-group");
 		expect(hub.textContent).toContain("Reverse proxy (hub)");
-		expect(hub.textContent).toContain("may access Nextcloud (192.168.60.22) – ports tcp/443");
+		expect(hub.textContent).toContain("1 of 1 active");
+		const [hubRow] = within(hub).getAllByTestId("ingress-rule-targets");
+		expect(hubRow.textContent).toContain("Nextcloud (192.168.60.22)");
+		expect(hubRow.textContent).toContain("tcp/443");
 		expect(hub.textContent).toContain("Hub -> Nextcloud");
+		expect(hub.textContent).toMatch(/last: .*ago/);
 		expect(branch.textContent).toContain("Branch");
-		expect(branch.textContent).toContain("may access everything in the site – all ports");
+		expect(branch.textContent).toContain("everything in the site");
+		expect(branch.textContent).toContain("all ports");
 		expect(branch.textContent).toContain("Legacy");
+		expect(branch.textContent).toContain("no hit yet");
 		// rows carry the id the tester jumps to
 		expect(document.getElementById("ingress-rule-1-12")).toBeTruthy();
-		expect(screen.getByRole("button", { name: "Sentences" }).getAttribute("aria-pressed")).toBe("true");
+		// sections collapse
+		const toggle = within(branch).getByRole("button", { expanded: true });
+		fireEvent.click(toggle);
+		expect(toggle.getAttribute("aria-expanded")).toBe("false");
+		expect(document.getElementById("ingress-rule-1-12")).toBeNull();
+		expect(document.getElementById("ingress-rule-1-11")).toBeTruthy();
 	});
 
-	it("remembers the chosen view", async () => {
+	it("tabs: rules first, the check tab holds tester (first) and proxy check, the technical tab table and preview", async () => {
 		renderDialog();
-		fireEvent.click(await screen.findByRole("button", { name: "Table" }));
-		expect(window.localStorage.getItem("fg.ingress.view")).toBe("table");
+		const rulesTab = await screen.findByRole("tab", { name: "Rules (2)" });
+		expect(rulesTab.getAttribute("aria-selected")).toBe("true");
+		expect(screen.getByTestId("ingress-sentences")).toBeTruthy();
+		expect(screen.queryByTestId("ingress-tester")).toBeNull();
+		expect(screen.queryByTestId("ingress-tech")).toBeNull();
+		// open agent: no warnings badge on "Check"
+		expect(screen.queryByTestId("ingress-tab-check-badge")).toBeNull();
+
+		await openTab("Check");
+		const check = screen.getByTestId("ingress-panel-check");
+		expect(within(check).getByTestId("ingress-tester")).toBeTruthy();
+		expect(within(check).getByTestId("ingress-check")).toBeTruthy();
+		// the tester comes first, the reverse-proxy comparison below it;
+		// the plain-language heading, no X/Y template
+		const sections = [...check.querySelectorAll("section")].map((s) => s.getAttribute("data-testid"));
+		expect(sections.indexOf("ingress-tester")).toBe(0);
+		expect(sections.indexOf("ingress-check")).toBeGreaterThan(0);
+		expect(within(check).getByRole("heading", { name: "Test a connection" })).toBeTruthy();
+		// the hub egress footnote (file path, SNAT) is technical detail, not part of the check view
+		expect(within(check).queryByTestId("ingress-egress-note")).toBeNull()
+		expect(screen.getByTestId("ingress-panel-rules").hidden).toBe(true);
+
+		await openTab("Technical");
+		const tech = screen.getByTestId("ingress-panel-tech");
+		expect(within(tech).getByRole("table")).toBeTruthy();
+		expect(tech.textContent).toContain("Generated rules");
+		expect(within(tech).getByTestId("ingress-egress-note").textContent).toContain("hub-egress-flows.json");
+		expect(tech.textContent).toContain("Hub's own flows");
+		// the rule list stays out of the technical tab
+		expect(within(tech).queryByTestId("ingress-sentences")).toBeNull();
+
+		// arrow keys move between tabs
+		fireEvent.keyDown(screen.getByRole("tab", { name: "Technical" }), { key: "ArrowRight" });
+		expect(screen.getByRole("tab", { name: "Rules (2)" }).getAttribute("aria-selected")).toBe("true");
+	});
+
+	it("an agent without rules explains what a rule is and offers 'New rule'", async () => {
+		emptyAgent = 1;
+		renderDialog();
+		const empty = await screen.findByTestId("ingress-empty");
+		expect(empty.textContent).toContain("No rules yet");
+		expect(empty.textContent).toContain("reverse proxy on the hub");
+		expect(within(empty).getByRole("button", { name: /New rule/ })).toBeTruthy();
+		expect(screen.getAllByRole("button", { name: /New rule/ })).toHaveLength(1);
+		expect(screen.queryByTestId("ingress-sentences")).toBeNull();
+	});
+
+	it("filter on without an active rule: red banner and an empty state that says nothing gets through", async () => {
+		emptyAgent = 2;
+		render(<AgentIngressDialog agentId={2} agentName="site-b" visible onClose={() => {}} />, {
+			wrapper: createWrapper(),
+		});
+		const banner = await screen.findByTestId("ingress-banner");
+		expect(banner.getAttribute("data-blocked")).toBe("true");
+		expect(banner.querySelector(".card-status-start")?.className).toContain("bg-red");
+		expect(within(banner).getByTestId("ingress-banner-blocked").textContent).toContain(
+			"no active rule – all traffic from the tunnel is dropped",
+		);
+		const empty = await screen.findByTestId("ingress-empty");
+		expect(empty.textContent).toContain("without a rule nothing gets through");
+		expect(empty.textContent).not.toContain("only count hits");
+	});
+
+	it("an open agent without rules keeps the calm banner and the 'only count hits' note", async () => {
+		emptyAgent = 1;
+		renderDialog();
+		const banner = await screen.findByTestId("ingress-banner");
+		expect(banner.getAttribute("data-blocked")).toBeNull();
+		expect(banner.querySelector(".card-status-start")?.className).toContain("bg-secondary");
+		expect((await screen.findByTestId("ingress-empty")).textContent).toContain("only count hits");
+	});
+
+	it("never offers to delete the agent", async () => {
+		renderDialog();
+		await screen.findByTestId("ingress-sentences");
+		expect(screen.queryByText(/delete agent/i)).toBeNull();
+		expect(document.querySelector("[data-testid^='ingress-agent-delete']")).toBeNull();
+		// the dialog links to the page with this agent selected
+		expect(screen.getByRole("link", { name: /Show all ingress rules/ }).getAttribute("href")).toBe("/ingress?agent=1");
 	});
 
 	it("the proxy wizard creates one rule per chosen host via bulk", async () => {
@@ -713,7 +871,7 @@ describe("AgentIngressDialog", () => {
 
 	it("the tester posts the flow and shows the verdict with a link to the rule", async () => {
 		renderDialog();
-		fireEvent.click(await screen.findByRole("button", { name: /Check a connection/ }));
+		await openTab("Check");
 		const pick = (label: string, value: string) => {
 			const input = screen.getByLabelText(label);
 			fireEvent.change(input, { target: { value } });
@@ -735,20 +893,54 @@ describe("AgentIngressDialog", () => {
 		expect(result.textContent).not.toMatch(/reachable/i);
 		expect(result.className).toContain("alert-success");
 		fireEvent.click(screen.getByRole("button", { name: "Go to rule Hub -> Nextcloud" }));
+		// back to the rules tab, the rule highlighted
 		await waitFor(() => expect(document.getElementById("ingress-rule-1-11")?.className).toContain("bg-primary-lt"));
+		expect(screen.getByRole("tab", { name: "Rules (2)" }).getAttribute("aria-selected")).toBe("true");
 	});
 
-	it("'release all missing proxy targets' posts the suggestions in bulk", async () => {
-		confirmMock.mockReturnValue(true);
+	it("'release all missing proxy targets' is offered only while restricted and posts the suggestions in bulk", async () => {
+		// open agent with a missing target: listed, but no bulk button (it passes anyway)
 		renderDialog();
+		await openTab("Check");
+		expect(await screen.findByText("cloud.example.com")).toBeTruthy();
+		expect(screen.queryByTestId("ingress-comfort-missing")).toBeNull();
+		expect(screen.queryByTestId("ingress-banner-dropped")).toBeNull();
+		cleanup();
+
+		extraChecks = [restrictedCheck];
+		confirmMock.mockReturnValue(true);
+		render(<AgentIngressDialog agentId={2} agentName="site-b" visible onClose={() => {}} />, {
+			wrapper: createWrapper(),
+		});
+		// banner: filter on, hint link to the check tab; the tab carries the count
+		const banner = await screen.findByTestId("ingress-banner");
+		expect(banner.textContent).toContain("Filter on");
+		expect(banner.textContent).toContain("1 active rule");
+		expect(await within(banner).findByText(/1 proxy target is dropped/)).toBeTruthy();
+		expect((await screen.findByTestId("ingress-tab-check-badge")).textContent).toBe("1");
+		fireEvent.click(within(banner).getByRole("button", { name: "Show in Check" }));
+		expect(screen.getByRole("tab", { name: /^Check/ }).getAttribute("aria-selected")).toBe("true");
 		fireEvent.click(await screen.findByRole("button", { name: "Release all missing proxy targets (1)" }));
 		expect(confirmMock).toHaveBeenCalled();
-		expect(String((confirmMock.mock.calls[0] as unknown[])[0])).toContain("Proxy cloud.example.com");
+		expect(String((confirmMock.mock.calls[0] as unknown[])[0])).toContain("Proxy wiki.example.com");
 		await waitFor(() => {
-			const post = calls.find((c) => c.method === "POST" && c.url === "/api/agents/1/ingress/rules/bulk");
-			expect(post?.body).toEqual({ rules: [{ ...suggestion, enabled: true }] });
+			const post = calls.find((c) => c.method === "POST" && c.url === "/api/agents/2/ingress/rules/bulk");
+			expect(post?.body).toEqual({ rules: [{ ...restrictedCheck.missing[0].suggestion, enabled: true }] });
 		});
-		expect(await screen.findByText("Rule “Proxy cloud.example.com” created.")).toBeTruthy();
+		expect(await screen.findByText("Rule “Proxy wiki.example.com” created.")).toBeTruthy();
+	});
+
+	it("turning the filter off asks for confirmation too", async () => {
+		confirmMock.mockReturnValue(true);
+		render(<AgentIngressDialog agentId={2} agentName="site-b" visible onClose={() => {}} />, {
+			wrapper: createWrapper(),
+		});
+		fireEvent.click(await screen.findByRole("button", { name: "Turn filter off" }));
+		expect(String((confirmMock.mock.calls[0] as unknown[])[0])).toContain("Turn the filter off?");
+		await waitFor(() => {
+			const put = calls.find((c) => c.method === "PUT" && c.url === "/api/agents/2/ingress");
+			expect(put?.body).toEqual({ ingress_mode: "open" });
+		});
 	});
 
 	it("switches off unused rules, but never the last active rule of a restricted agent", async () => {
@@ -780,7 +972,7 @@ describe("AgentIngressDialog", () => {
 		expect(await screen.findByTestId("ingress-catalog-unavailable")).toBeTruthy();
 		// no assistants without a catalog
 		expect(screen.queryByRole("menuitem", { name: "Publish a service via the proxy" })).toBeNull();
-		fireEvent.click(screen.getByRole("button", { name: /Add rule/ }));
+		fireEvent.click(screen.getByRole("button", { name: /New rule/ }));
 		expect(screen.getByLabelText("Sources").tagName).toBe("TEXTAREA");
 		expect(screen.getByLabelText("Targets").tagName).toBe("TEXTAREA");
 		// the sentence view still renders, with raw CIDRs
@@ -888,7 +1080,7 @@ describe("rule form ports, names, focus and tester hints", () => {
 			expect(document.activeElement?.getAttribute("data-testid")).toBe("ingress-wizard-step"),
 		);
 		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-		await waitFor(() => expect(document.activeElement?.textContent).toContain("Add rule"));
+		await waitFor(() => expect(document.activeElement?.textContent).toContain("New rule"));
 		// the free form takes the focus as well
 		fireEvent.click(screen.getByRole("menuitem", { name: "Own rule (experts)" }));
 		await waitFor(() =>
@@ -909,7 +1101,7 @@ describe("rule form ports, names, focus and tester hints", () => {
 		});
 		try {
 			renderDialog();
-			fireEvent.click(await screen.findByRole("button", { name: /Check a connection/ }));
+			await openTab("Check");
 			await waitFor(() => expect(calls.some((c) => c.url === "/api/agents/1/ingress/catalog")).toBe(true));
 			pick("Source", "10.10.0.1");
 			pick("Destination", "192.168.60.22");
@@ -957,18 +1149,291 @@ describe("rule form ports, names, focus and tester hints", () => {
 	});
 });
 
+describe("rule sections and highlights", () => {
+	const camel = (r: (typeof rules)[number]) =>
+		({
+			id: r.id,
+			agentId: r.agent_id,
+			name: r.name,
+			sources: r.sources,
+			destinations: r.destinations,
+			ports: r.ports,
+			enabled: r.enabled,
+			note: r.note,
+			hitPackets: r.hit_packets,
+			lastHitAt: r.last_hit_at,
+			createdOn: r.created_on,
+			modifiedOn: r.modified_on,
+		}) as never;
+
+	it("a highlight opens a collapsed section for good (it stays open when the highlight fades)", () => {
+		const Wrapper = createWrapper();
+		const view = (highlightId: number | null) => (
+			<Wrapper>
+				<AgentIngressRuleSentences
+					agentId={1}
+					rules={rules.map(camel)}
+					onEdit={() => {}}
+					onError={() => {}}
+					highlightId={highlightId}
+				/>
+			</Wrapper>
+		);
+		const { rerender } = render(view(null));
+		const office = screen.getAllByTestId("ingress-source-group").find((g) => g.textContent?.includes("Office LAN"));
+		if (!office) throw new Error("no section");
+		const toggle = within(office).getByRole("button", { expanded: true });
+		fireEvent.click(toggle);
+		expect(document.getElementById("ingress-rule-1-12")).toBeNull();
+		// tester "go to rule" / new rule: highlighted → open
+		rerender(view(12));
+		expect(document.getElementById("ingress-rule-1-12")?.className).toContain("bg-primary-lt");
+		// highlight cleared after 2 s: the section stays open, the row (focus target) stays mounted
+		rerender(view(null));
+		expect(document.getElementById("ingress-rule-1-12")).toBeTruthy();
+		expect(toggle.getAttribute("aria-expanded")).toBe("true");
+	});
+});
+
+describe("rule group header and row layout", () => {
+	const danielCatalog = {
+		agentId: 1,
+		agentName: "VM-Docker",
+		ingressMode: "restricted",
+		linkFound: true,
+		site: null,
+		sources: [
+			{
+				id: "site:wg0:D",
+				kind: "site",
+				label: "Dnaiel Home",
+				cidrs: ["192.168.111.0/24", "192.168.112.0/24", "10.10.0.9/32"],
+			},
+			{ id: "sn:111", kind: "site-net", label: "192.168.111.0/24", cidrs: ["192.168.111.0/24"], parent: "site:wg0:D" },
+			{ id: "sn:112", kind: "site-net", label: "192.168.112.0/24", cidrs: ["192.168.112.0/24"], parent: "site:wg0:D" },
+		],
+		destinations: [],
+		portPresets: [],
+	} as never;
+	const mk = (id: number, name: string, destinations: string[]) =>
+		({
+			id,
+			agentId: 1,
+			name,
+			sources: ["192.168.111.0/24", "192.168.112.0/24"],
+			destinations,
+			ports: [],
+			enabled: true,
+			note: "",
+			hitPackets: 0,
+			lastHitAt: null,
+			createdOn: "",
+			modifiedOn: "",
+		}) as never;
+
+	it("names a site once with its CIDRs once, and lays out every row alike", () => {
+		const Wrapper = createWrapper();
+		render(
+			<Wrapper>
+				<AgentIngressRuleSentences
+					agentId={1}
+					rules={[
+						mk(1, "long", Array.from({ length: 6 }, (_, i) => `10.3.10.${i + 1}`)),
+						mk(2, "short", ["10.3.10.25"]),
+					]}
+					catalog={danielCatalog}
+					onEdit={() => {}}
+					onError={() => {}}
+				/>
+			</Wrapper>,
+		);
+		const [group] = screen.getAllByTestId("ingress-source-group");
+		expect(within(group).getByTestId("ingress-group-label").textContent).toBe("Dnaiel Home");
+		expect(within(group).getByTestId("ingress-group-cidrs").textContent).toBe("192.168.111.0/24, 192.168.112.0/24");
+		expect(group.textContent?.match(/Dnaiel Home/g)).toHaveLength(1);
+		// every row: content left, hits + switch + menu in the right column
+		const rows = within(group).getAllByTestId("ingress-rule-row");
+		expect(rows).toHaveLength(2);
+		for (const row of rows) {
+			expect(row.className).toBe("ingress-rule-row");
+			const side = within(row).getByTestId("ingress-rule-side");
+			expect(row.lastElementChild).toBe(side);
+			expect(within(side).getByRole("switch")).toBeTruthy();
+			expect(side.textContent).toContain("no hit yet");
+		}
+	});
+});
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 describe("Ingress page", () => {
-	it("renders one card per agent with its rules and the overview counts", async () => {
-		render(<IngressPageContent />, { wrapper: createWrapper() });
-		const cardA = await screen.findByTestId("ingress-agent-1");
-		const cardB = screen.getByTestId("ingress-agent-2");
-		expect(cardA.textContent).toContain("site-a");
-		expect(cardB.textContent).toContain("site-b");
-		await waitFor(() => expect(cardA.textContent).toContain("Office LAN"));
-		await waitFor(() => expect(cardB.textContent).toContain("Site B rule"));
-		expect(screen.getByText('Agents in "rules only" mode').parentElement?.textContent).toContain("1");
-		expect(screen.getByText("Agents open (no filter)").parentElement?.textContent).toContain("1");
+	const agent = (id: number, name: string, mode: "open" | "restricted") =>
+		({ id, name, ingressMode: mode, status: "active", wgLinkName: name, services: [] }) as never;
+	const checkFor = (agentId: number, missing: number) =>
+		({ agentId, ingressMode: undefined, missing: Array.from({ length: missing }, () => ({})) }) as never;
+
+	it("sorts restricted agents first, then by name, and counts warnings only while restricted", () => {
+		const entries = buildIngressAgentEntries(
+			[agent(1, "zeta", "open"), agent(2, "beta", "restricted"), agent(3, "alpha", "open"), agent(4, "gamma", "restricted")],
+			[checkFor(3, 2), checkFor(4, 1)],
+		);
+		expect(entries.map((e) => e.agent.name)).toEqual(["beta", "gamma", "alpha", "zeta"]);
+		expect(entries.find((e) => e.agent.id === 4)?.warnings).toBe(1);
+		// open agent: missing targets are not dropped, so no warning
+		expect(entries.find((e) => e.agent.id === 3)).toMatchObject({ missing: 2, warnings: 0 });
+	});
+
+	it("names a site by its WireGuard link, the agent as secondary; falls back to the agent name", () => {
+		const docker = { name: "VM-Docker (192.168.11.7)", wgLinkName: "Floppy Home" };
+		expect(ingressSiteName(docker)).toBe("Floppy Home");
+		expect(ingressAgentSubName(docker)).toBe("VM-Docker (192.168.11.7)");
+		const noLink = { name: "VM-Docker (192.168.11.7)", wgLinkName: null };
+		expect(ingressSiteName(noLink)).toBe("VM-Docker (192.168.11.7)");
+		expect(ingressAgentSubName(noLink)).toBeNull();
+		expect(ingressSiteName({ name: "gw", wgLinkName: "  " })).toBe("gw");
+		expect(ingressAgentSubName({ name: "Office", wgLinkName: "Office" })).toBeNull();
+		// sorted by the displayed (site) name, not the agent name
+		const withLink = (id: number, name: string, link: string | null) =>
+			({ id, name, ingressMode: "open", status: "active", wgLinkName: link, services: [] }) as never;
+		const entries = buildIngressAgentEntries(
+			[withLink(1, "a-agent", "Zeta Site"), withLink(2, "z-agent", "Alpha Site"), withLink(3, "Mid", null)],
+			[],
+		);
+		expect(entries.map((e) => ingressSiteName(e.agent))).toEqual(["Alpha Site", "Mid", "Zeta Site"]);
+	});
+
+	it("selects the first restricted agent, else the first with warnings, else the first", () => {
+		const build = (...a: never[]) => (checks: never[] = []) => buildIngressAgentEntries(a, checks);
+		expect(pickDefaultIngressAgent(build(agent(1, "a", "open"), agent(2, "b", "restricted"))())).toBe(2);
+		expect(pickDefaultIngressAgent(build(agent(1, "a", "open"), agent(2, "b", "open"))([checkFor(2, 1)]))).toBe(2);
+		expect(pickDefaultIngressAgent(build(agent(1, "b", "open"), agent(2, "a", "open"))())).toBe(2);
+		expect(pickDefaultIngressAgent([])).toBeNull();
+		// a restricted agent whose ruleset failed/offline/unknown beats the other restricted ones
+		const failed = { agentId: 3, ingressMode: undefined, missing: [], applied: { state: "offline" } } as never;
+		expect(
+			pickDefaultIngressAgent(build(agent(2, "a", "restricted"), agent(3, "b", "restricted"))([failed])),
+		).toBe(3);
+		const pending = { agentId: 3, ingressMode: undefined, missing: [], applied: { state: "pending" } } as never;
+		expect(
+			pickDefaultIngressAgent(build(agent(2, "a", "restricted"), agent(3, "b", "restricted"))([pending])),
+		).toBe(2);
+		const entries = build(agent(1, "a", "open"), agent(2, "b", "restricted"))();
+		// URL wins when it names an existing agent; unknown or junk ids fall back
+		expect(resolveIngressAgent(entries, "1")).toBe(1);
+		expect(resolveIngressAgent(entries, "99")).toBe(2);
+		expect(resolveIngressAgent(entries, "1abc")).toBe(2);
+		expect(resolveIngressAgent(entries, null)).toBe(2);
+	});
+
+	it("lists the agents restricted first and opens the restricted one by default and pins it in the URL", async () => {
+		render(<IngressPageContent />, { wrapper: createWrapper(["/ingress"]) });
+		const list = await screen.findByTestId("ingress-agent-list");
+		const items = within(list).getAllByRole("button");
+		expect(items.map((b) => b.getAttribute("data-testid"))).toEqual(["ingress-agent-2", "ingress-agent-1"]);
+		expect(items[0].getAttribute("aria-current")).toBe("true");
+		expect(items[0].textContent).toContain("Filter on");
+		expect(items[1].textContent).toContain("Open");
+		await waitFor(() => expect(items[0].textContent).toContain("1 active rule"));
+		expect(screen.getByTestId("ingress-sites-summary").textContent).toBe("1 filtered · 1 open");
+		// detail of agent 2 with its name as the banner heading
+		const detail = await screen.findByTestId("ingress-detail-2");
+		expect(within(detail).getByRole("heading", { name: "site-b" })).toBeTruthy();
+		// site (link) name first, the agent name as muted secondary text
+		expect(within(detail).getByTestId("ingress-detail-agent").textContent).toBe("VM-B (10.0.0.2)");
+		expect(within(items[0]).getByTestId("ingress-list-site").textContent).toBe("site-b");
+		expect(within(items[0]).getByTestId("ingress-list-agent").textContent).toBe("VM-B (10.0.0.2)");
+		// link name equals the agent name: no repeated secondary line
+		expect(within(items[1]).queryByTestId("ingress-list-agent")).toBeNull();
+		const option = within(screen.getByTestId("ingress-agent-select")).getByRole("option", { name: /^site-b/ });
+		expect(option.textContent).toContain("site-b · (VM-B (10.0.0.2)) · Filter on");
+		await waitFor(() => expect(detail.textContent).toContain("Site B rule"));
+		expect(screen.queryByTestId("ingress-detail-1")).toBeNull();
+		// compact header, no KPI cards, no extra header button
+		const h1 = screen.getByRole("heading", { level: 1 });
+		expect(h1.textContent).toBe("Access rules");
+		expect(h1.className).toContain("platform-title");
+		expect(screen.queryByRole("link", { name: "WireGuard" })).toBeNull();
+		expect(screen.queryByText(/Agents in/)).toBeNull();
+		// the selection is pinned in the URL
+		await waitFor(() => expect(lastSearch).toBe("?agent=2"));
+	});
+
+	it("delete agent is off the main view, but still reachable at the end of the Technik tab", async () => {
+		// orphaned agent: its WireGuard link is gone
+		extraChecks = [{ ...restrictedCheck, link_found: false, wg_link_name: "site-b" }];
+		render(<IngressPageContent />, { wrapper: createWrapper(["/ingress?agent=2"]) });
+		const detail = await screen.findByTestId("ingress-detail-2");
+		await waitFor(() => expect(detail.textContent).toContain("Site B rule"));
+		expect(within(screen.getByTestId("ingress-banner")).queryByText(/delete agent/i)).toBeNull();
+		expect(within(screen.getByTestId("ingress-panel-rules")).queryByText(/delete agent/i)).toBeNull();
+		expect(screen.queryByTestId("ingress-agent-delete-2")).toBeNull();
+		await openTab("Technical");
+		const zone = await within(screen.getByTestId("ingress-panel-tech")).findByTestId("ingress-danger-zone");
+		expect(within(zone).getByTestId("ingress-agent-delete-2").textContent).toMatch(/delete agent/i);
+		await waitFor(() => expect(within(zone).getByTestId("ingress-danger-orphan")).toBeTruthy());
+	});
+
+	it("keeps the chosen site when the filter is switched off (no jump to another default)", async () => {
+		confirmMock.mockReturnValue(true);
+		render(<IngressPageContent />, { wrapper: createWrapper(["/ingress"]) });
+		const banner = await within(await screen.findByTestId("ingress-detail-2")).findByTestId("ingress-banner");
+		await waitFor(() => expect(lastSearch).toBe("?agent=2"));
+		fireEvent.click(within(banner).getByRole("button", { name: "Turn filter off" }));
+		await waitFor(() => expect(agentModes[2]).toBe("open"));
+		// agents refetched as open: agent 1 (missing target) would now be the default
+		await waitFor(() =>
+			expect(within(screen.getByTestId("ingress-agent-2")).queryByText("Filter on")).toBeNull(),
+		);
+		await waitFor(() => expect(screen.getByTestId("ingress-banner").getAttribute("data-mode")).toBe("open"));
+		expect(screen.getByTestId("ingress-detail-2")).toBeTruthy();
+		expect(screen.queryByTestId("ingress-detail-1")).toBeNull();
+		expect(lastSearch).toBe("?agent=2");
+	});
+
+	it("flags a restricted agent whose ruleset is not running in the list and opens it first", async () => {
+		extraChecks = [
+			{
+				...restrictedCheck,
+				missing: [],
+				applied: { state: "failed", applied_hash: "NONE", desired_hash: "a".repeat(64), error: "x" },
+			},
+		];
+		render(<IngressPageContent />, { wrapper: createWrapper(["/ingress?agent=1"]) });
+		const badge = await within(await screen.findByTestId("ingress-agent-2")).findByTestId("ingress-list-applied");
+		expect(badge.textContent).toBe("not applied");
+		expect(within(screen.getByTestId("ingress-agent-1")).queryByTestId("ingress-list-applied")).toBeNull();
+	});
+
+	it("shows the agent status in words, not the raw API value", async () => {
+		agent1Status = "pending";
+		render(<IngressPageContent />, { wrapper: createWrapper(["/ingress?agent=1"]) });
+		const detail = await screen.findByTestId("ingress-detail-1");
+		await waitFor(() => expect(detail.textContent).toContain("Waiting for connection"));
+		expect(detail.textContent).not.toMatch(/\bpending\b/);
+	});
+
+	it("keeps the selection in the URL (?agent=)", async () => {
+		render(<IngressPageContent />, { wrapper: createWrapper(["/ingress?agent=1"]) });
+		expect(await screen.findByTestId("ingress-detail-1")).toBeTruthy();
+		expect((screen.getByTestId("ingress-agent-select") as HTMLSelectElement).value).toBe("1");
+		fireEvent.click(screen.getByTestId("ingress-agent-2"));
+		expect(await screen.findByTestId("ingress-detail-2")).toBeTruthy();
+		expect(lastSearch).toBe("?agent=2");
+		// the narrow-screen select switches as well
+		fireEvent.change(screen.getByTestId("ingress-agent-select"), { target: { value: "1" } });
+		expect(await screen.findByTestId("ingress-detail-1")).toBeTruthy();
+		expect(lastSearch).toBe("?agent=1");
+	});
+
+	it("shows a warning dot only for restricted agents that drop proxy targets", async () => {
+		extraChecks = [restrictedCheck];
+		render(<IngressPageContent />, { wrapper: createWrapper(["/ingress"]) });
+		await waitFor(() =>
+			expect(within(screen.getByTestId("ingress-agent-2")).getByTestId("ingress-list-warning").textContent).toContain(
+				"1",
+			),
+		);
+		// agent 1 is open: its missing target is no warning
+		expect(within(screen.getByTestId("ingress-agent-1")).queryByTestId("ingress-list-warning")).toBeNull();
 	});
 });

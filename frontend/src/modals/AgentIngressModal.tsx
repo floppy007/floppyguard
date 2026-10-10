@@ -1,11 +1,14 @@
 import EasyModal, { type InnerModalProps } from "ez-modal-react";
 import Modal from "react-bootstrap/Modal";
 import { Button } from "src/components";
-import { AgentIngressPanel, ti } from "src/components/AgentIngress";
+import { AgentIngressDetail, ti } from "src/components/AgentIngress";
 import { intl } from "src/locale/IntlProvider";
 
 /** Route of the Freigaben page (the modal lives outside the router, so it links with a plain href). */
 export const AGENT_INGRESS_PAGE = "/ingress";
+
+/** Link to the page with this agent selected. */
+export const agentIngressPageHref = (agentId: number) => `${AGENT_INGRESS_PAGE}?agent=${agentId}`;
 
 interface DialogProps {
 	agentId: number;
@@ -22,11 +25,10 @@ export function AgentIngressDialog({ agentId, agentName, visible, onClose }: Dia
 				<Modal.Title>{ti("modal-title", { name: agentName })}</Modal.Title>
 			</Modal.Header>
 			<Modal.Body>
-				<p className="text-secondary small">{ti("explain")}</p>
-				<AgentIngressPanel agentId={agentId} />
+				<AgentIngressDetail agentId={agentId} />
 			</Modal.Body>
 			<Modal.Footer>
-				<a href={AGENT_INGRESS_PAGE} className="btn btn-link me-auto px-0">
+				<a href={agentIngressPageHref(agentId)} className="btn btn-link me-auto px-0">
 					{ti("open-page")} ↗
 				</a>
 				<Button type="button" actionType="primary" onClick={onClose}>

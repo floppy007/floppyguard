@@ -12,13 +12,15 @@ interface Props {
 	isLoading: boolean;
 	error: Error | null;
 	onError: (msg: string | null) => void;
+	/** bulk action shown next to the heading ("release all missing proxy targets") */
+	actions?: ReactNode;
 }
 
 /**
- * "Prüfung": proxy hosts / streams whose upstream this agent would drop
+ * Proxy cross-check (tab Prüfen): proxy hosts / streams whose upstream this agent would drop
  * (prominent while restricted) and hub-sourced rules no upstream uses.
  */
-export function AgentIngressCheckList({ agentId, mode, check, isLoading, error, onError }: Props) {
+export function AgentIngressCheckList({ agentId, mode, check, isLoading, error, onError, actions }: Props) {
 	const createRule = useCreateAgentIngressRule(agentId);
 	const restricted = mode === "restricted";
 
@@ -31,7 +33,7 @@ export function AgentIngressCheckList({ agentId, mode, check, isLoading, error, 
 		body = <div className="text-secondary small">{ti("check.none")}</div>;
 	} else if (check.linkFound === false) {
 		body = (
-			<div className="alert alert-warning py-2 px-3 small mb-0" data-testid="ingress-link-missing">
+			<div className="alert d-block alert-warning py-2 px-3 small mb-0" data-testid="ingress-link-missing">
 				{check.linkHint === "typed-client"
 					? ti("check.link-client", { link: check.linkHintName ?? check.wgLinkName ?? "" })
 					: ti("check.link-missing", { link: check.wgLinkName ?? "" })}
@@ -49,7 +51,7 @@ export function AgentIngressCheckList({ agentId, mode, check, isLoading, error, 
 		body = (
 			<>
 				{check.missing.length > 0 && (
-					<div className={`alert ${restricted ? "alert-danger" : "alert-info"} py-2 px-3 small mb-2`}>
+					<div className={`alert d-block ${restricted ? "alert-danger" : "alert-info"} py-2 px-3 small mb-2`}>
 						<div className="fw-medium mb-2">
 							{restricted ? ti("check.missing-restricted") : ti("check.missing-open")}
 						</div>
@@ -92,7 +94,7 @@ export function AgentIngressCheckList({ agentId, mode, check, isLoading, error, 
 					</div>
 				)}
 				{(check.unchecked?.length ?? 0) > 0 && (
-					<div className="alert alert-warning py-2 px-3 small mb-2">
+					<div className="alert d-block alert-warning py-2 px-3 small mb-2">
 						<div className="fw-medium mb-1">{ti("check.unchecked")}</div>
 						{check.unchecked?.map((u) => (
 							<div
@@ -129,7 +131,7 @@ export function AgentIngressCheckList({ agentId, mode, check, isLoading, error, 
 					</div>
 				)}
 				{(check.broadHubRules?.length ?? 0) > 0 && (
-					<div className="alert alert-warning py-2 px-3 small mb-2" data-testid="ingress-broad-hub-rules">
+					<div className="alert d-block alert-warning py-2 px-3 small mb-2" data-testid="ingress-broad-hub-rules">
 						<div className="fw-medium mb-1">{ti("check.broad")}</div>
 						{check.broadHubRules?.map((r) => (
 							<div key={r.id} className="d-flex gap-2 flex-wrap">
@@ -159,14 +161,17 @@ export function AgentIngressCheckList({ agentId, mode, check, isLoading, error, 
 	}
 
 	return (
-		<div className="mb-3">
-			<div className="fw-medium mb-2 small text-uppercase text-secondary">{ti("check")}</div>
-			{body}
-			{check && (
-				<div className="form-text small mt-2" data-testid="ingress-egress-note">
-					{ti("check.egress-note", { count: check.hubEgressFlows ?? 0 })}
+		<section aria-labelledby={`ingress-${agentId}-check-title`} data-testid="ingress-check">
+			<div className="d-flex flex-wrap align-items-start gap-2 mb-3">
+				<div className="me-auto">
+					<h3 className="h4 mb-1" id={`ingress-${agentId}-check-title`}>
+						{ti("check.title")}
+					</h3>
+					<p className="text-secondary small mb-0">{ti("check.lead")}</p>
 				</div>
-			)}
-		</div>
+				{actions}
+			</div>
+			{body}
+		</section>
 	);
 }

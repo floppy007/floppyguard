@@ -9,16 +9,6 @@ import { useCreateAgentIngressRulesBulk, useDisableAgentIngressRules } from "src
 import { canonCidr, pruneSelection } from "./catalog";
 import { bulkResultInfo, errMessage, ti } from "./utils";
 
-interface Props {
-	agentId: number;
-	mode: AgentIngressMode;
-	rules: AgentIngressRule[];
-	check: AgentIngressCheck | undefined;
-	catalog?: AgentIngressCatalog | null;
-	onError: (msg: string | null) => void;
-	onInfo: (msg: string | null) => void;
-}
-
 /** Same target identity as the backend's bulk dedupe: sources, destinations and ports as sets. */
 const targetKey = (r: Pick<AgentIngressRuleData, "sources" | "destinations" | "ports">) =>
 	JSON.stringify([
@@ -50,19 +40,27 @@ export const missingProxySuggestions = (check: AgentIngressCheck | undefined): A
 	}));
 };
 
+interface MissingProps {
+	agentId: number;
+	mode: AgentIngressMode;
+	check: AgentIngressCheck | undefined;
+	onError: (msg: string | null) => void;
+	onInfo: (msg: string | null) => void;
+}
+
 /**
- * Toolbar comfort actions: create every missing proxy-target rule at once and
- * switch off hub rules without new connections for 30 days.
+ * "Release all missing proxy targets": one bulk create for every proxy target
+ * the agent drops. Only offered while the filter is active — in open mode the
+ * targets pass anyway.
  */
-export function ComfortActions({ agentId, mode, rules, check, catalog, onError, onInfo }: Props) {
+export function MissingProxyAction({ agentId, mode, check, onError, onInfo }: MissingProps) {
 	const bulk = useCreateAgentIngressRulesBulk(agentId);
-	const disable = useDisableAgentIngressRules(agentId, { prune: true });
-	const suggestions = missingProxySuggestions(check);
-	const prune = catalog ? pruneSelection(catalog.pruneCandidates ?? [], rules, mode) : [];
-	const busy = bulk.isPending || disable.isPending;
+	const suggestions = mode === "restricted" ? missingProxySuggestions(check) : [];
+
+	if (!suggestions.length) return null;
 
 	const onMissing = () => {
-		if (busy || !suggestions.length) return;
+		if (bulk.isPending) return;
 		const names = suggestions.map((s) => `• ${s.name}`).join("\n");
 		if (!window.confirm(`${ti("comfort.missing-confirm", { count: suggestions.length })}\n\n${names}`)) return;
 		onError(null);
@@ -73,8 +71,37 @@ export function ComfortActions({ agentId, mode, rules, check, catalog, onError, 
 		});
 	};
 
+	return (
+		<button
+			type="button"
+			className="btn btn-sm btn-primary"
+			disabled={bulk.isPending}
+			onClick={onMissing}
+			data-testid="ingress-comfort-missing"
+		>
+			{ti("comfort.missing", { count: suggestions.length })}
+		</button>
+	);
+}
+
+interface PruneProps {
+	agentId: number;
+	mode: AgentIngressMode;
+	rules: AgentIngressRule[];
+	catalog?: AgentIngressCatalog | null;
+	onError: (msg: string | null) => void;
+	onInfo: (msg: string | null) => void;
+}
+
+/** Subtle "switch off unused rules (n)": enabled rules without a new connection for 30 days. */
+export function PruneAction({ agentId, mode, rules, catalog, onError, onInfo }: PruneProps) {
+	const disable = useDisableAgentIngressRules(agentId, { prune: true });
+	const prune = catalog ? pruneSelection(catalog.pruneCandidates ?? [], rules, mode) : [];
+
+	if (!prune.length) return null;
+
 	const onPrune = () => {
-		if (busy || !prune.length) return;
+		if (disable.isPending) return;
 		const names = prune.map((c) => `• ${c.name}`).join("\n");
 		if (
 			!window.confirm(
@@ -93,33 +120,16 @@ export function ComfortActions({ agentId, mode, rules, check, catalog, onError, 
 		);
 	};
 
-	if (!suggestions.length && !prune.length) return null;
-
 	return (
-		<>
-			{suggestions.length > 0 && (
-				<button
-					type="button"
-					className="btn btn-sm btn-outline-danger"
-					disabled={busy}
-					onClick={onMissing}
-					data-testid="ingress-comfort-missing"
-				>
-					{ti("comfort.missing", { count: suggestions.length })}
-				</button>
-			)}
-			{prune.length > 0 && (
-				<button
-					type="button"
-					className="btn btn-sm btn-outline-secondary"
-					disabled={busy}
-					onClick={onPrune}
-					title={ti("comfort.prune-hint")}
-					data-testid="ingress-comfort-prune"
-				>
-					{ti("comfort.prune", { count: prune.length })}
-				</button>
-			)}
-		</>
+		<button
+			type="button"
+			className="btn btn-sm btn-ghost-secondary"
+			disabled={disable.isPending}
+			onClick={onPrune}
+			title={ti("comfort.prune-hint")}
+			data-testid="ingress-comfort-prune"
+		>
+			{ti("comfort.prune", { count: prune.length })}
+		</button>
 	);
 }

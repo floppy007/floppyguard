@@ -272,6 +272,34 @@ const groupKind = (sources: string[], catalog: AgentIngressCatalog | undefined |
 	return "other";
 };
 
+/** The site (whole-site entry) a source CIDR lies in — via a site or one of its nets. */
+const siteOfCidr = (cidr: string, catalog: AgentIngressCatalog): AgentIngressCatalogEntry | null => {
+	for (const e of catalog.sources) {
+		if (e.kind !== "site" && e.kind !== "site-net") continue;
+		if (!e.cidrs.some((c) => cidrContains(c, cidr))) continue;
+		const site = e.kind === "site-net" ? catalog.sources.find((s) => s.id === e.parent) : e;
+		if (site) return site;
+	}
+	return null;
+};
+
+/**
+ * Heading of a rule group: sources inside a site are named by the site only
+ * ("Daniel Home", not "Daniel Home · 192.168.111.0/24, Daniel Home · …" — the
+ * CIDRs are shown next to it), the rest by their labels; duplicates once.
+ */
+export const groupLabelOf = (sources: string[], catalog: AgentIngressCatalog | undefined | null): string => {
+	if (!catalog) return [...new Set(sources.map(shortCidr))].join(", ");
+	const names: string[] = [];
+	const rest: string[] = [];
+	for (const s of sources) {
+		const site = siteOfCidr(s, catalog);
+		if (site) names.push(site.label);
+		else rest.push(s);
+	}
+	return [...new Set([...names, ...labelsForCidrs(rest, catalog.sources ?? [], catalog)])].join(", ");
+};
+
 const GROUP_ORDER: Record<SourceGroupKind, number> = { hub: 0, site: 1, client: 2, other: 3 };
 
 /** Rules grouped by their (sorted) source list: hub first, then sites A→Z, clients, others. */
@@ -286,7 +314,7 @@ export const groupRulesBySource = <R extends RuleLike>(
 		if (!g) {
 			g = {
 				key,
-				label: describeRule(rule, catalog).sourceLabel,
+				label: groupLabelOf(rule.sources, catalog),
 				kind: groupKind(rule.sources, catalog),
 				cidrs: [...new Set(rule.sources.map(canonCidr))].sort(),
 				rules: [],

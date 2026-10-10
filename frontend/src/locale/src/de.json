@@ -1478,17 +1478,26 @@
 	"wireguard.agent.hub-url-invalid": {
 		"defaultMessage": "Muss eine gültige http(s)-URL sein"
 	},
-	"wireguard.agent.ingress.add": {
-		"defaultMessage": "Freigabe hinzufügen"
-	},
 	"wireguard.agent.ingress.add.expert": {
 		"defaultMessage": "Eigene Regel (Experten)"
 	},
 	"wireguard.agent.ingress.add.guided": {
 		"defaultMessage": "Geführt (empfohlen)"
 	},
+	"wireguard.agent.ingress.agent-status.active": {
+		"defaultMessage": "verbunden"
+	},
+	"wireguard.agent.ingress.agent-status.error": {
+		"defaultMessage": "Fehler"
+	},
+	"wireguard.agent.ingress.agent-status.pending": {
+		"defaultMessage": "Wartet auf Verbindung"
+	},
 	"wireguard.agent.ingress.all": {
 		"defaultMessage": "alle"
+	},
+	"wireguard.agent.ingress.applied.applied-short": {
+		"defaultMessage": "angewendet"
 	},
 	"wireguard.agent.ingress.applied.failed": {
 		"defaultMessage": "Der Agent hat den Regelsatz NICHT angewendet – der Filter ist nicht wie angezeigt aktiv."
@@ -1513,6 +1522,36 @@
 	},
 	"wireguard.agent.ingress.applied.unknown-short": {
 		"defaultMessage": "Status unbekannt"
+	},
+	"wireguard.agent.ingress.badge.open": {
+		"defaultMessage": "Offen"
+	},
+	"wireguard.agent.ingress.badge.restricted": {
+		"defaultMessage": "Filter aktiv"
+	},
+	"wireguard.agent.ingress.banner.networks": {
+		"defaultMessage": "Netze"
+	},
+	"wireguard.agent.ingress.banner.open": {
+		"defaultMessage": "Aller Verkehr aus dem Tunnel kommt durch."
+	},
+	"wireguard.agent.ingress.banner.open-title": {
+		"defaultMessage": "Offen – kein Filter"
+	},
+	"wireguard.agent.ingress.banner.restricted": {
+		"defaultMessage": "Nur freigegebener Verkehr aus dem Tunnel erreicht dieses Netz ({count, plural, one {# aktive Freigabe} other {# aktive Freigaben}})."
+	},
+	"wireguard.agent.ingress.banner.restricted-none": {
+		"defaultMessage": "Filter aktiv, aber keine aktive Freigabe – sämtlicher Verkehr aus dem Tunnel wird verworfen."
+	},
+	"wireguard.agent.ingress.banner.to-check": {
+		"defaultMessage": "In „Prüfen“ ansehen"
+	},
+	"wireguard.agent.ingress.banner.turn-off": {
+		"defaultMessage": "Filter ausschalten"
+	},
+	"wireguard.agent.ingress.banner.turn-on": {
+		"defaultMessage": "Filter einschalten"
 	},
 	"wireguard.agent.ingress.catalog.group.clients": {
 		"defaultMessage": "VPN-Clients"
@@ -1553,9 +1592,6 @@
 	"wireguard.agent.ingress.catalog.unavailable": {
 		"defaultMessage": "Namen und Assistenten nicht verfügbar (Katalog nicht ladbar) – Freigaben lassen sich weiter als IP/CIDR eingeben."
 	},
-	"wireguard.agent.ingress.check": {
-		"defaultMessage": "Prüfung"
-	},
 	"wireguard.agent.ingress.check.broad": {
 		"defaultMessage": "Freigaben vom Hub, die weiter sind als der Proxy-Verkehr braucht – über die Hub-Adresse kommen auch alle Hosts aus dem Hetzner-LAN (SNAT), also auch Mailcow, der Webserver-CT usw.:"
 	},
@@ -1589,6 +1625,9 @@
 	"wireguard.agent.ingress.check.kind.vpn-client": {
 		"defaultMessage": "VPN-Client"
 	},
+	"wireguard.agent.ingress.check.lead": {
+		"defaultMessage": "Vergleicht die Proxy-Hosts und Streams am Hub mit den Freigaben dieses Standorts."
+	},
 	"wireguard.agent.ingress.check.link-client": {
 		"defaultMessage": "Die gebundene WireGuard-Verbindung „{link}“ existiert, ist aber als „Client“ eingetragen und wird daher nicht als Standort geprüft. Typ auf Site-to-Site setzen, wenn es ein Standort-Gateway ist."
 	},
@@ -1599,7 +1638,7 @@
 		"defaultMessage": "Deaktivierte Proxy-Hosts/Streams ohne Freigabe (derzeit kein Verkehr, nach dem Einschalten 504 am Hub):"
 	},
 	"wireguard.agent.ingress.check.missing-open": {
-		"defaultMessage": "Ohne passende Freigabe (im Modus „offen“ nur zur Info – bei „nur Freigaben“ würden diese Ziele verworfen):"
+		"defaultMessage": "Ohne passende Freigabe (bei ausgeschaltetem Filter nur zur Info – mit Filter würden diese Ziele verworfen):"
 	},
 	"wireguard.agent.ingress.check.missing-restricted": {
 		"defaultMessage": "Diese Proxy-Host-/Stream-Ziele verwirft der Agent derzeit (504 am Hub):"
@@ -1612,6 +1651,9 @@
 	},
 	"wireguard.agent.ingress.check.ok": {
 		"defaultMessage": "Keine Auffälligkeiten."
+	},
+	"wireguard.agent.ingress.check.title": {
+		"defaultMessage": "Abgleich mit dem Reverse Proxy"
 	},
 	"wireguard.agent.ingress.check.unchecked": {
 		"defaultMessage": "Nicht prüfbar – das Ziel ist ein Hostname, der sich nicht auflösen lässt:"
@@ -1655,8 +1697,20 @@
 	"wireguard.agent.ingress.comfort.prune-hint": {
 		"defaultMessage": "Treffer zählen nur NEUE Verbindungen: langlebige Sitzungen (LDAP, IMAP, iSCSI) wirken ungenutzt. Abgeschaltete Freigaben lassen sich jederzeit wieder einschalten."
 	},
+	"wireguard.agent.ingress.confirm-open": {
+		"defaultMessage": "Filter ausschalten? Danach erreicht aller Verkehr aus dem Tunnel dieses Netz ungefiltert – die Freigaben zählen dann nur noch Treffer."
+	},
 	"wireguard.agent.ingress.confirm-restricted": {
-		"defaultMessage": "Auf „nur Freigaben“ umstellen? Jeder durch den Tunnel ins LAN weitergeleitete Verkehr, der keine aktive Freigabe trifft, wird verworfen – fehlt eine Freigabe, ist der Standort für diesen Verkehr abgeschnitten. Dienste auf dem Gateway selbst filtert die Freigabe nicht."
+		"defaultMessage": "Filter einschalten? Jeder durch den Tunnel ins LAN weitergeleitete Verkehr, der keine aktive Freigabe trifft, wird verworfen – fehlt eine Freigabe, ist der Standort für diesen Verkehr abgeschnitten. Dienste auf dem Gateway selbst filtert die Freigabe nicht."
+	},
+	"wireguard.agent.ingress.danger.orphan": {
+		"defaultMessage": "Die WireGuard-Verbindung dieses Agents gibt es nicht mehr – entfernen lässt er sich nur noch hier."
+	},
+	"wireguard.agent.ingress.danger.text": {
+		"defaultMessage": "Entfernt den Agent dieses Standorts: sein Token wird sofort ungültig und das Gateway wird nicht mehr von hier verwaltet. Gedacht für Standorte, die es nicht mehr gibt."
+	},
+	"wireguard.agent.ingress.danger.title": {
+		"defaultMessage": "Agent entfernen"
 	},
 	"wireguard.agent.ingress.delete-confirm": {
 		"defaultMessage": "Freigabe „{name}“ wirklich löschen?"
@@ -1666,6 +1720,15 @@
 	},
 	"wireguard.agent.ingress.empty": {
 		"defaultMessage": "Noch keine Freigaben angelegt."
+	},
+	"wireguard.agent.ingress.empty.text": {
+		"defaultMessage": "Eine Freigabe erlaubt einer Quelle – dem Reverse Proxy am Hub, einem anderen Standort oder VPN-Clients – den Zugriff auf bestimmte Ziele und Ports in diesem Netz. Solange der Filter aus ist, zählen Freigaben nur Treffer."
+	},
+	"wireguard.agent.ingress.empty.text-restricted": {
+		"defaultMessage": "Der Filter ist eingeschaltet – ohne Freigabe kommt derzeit nichts durch. Lege die erste Freigabe an."
+	},
+	"wireguard.agent.ingress.empty.title": {
+		"defaultMessage": "Noch keine Freigaben"
 	},
 	"wireguard.agent.ingress.err.invalid-cidr": {
 		"defaultMessage": "Ungültige IPv4-Adresse/CIDR: {value}"
@@ -1682,8 +1745,8 @@
 	"wireguard.agent.ingress.err.sources-required": {
 		"defaultMessage": "Mindestens eine Quelle angeben."
 	},
-	"wireguard.agent.ingress.explain": {
-		"defaultMessage": "Legt fest, welcher Verkehr, der durch den Tunnel ankommt, welche Ziele im LAN dieses Standorts erreichen darf. Gefiltert wird nur weitergeleiteter Verkehr – Dienste auf dem Gateway selbst (z. B. SSH) erfasst die Freigabe nicht."
+	"wireguard.agent.ingress.error.unknown": {
+		"defaultMessage": "Unbekannter Fehler"
 	},
 	"wireguard.agent.ingress.field.destinations": {
 		"defaultMessage": "Ziele"
@@ -1724,14 +1787,14 @@
 	"wireguard.agent.ingress.form.edit-title": {
 		"defaultMessage": "Freigabe bearbeiten"
 	},
-	"wireguard.agent.ingress.hit.last": {
-		"defaultMessage": "letzte neue Verbindung {ago}"
-	},
 	"wireguard.agent.ingress.hit.never": {
 		"defaultMessage": "noch kein Treffer"
 	},
 	"wireguard.agent.ingress.hit.packets": {
 		"defaultMessage": "{count, plural, one {# Paket} other {# Pakete}}"
+	},
+	"wireguard.agent.ingress.hit.short": {
+		"defaultMessage": "zuletzt: {ago}"
 	},
 	"wireguard.agent.ingress.hit.stale": {
 		"defaultMessage": "seit über 30 Tagen keine neue Verbindung — dauerhaft offene Verbindungen (z. B. LDAP, IMAP) zählen nicht mit, vor dem Löschen prüfen"
@@ -1739,44 +1802,41 @@
 	"wireguard.agent.ingress.legacy": {
 		"defaultMessage": "Altlast"
 	},
+	"wireguard.agent.ingress.list.warnings": {
+		"defaultMessage": "{count, plural, one {# Proxy-Ziel wird verworfen} other {# Proxy-Ziele werden verworfen}}"
+	},
 	"wireguard.agent.ingress.manage": {
 		"defaultMessage": "Freigaben verwalten"
 	},
 	"wireguard.agent.ingress.modal-title": {
 		"defaultMessage": "Freigaben — {name}"
 	},
-	"wireguard.agent.ingress.mode": {
-		"defaultMessage": "Modus"
-	},
-	"wireguard.agent.ingress.mode.open": {
-		"defaultMessage": "Offen (kein Filter)"
-	},
-	"wireguard.agent.ingress.mode.open-short": {
-		"defaultMessage": "offen"
-	},
-	"wireguard.agent.ingress.mode.restricted": {
-		"defaultMessage": "Nur Freigaben (weitergeleiteter Verkehr ohne Freigabe wird verworfen)"
-	},
-	"wireguard.agent.ingress.mode.restricted-short": {
-		"defaultMessage": "nur Freigaben"
+	"wireguard.agent.ingress.new": {
+		"defaultMessage": "Neue Freigabe"
 	},
 	"wireguard.agent.ingress.open-hint": {
-		"defaultMessage": "Im Modus „offen“ filtert nichts: Die Freigaben unten zählen nur Treffer, der gesamte Verkehr geht weiter an die Firewall des Gateways. Bevor ein externer Filter auf dem Gateway (z. B. VPN_MGR) entfernt wird, auf „nur Freigaben“ umstellen und warten, bis der Agent den Filter als gesetzt meldet."
+		"defaultMessage": "Bevor ein externer Filter auf dem Gateway (z. B. VPN_MGR) entfernt wird: Filter einschalten und warten, bis der Agent ihn als gesetzt meldet."
 	},
 	"wireguard.agent.ingress.open-page": {
 		"defaultMessage": "Alle Freigaben anzeigen"
 	},
+	"wireguard.agent.ingress.page.lead": {
+		"defaultMessage": "Lege pro Standort fest, welcher Verkehr aus dem VPN-Tunnel ins lokale Netz darf."
+	},
 	"wireguard.agent.ingress.page.no-agents": {
 		"defaultMessage": "Noch keine Agents vorhanden."
 	},
-	"wireguard.agent.ingress.page.stat.open": {
-		"defaultMessage": "Agents offen (kein Filter)"
+	"wireguard.agent.ingress.page.select": {
+		"defaultMessage": "Standort"
 	},
-	"wireguard.agent.ingress.page.stat.restricted": {
-		"defaultMessage": "Agents mit „nur Freigaben“"
+	"wireguard.agent.ingress.page.sites": {
+		"defaultMessage": "Standorte"
 	},
-	"wireguard.agent.ingress.page.stat.warnings": {
-		"defaultMessage": "Warnungen (verworfene Upstreams)"
+	"wireguard.agent.ingress.page.sites-summary": {
+		"defaultMessage": "{restricted} gefiltert · {open} offen"
+	},
+	"wireguard.agent.ingress.page.title": {
+		"defaultMessage": "Freigaben"
 	},
 	"wireguard.agent.ingress.picker.custom": {
 		"defaultMessage": "Eigene IP/CIDR: {value}"
@@ -1833,7 +1893,7 @@
 		"defaultMessage": "{count, plural, one {# Regel} other {# Regeln}}"
 	},
 	"wireguard.agent.ingress.preview.empty": {
-		"defaultMessage": "Kein Filter aktiv (Modus „offen“)."
+		"defaultMessage": "Kein Filter aktiv (Filter ausgeschaltet)."
 	},
 	"wireguard.agent.ingress.result.created-one": {
 		"defaultMessage": "Freigabe „{name}“ angelegt."
@@ -1844,11 +1904,14 @@
 	"wireguard.agent.ingress.result.reenabled-one": {
 		"defaultMessage": "Freigabe „{name}“ war abgeschaltet und ist wieder eingeschaltet."
 	},
+	"wireguard.agent.ingress.row.anything": {
+		"defaultMessage": "alles im Standort"
+	},
+	"wireguard.agent.ingress.row.menu": {
+		"defaultMessage": "Aktionen für {name}"
+	},
 	"wireguard.agent.ingress.rule-name.anything": {
 		"defaultMessage": "{source} → alles im Standort"
-	},
-	"wireguard.agent.ingress.rules": {
-		"defaultMessage": "Regeln"
 	},
 	"wireguard.agent.ingress.sentence.active-count": {
 		"defaultMessage": "{active} von {count} aktiv"
@@ -1872,13 +1935,55 @@
 		"defaultMessage": "Ports {list}"
 	},
 	"wireguard.agent.ingress.summary.rules": {
-		"defaultMessage": "{count, plural, one {# aktive Regel} other {# aktive Regeln}}"
+		"defaultMessage": "{count, plural, one {# aktive Freigabe} other {# aktive Freigaben}}"
 	},
 	"wireguard.agent.ingress.summary.unused": {
 		"defaultMessage": "{count, plural, one {# Regel ohne Proxy-Nutzung} other {# Regeln ohne Proxy-Nutzung}}"
 	},
 	"wireguard.agent.ingress.summary.warnings": {
 		"defaultMessage": "{count, plural, one {# Warnung} other {# Warnungen}}"
+	},
+	"wireguard.agent.ingress.tab.check": {
+		"defaultMessage": "Prüfen"
+	},
+	"wireguard.agent.ingress.tab.rules": {
+		"defaultMessage": "Freigaben ({count})"
+	},
+	"wireguard.agent.ingress.tab.tech": {
+		"defaultMessage": "Technik"
+	},
+	"wireguard.agent.ingress.tabs.label": {
+		"defaultMessage": "Freigaben dieses Standorts"
+	},
+	"wireguard.agent.ingress.tech.applied": {
+		"defaultMessage": "Regelsatz auf dem Agent"
+	},
+	"wireguard.agent.ingress.tech.egress": {
+		"defaultMessage": "Hub-eigene Flows"
+	},
+	"wireguard.agent.ingress.tech.hashes": {
+		"defaultMessage": "Soll {desired}, Ist {applied}"
+	},
+	"wireguard.agent.ingress.tech.hub-sources": {
+		"defaultMessage": "Hub-Adressen"
+	},
+	"wireguard.agent.ingress.tech.iface": {
+		"defaultMessage": "Gefilterte Schnittstelle"
+	},
+	"wireguard.agent.ingress.tech.info": {
+		"defaultMessage": "Schnittstelle und Modus"
+	},
+	"wireguard.agent.ingress.tech.link": {
+		"defaultMessage": "WireGuard-Verbindung"
+	},
+	"wireguard.agent.ingress.tech.mode": {
+		"defaultMessage": "Modus"
+	},
+	"wireguard.agent.ingress.tech.preview-lead": {
+		"defaultMessage": "Der iptables-restore-Text, den der Agent erhält."
+	},
+	"wireguard.agent.ingress.tech.table": {
+		"defaultMessage": "Alle Freigaben (Rohdaten)"
 	},
 	"wireguard.agent.ingress.tester.destination": {
 		"defaultMessage": "Ziel"
@@ -1888,6 +1993,9 @@
 	},
 	"wireguard.agent.ingress.tester.go-to-rule": {
 		"defaultMessage": "Zur Freigabe {name}"
+	},
+	"wireguard.agent.ingress.tester.lead": {
+		"defaultMessage": "Fragt den Filter dieses Standorts, was er mit einer Verbindung machen würde. Geprüft wird nur der FloppyGuard-Filter, nicht ob das Ziel erreichbar ist."
 	},
 	"wireguard.agent.ingress.tester.note.established-return": {
 		"defaultMessage": "Antworten auf erlaubte Verbindungen laufen immer durch (established/related)."
@@ -1899,7 +2007,7 @@
 		"defaultMessage": "Der Agent hat den aktuellen Regelsatz noch nicht bestätigt – evtl. läuft noch ein älterer."
 	},
 	"wireguard.agent.ingress.tester.observing-rule": {
-		"defaultMessage": "Würde im Modus „nur Freigaben“ auf „{name}“ passen"
+		"defaultMessage": "Würde bei eingeschaltetem Filter auf „{name}“ passen"
 	},
 	"wireguard.agent.ingress.tester.port": {
 		"defaultMessage": "Port"
@@ -1920,7 +2028,7 @@
 		"defaultMessage": "Läuft nicht über diesen Agent"
 	},
 	"wireguard.agent.ingress.tester.reason.open-mode": {
-		"defaultMessage": "Kein Filter aktiv (Modus offen)"
+		"defaultMessage": "Kein Filter aktiv (Filter ausgeschaltet)"
 	},
 	"wireguard.agent.ingress.tester.reason.rule": {
 		"defaultMessage": "FloppyGuard-Filter lässt durch – Freigabe „{name}“"
@@ -1938,22 +2046,13 @@
 		"defaultMessage": "Geprüft: {src} → {dst}{port}/{proto}"
 	},
 	"wireguard.agent.ingress.tester.title": {
-		"defaultMessage": "Verbindung prüfen: Darf eine Quelle ein Ziel erreichen?"
+		"defaultMessage": "Verbindung testen"
 	},
 	"wireguard.agent.ingress.title": {
 		"defaultMessage": "Freigaben"
 	},
 	"wireguard.agent.ingress.toggle-label": {
 		"defaultMessage": "Freigabe {name} aktiv"
-	},
-	"wireguard.agent.ingress.view.label": {
-		"defaultMessage": "Ansicht der Freigaben"
-	},
-	"wireguard.agent.ingress.view.sentences": {
-		"defaultMessage": "Klartext"
-	},
-	"wireguard.agent.ingress.view.table": {
-		"defaultMessage": "Tabelle"
 	},
 	"wireguard.agent.ingress.wizard.back": {
 		"defaultMessage": "Zurück"
