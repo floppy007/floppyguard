@@ -1529,6 +1529,12 @@
 	"wireguard.agent.ingress.badge.restricted": {
 		"defaultMessage": "Filter aktiv"
 	},
+	"wireguard.agent.ingress.banner.isolated-from": {
+		"defaultMessage": "Getrennt von: {sites}"
+	},
+	"wireguard.agent.ingress.banner.isolated-hint": {
+		"defaultMessage": "(siehe „Standorte untereinander“)"
+	},
 	"wireguard.agent.ingress.banner.networks": {
 		"defaultMessage": "Netze"
 	},
@@ -1934,6 +1940,177 @@
 	"wireguard.agent.ingress.sentence.ports": {
 		"defaultMessage": "Ports {list}"
 	},
+	"wireguard.agent.ingress.sites.action.allow": {
+		"defaultMessage": "Klicken, um die Verbindung wieder zuzulassen"
+	},
+	"wireguard.agent.ingress.sites.action.block": {
+		"defaultMessage": "Klicken zum Trennen"
+	},
+	"wireguard.agent.ingress.sites.active": {
+		"defaultMessage": "aktiv"
+	},
+	"wireguard.agent.ingress.sites.adopt-button": {
+		"defaultMessage": "In FloppyGuard übernehmen"
+	},
+	"wireguard.agent.ingress.sites.adopt-text": {
+		"defaultMessage": "Die am Hub von Hand gesetzten Sperren zwischen Standorten werden als Standort-Trennung in FloppyGuard gespeichert. Am Verkehr ändert sich dadurch nichts. Danach können die manuellen Regeln am Hub entfernt werden – erst dann lässt sich die Trennung hier auch wieder aufheben."
+	},
+	"wireguard.agent.ingress.sites.adopt-title": {
+		"defaultMessage": "Manuelle Sperren übernehmen?"
+	},
+	"wireguard.agent.ingress.sites.also-manual": {
+		"defaultMessage": "zusätzlich manuell am Hub gesperrt"
+	},
+	"wireguard.agent.ingress.sites.applied-at": {
+		"defaultMessage": "Zuletzt am Hub angewendet: {time}"
+	},
+	"wireguard.agent.ingress.sites.applied-error": {
+		"defaultMessage": "Anwenden fehlgeschlagen ({time}) – am Hub gelten weiter die vorherigen Regeln."
+	},
+	"wireguard.agent.ingress.sites.applied-error-short": {
+		"defaultMessage": "Fehler beim Anwenden"
+	},
+	"wireguard.agent.ingress.sites.applied-never": {
+		"defaultMessage": "Noch nicht angewendet"
+	},
+	"wireguard.agent.ingress.sites.applying": {
+		"defaultMessage": "Wird am Hub angewendet …"
+	},
+	"wireguard.agent.ingress.sites.cleanup-button": {
+		"defaultMessage": "Verwaiste Trennungen entfernen"
+	},
+	"wireguard.agent.ingress.sites.clients-unaffected": {
+		"defaultMessage": "Gilt nur für Standort-Verbindungen; VPN-Geräte (Clients) sind nicht betroffen."
+	},
+	"wireguard.agent.ingress.sites.collapse": {
+		"defaultMessage": "Einklappen"
+	},
+	"wireguard.agent.ingress.sites.confirm-affected": {
+		"defaultMessage": "Betroffen:"
+	},
+	"wireguard.agent.ingress.sites.confirm-allow": {
+		"defaultMessage": "{a} und {b} können sich danach wieder erreichen – soweit die Freigaben am jeweiligen Standort es zulassen."
+	},
+	"wireguard.agent.ingress.sites.confirm-allow-button": {
+		"defaultMessage": "Verbindung wieder zulassen"
+	},
+	"wireguard.agent.ingress.sites.confirm-allow-manual": {
+		"defaultMessage": "Achtung: Am Hub sperrt zusätzlich eine von Hand gesetzte Regel diese Verbindung. Sie bleibt bestehen, bis sie dort entfernt wird."
+	},
+	"wireguard.agent.ingress.sites.confirm-allow-title": {
+		"defaultMessage": "Verbindung zwischen {a} und {b} wieder zulassen?"
+	},
+	"wireguard.agent.ingress.sites.confirm-block": {
+		"defaultMessage": "{a} und {b} können sich danach nicht mehr erreichen – in beide Richtungen, sofort, auch bestehende Verbindungen brechen ab."
+	},
+	"wireguard.agent.ingress.sites.confirm-block-button": {
+		"defaultMessage": "Trennen"
+	},
+	"wireguard.agent.ingress.sites.confirm-block-title": {
+		"defaultMessage": "{a} und {b} trennen?"
+	},
+	"wireguard.agent.ingress.sites.confirm-no-networks": {
+		"defaultMessage": "keine Netze"
+	},
+	"wireguard.agent.ingress.sites.dropped": {
+		"defaultMessage": "{count, plural, one {{packets} Paket verworfen} other {{packets} Pakete verworfen}}"
+	},
+	"wireguard.agent.ingress.sites.edit": {
+		"defaultMessage": "Bearbeiten"
+	},
+	"wireguard.agent.ingress.sites.error.links-unresolved": {
+		"defaultMessage": "Keine gespeicherte Trennung passt zu einer vorhandenen Standort-Verbindung (WireGuard-Daten leer oder Verbindungen neu angelegt). Damit nichts unbeabsichtigt geöffnet wird, bleiben die bisherigen Regeln am Hub aktiv. Bitte die Trennungen hier neu setzen."
+	},
+	"wireguard.agent.ingress.sites.last-change": {
+		"defaultMessage": "Zuletzt geändert: {time}"
+	},
+	"wireguard.agent.ingress.sites.last-change-by": {
+		"defaultMessage": "Zuletzt geändert: {time} von {user}"
+	},
+	"wireguard.agent.ingress.sites.lead": {
+		"defaultMessage": "Lege fest, welche Standorte sich gegenseitig erreichen dürfen. Getrennt wird am Hub – zusätzlich zu den Freigaben am jeweiligen Standort. Gilt nur für Standort-Verbindungen; VPN-Geräte (Clients) sind nicht betroffen."
+	},
+	"wireguard.agent.ingress.sites.matrix-caption": {
+		"defaultMessage": "Welche Standorte voneinander getrennt sind (jedes Paar einmal)"
+	},
+	"wireguard.agent.ingress.sites.not-enforced": {
+		"defaultMessage": "greift derzeit nicht (siehe Hinweise)"
+	},
+	"wireguard.agent.ingress.sites.offline": {
+		"defaultMessage": "offline"
+	},
+	"wireguard.agent.ingress.sites.online": {
+		"defaultMessage": "online"
+	},
+	"wireguard.agent.ingress.sites.state.blocked": {
+		"defaultMessage": "getrennt"
+	},
+	"wireguard.agent.ingress.sites.state.manual": {
+		"defaultMessage": "manuell getrennt"
+	},
+	"wireguard.agent.ingress.sites.state.not-enforced": {
+		"defaultMessage": "getrennt – greift nicht"
+	},
+	"wireguard.agent.ingress.sites.state.open": {
+		"defaultMessage": "nicht getrennt"
+	},
+	"wireguard.agent.ingress.sites.summary": {
+		"defaultMessage": "{blocked, plural, =0 {{total, plural, one {Das Standortpaar ist nicht getrennt} other {Keines der # Standortpaare getrennt}}} one {# von {total} Standortpaaren getrennt} other {# von {total} Standortpaaren getrennt}}"
+	},
+	"wireguard.agent.ingress.sites.switch-hint": {
+		"defaultMessage": "Schalter an = nicht getrennt (die Freigaben gelten), aus = am Hub getrennt."
+	},
+	"wireguard.agent.ingress.sites.title": {
+		"defaultMessage": "Standorte untereinander"
+	},
+	"wireguard.agent.ingress.sites.too-few": {
+		"defaultMessage": "Es gibt weniger als zwei Standort-Verbindungen – nichts zu trennen."
+	},
+	"wireguard.agent.ingress.sites.too-few-short": {
+		"defaultMessage": "Weniger als zwei Standorte"
+	},
+	"wireguard.agent.ingress.sites.unavailable": {
+		"defaultMessage": "Standort-Trennung nicht verfügbar: {error}"
+	},
+	"wireguard.agent.ingress.sites.warning.boot-include-missing": {
+		"defaultMessage": "Nach einem Neustart des Hubs greift die Trennung erst wieder, wenn FloppyGuard läuft – die Startkonfiguration der Firewall lädt sie noch nicht."
+	},
+	"wireguard.agent.ingress.sites.warning.link-missing": {
+		"defaultMessage": "Eine gespeicherte Trennung verweist auf eine Verbindung, die es nicht mehr gibt – sie wird übersprungen und beim nächsten Speichern entfernt."
+	},
+	"wireguard.agent.ingress.sites.warning.link-missing-held": {
+		"defaultMessage": "{site} ist nicht mehr auffindbar – die Trennung bleibt vorerst mit den zuletzt bekannten Netzen bestehen."
+	},
+	"wireguard.agent.ingress.sites.warning.link-not-site": {
+		"defaultMessage": "{site} ist keine Standort-Verbindung mehr – diese Trennung wird übersprungen."
+	},
+	"wireguard.agent.ingress.sites.warning.manual-drop": {
+		"defaultMessage": "Am Hub gibt es zusätzliche, manuell gesetzte Sperren außerhalb von FloppyGuard ({chains}). Sie gelten unabhängig von dieser Übersicht."
+	},
+	"wireguard.agent.ingress.sites.warning.network-skipped.default-route": {
+		"defaultMessage": "{site}: Die Standardroute {value} wird für die Trennung nicht berücksichtigt."
+	},
+	"wireguard.agent.ingress.sites.warning.network-skipped.invalid": {
+		"defaultMessage": "{site}: Das ungültige Netz {value} wird ignoriert."
+	},
+	"wireguard.agent.ingress.sites.warning.network-skipped.ipv6-unsupported": {
+		"defaultMessage": "{site}: Das IPv6-Netz {value} wird von der Standort-Trennung nicht erfasst – IPv6-Verkehr wird nicht getrennt."
+	},
+	"wireguard.agent.ingress.sites.warning.no-networks": {
+		"defaultMessage": "{site} hat keine Netze – die Trennung zu {other} greift nicht."
+	},
+	"wireguard.agent.ingress.sites.warning.overlap": {
+		"defaultMessage": "{a} und {b} haben überlappende Netze ({networks}) – Verkehr darin wird ebenfalls verworfen."
+	},
+	"wireguard.agent.ingress.sites.warning.persist-failed": {
+		"defaultMessage": "Die Trennung ist aktiv, wird nach einem Hub-Neustart aber erst wieder gesetzt, wenn FloppyGuard läuft."
+	},
+	"wireguard.agent.ingress.sites.warning.route-dropped": {
+		"defaultMessage": "{agent}: Route zu {site} ({networks}) ist noch eingetragen – der Hub verwirft diesen Verkehr."
+	},
+	"wireguard.agent.ingress.sites.warnings-title": {
+		"defaultMessage": "{count, plural, one {Hinweis} other {# Hinweise}}"
+	},
 	"wireguard.agent.ingress.summary.rules": {
 		"defaultMessage": "{count, plural, one {# aktive Freigabe} other {# aktive Freigaben}}"
 	},
@@ -2006,6 +2183,15 @@
 	"wireguard.agent.ingress.tester.note.not-applied": {
 		"defaultMessage": "Der Agent hat den aktuellen Regelsatz noch nicht bestätigt – evtl. läuft noch ein älterer."
 	},
+	"wireguard.agent.ingress.tester.note.site-isolation-not-applied": {
+		"defaultMessage": "Die Standort-Trennung ist gespeichert, wurde am Hub aber noch nicht erfolgreich angewendet."
+	},
+	"wireguard.agent.ingress.tester.note.site-isolation-partial": {
+		"defaultMessage": "Teile der geprüften Bereiche sind durch die Standort-Trennung am Hub gesperrt."
+	},
+	"wireguard.agent.ingress.tester.note.site-isolation-unknown": {
+		"defaultMessage": "Die Standort-Trennung am Hub konnte nicht geprüft werden."
+	},
 	"wireguard.agent.ingress.tester.observing-rule": {
 		"defaultMessage": "Würde bei eingeschaltetem Filter auf „{name}“ passen"
 	},
@@ -2035,6 +2221,12 @@
 	},
 	"wireguard.agent.ingress.tester.reason.same-site": {
 		"defaultMessage": "Gleicher Standort, nicht gefiltert"
+	},
+	"wireguard.agent.ingress.tester.reason.site-isolation": {
+		"defaultMessage": "Gesperrt durch Standort-Trennung ({pair})"
+	},
+	"wireguard.agent.ingress.tester.reason.site-isolation-manual": {
+		"defaultMessage": "Am Hub durch eine von Hand gesetzte Sperre außerhalb von FloppyGuard verworfen ({rule})"
 	},
 	"wireguard.agent.ingress.tester.run": {
 		"defaultMessage": "Prüfen"

@@ -1,13 +1,20 @@
-import { IconLockOpen, IconPlus, IconShieldCheck, IconShieldLock, IconShieldX } from "@tabler/icons-react";
+import { IconLock, IconLockOpen, IconPlus, IconShieldCheck, IconShieldLock, IconShieldX } from "@tabler/icons-react";
 import { type KeyboardEvent, type ReactNode, type Ref, useEffect, useRef, useState } from "react";
 import Alert from "react-bootstrap/Alert";
+import { Link } from "react-router-dom";
 import type {
 	AgentIngressApplied,
 	AgentIngressCatalog,
 	AgentIngressMode,
 	AgentIngressRule,
 } from "src/api/backend";
-import { useAgentIngress, useAgentIngressCatalog, useAgentIngressCheck, useSetAgentIngressMode } from "src/hooks";
+import {
+	useAgentIngress,
+	useAgentIngressCatalog,
+	useAgentIngressCheck,
+	useSetAgentIngressMode,
+	useSiteIsolation,
+} from "src/hooks";
 import { intl } from "src/locale/IntlProvider";
 import { POPPER_FIXED } from "src/modules/Dropdown";
 import { AgentIngressCheckList } from "./CheckList";
@@ -16,6 +23,7 @@ import { IngressTester } from "./IngressTester";
 import { AgentIngressRuleForm } from "./RuleForm";
 import { AgentIngressRuleSentences } from "./RuleSentences";
 import { ingressRuleDomId } from "./RulesTable";
+import { isolatedSiteNames, SITE_ISOLATION_ANCHOR } from "./SiteIsolation";
 import { AgentIngressTechTab } from "./TechTab";
 import { errMessage, ingressWarningCount, ti } from "./utils";
 import { PublishProxyWizard, SiteAccessWizard, SiteFullAccessWizard } from "./wizards";
@@ -53,6 +61,8 @@ interface BannerProps {
 	networks: string[];
 	/** proxy targets the filter drops (restricted only) */
 	dropped: number;
+	/** sites this one is cut off from at the hub ("Standorte untereinander") */
+	isolatedFrom: string[];
 	pending: boolean;
 	heading?: ReactNode;
 	onModeChange: (mode: AgentIngressMode) => void;
@@ -67,6 +77,7 @@ function StatusBanner({
 	hasEnabledRules,
 	networks,
 	dropped,
+	isolatedFrom,
 	pending,
 	heading,
 	onModeChange,
@@ -119,6 +130,24 @@ function StatusBanner({
 									{n}
 								</span>
 							))}
+						</div>
+					)}
+					{isolatedFrom.length > 0 && (
+						<div
+							className="small mt-2 text-red d-flex align-items-start gap-1"
+							data-testid="ingress-banner-isolated"
+						>
+							<IconLock size={14} className="flex-shrink-0 mt-1" aria-hidden />
+							<span>
+								{ti("banner.isolated-from", { sites: isolatedFrom.join(", ") })}{" "}
+								<Link
+									to={`/ingress#${SITE_ISOLATION_ANCHOR}`}
+									className="text-secondary"
+									data-testid="ingress-banner-isolated-link"
+								>
+									{ti("banner.isolated-hint")}
+								</Link>
+							</span>
 						</div>
 					)}
 					{restricted && dropped > 0 && (
@@ -230,6 +259,8 @@ export function AgentIngressDetail({ agentId, heading, dangerZone }: Props) {
 	const checkQuery = useAgentIngressCheck();
 	const catalogQuery = useAgentIngressCatalog(agentId);
 	const setMode = useSetAgentIngressMode(agentId);
+	// optional: an older backend without the endpoint simply shows no isolation line
+	const isolation = useSiteIsolation();
 	const [tab, setTabState] = useState<IngressTab>("rules");
 	// tabs once opened stay mounted (hidden): the tester keeps its input and result
 	const [visited, setVisited] = useState<Set<IngressTab>>(() => new Set<IngressTab>(["rules"]));
@@ -495,6 +526,7 @@ export function AgentIngressDetail({ agentId, heading, dangerZone }: Props) {
 				hasEnabledRules={activeRules > 0}
 				networks={catalog?.site?.networks ?? []}
 				dropped={dropped}
+				isolatedFrom={isolatedSiteNames(isolation.data, catalog?.site?.linkId)}
 				pending={setMode.isPending}
 				heading={heading}
 				onModeChange={onModeChange}

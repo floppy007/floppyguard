@@ -13,6 +13,23 @@ const VARIANT: Record<AgentIngressTestResult["reason"], string> = {
 	"not-via-agent": "secondary",
 	"same-site": "secondary",
 	"link-not-found": "warning",
+	"site-isolation": "danger",
+};
+
+/** Notes the tester explains (the others are internal). */
+const SHOWN_NOTES = [
+	"established-return",
+	"forward-only",
+	"not-applied",
+	"site-isolation-not-applied",
+	"site-isolation-partial",
+	"site-isolation-unknown",
+];
+
+/** "Hinderlich Office ↔ Daniel Home", source side first. */
+export const siteIsolationPairLabel = (ref: AgentIngressTestResult["siteIsolation"]) => {
+	if (!ref) return "?";
+	return ref.direction === "b-to-a" ? `${ref.nameB} ↔ ${ref.nameA}` : `${ref.nameA} ↔ ${ref.nameB}`;
 };
 
 interface Props {
@@ -157,6 +174,14 @@ export function IngressTester({ agentId, catalog, onFocusRule }: Props) {
 									{ id: "wireguard.agent.ingress.tester.reason.rule" },
 									{ name: ruleButton(result.rule) },
 								)
+							) : result.reason === "site-isolation" && !result.siteIsolation && result.siteIsolationManual ? (
+								ti("tester.reason.site-isolation-manual", {
+									rule:
+										result.siteIsolationManual.comment ||
+										`${result.siteIsolationManual.family} ${result.siteIsolationManual.table} ${result.siteIsolationManual.chain}`,
+								})
+							) : result.reason === "site-isolation" ? (
+								ti("tester.reason.site-isolation", { pair: siteIsolationPairLabel(result.siteIsolation) })
 							) : (
 								ti(`tester.reason.${result.reason}`)
 							)}
@@ -186,7 +211,7 @@ export function IngressTester({ agentId, catalog, onFocusRule }: Props) {
 							<div className="small text-secondary">{ti("tester.port-unknown")}</div>
 						)}
 						{result.notes
-							.filter((n) => ["established-return", "forward-only", "not-applied"].includes(n))
+							.filter((n) => SHOWN_NOTES.includes(n))
 							.map((n) => (
 								<div key={n} className="small text-secondary">
 									{ti(`tester.note.${n}`)}

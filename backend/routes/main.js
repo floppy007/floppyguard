@@ -19,6 +19,7 @@ import reportsRoutes from "./reports.js";
 import schemaRoutes from "./schema.js";
 import securityRoutes from "./security.js";
 import settingsRoutes from "./settings.js";
+import siteIsolationRoutes from "./site-isolation.js";
 import tokensRoutes from "./tokens.js";
 import usersRoutes from "./users.js";
 import versionRoutes from "./version.js";
@@ -65,6 +66,7 @@ router.use("/version", versionRoutes);
 // FloppyGuard extension routes.
 router.use("/", agentRoutes);
 router.use("/wireguard", wireGuardRoutes);
+router.use("/site-isolation", siteIsolationRoutes);
 router.use("/security", securityRoutes);
 router.use("/design", designRoutes);
 router.use("/nginx/proxy-hosts", proxyHostsRoutes);

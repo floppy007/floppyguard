@@ -142,6 +142,9 @@ Set these in the systemd unit file (`/etc/systemd/system/floppyguard-backend.ser
 | `CLOUDFLARE_DNS_IPV4` | detected public IPv4 | Optional explicit A-record target for Proxy Host DNS synchronization. |
 | `CLOUDFLARE_DNS_IPV6` | detected public IPv6 | Optional explicit AAAA-record target for Proxy Host DNS synchronization. |
 | `PORT` | `3300` | Backend listen port |
+| `SITE_ISOLATION_NFT_FILE` | `/etc/nftables.d/floppyguard-sites.nft` | Boot copy of the site isolation table ("Standorte untereinander"), rewritten after every apply |
+| `SITE_ISOLATION_BOOT_CONF` | `/etc/nftables.conf` | nftables boot config checked for the include of that file (warning `boot-include-missing`) |
+| `SITE_ISOLATION_DISABLED` | - | `true` = the backend never touches the site isolation table |
 
 ### Cloudflare DNS synchronization
 
@@ -177,6 +180,38 @@ nginx -t && nginx -s reload
 ```
 
 See [docs/OPERATIONS.md](docs/OPERATIONS.md) for the full runbook.
+
+### Site isolation ("Standorte untereinander")
+
+Pairs of sites that must not reach each other are set on the **Freigaben** page and enforced on the hub in a dedicated nftables table `inet floppyguard_sites` (forward hook, priority `filter - 10`, policy accept, only drop rules). The backend replaces that table atomically (`nft -c -f`, then `nft -f`) on start-up, after every change and whenever the WireGuard links or networks change. It never touches any other table.
+
+The table lives in the kernel, so it survives a backend restart. It does **not** survive a reboot or `systemctl restart nftables`, because `/etc/nftables.conf` starts with `flush ruleset`. The backend therefore writes a boot copy to `/etc/nftables.d/floppyguard-sites.nft`; add this line at the **end** of `/etc/nftables.conf`, after the existing tables:
+
+```
+include "/etc/nftables.d/floppyguard-sites.nft"
+```
+
+The file starts with `table inet floppyguard_sites {}` + `delete table inet floppyguard_sites`, so it is valid right after `flush ruleset`. Create the directory and a valid empty table before adding the include, so the include never fails at boot even if the backend has not written the file yet:
+
+```bash
+mkdir -p /etc/nftables.d
+[ -f /etc/nftables.d/floppyguard-sites.nft ] || printf 'table inet floppyguard_sites {}\n' > /etc/nftables.d/floppyguard-sites.nft
+nft -c -f /etc/nftables.conf   # check only; never `nft -f` it at runtime (flush ruleset drops the WireGuard NAT)
+```
+
+Until the include is in place, the Freigaben page shows the warning "Nach einem Neustart des Hubs greift die Trennung erst wieder, wenn FloppyGuard läuft".
+
+**Fail-safe behaviour:** a missing or unreadable view of the links never lifts a separation. Tunnel addresses fall back to the last known ones, a link that disappears keeps its last networks for one more apply, and if stored pairs exist but none of them matches a current site link, the previous table is kept and the page shows an error. IPv6 networks of a site are not covered (the table is IPv4 only) and are listed as a warning.
+
+**Manual drop rules:** drop rules with `ip saddr`/`ip daddr` in *other* forward chains (for example a hand-written `ip saddr @site_x ip daddr @site_y drop` in `inet filter forward`) are detected and shown as "manuell getrennt" with the warning "Am Hub gibt es zusätzliche, manuell gesetzte Sperren außerhalb von FloppyGuard". The Freigaben tester reports them too. FloppyGuard cannot lift them: "Erlauben" only clears its own table.
+
+**Cut-over from manual rules** (one step, in this order):
+
+1. Deploy: run the frontend production build and restart the backend. The migration creates the empty `site_isolation` table, and start-up creates the empty table `inet floppyguard_sites` (policy accept, harmless).
+2. On the Freigaben page, use **In FloppyGuard übernehmen** in the warning about manual blocks, or separate the pair in the matrix.
+3. Check that the hub has the pair: `nft list table inet floppyguard_sites` shows two `counter drop` rules.
+4. Only then remove the manual rules and sets from the live ruleset (`nft delete rule inet filter forward handle <n>`, `nft delete set inet filter <name>`) **and** from `/etc/nftables.conf`, and add the include above.
+5. Reload the page: the warning about manual blocks is gone, and the pair shows "getrennt".
 
 ### Application updates
 

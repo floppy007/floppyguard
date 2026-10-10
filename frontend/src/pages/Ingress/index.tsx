@@ -12,6 +12,7 @@ import {
 	ingressSiteName,
 	isIngressAppliedProblem,
 	pickDefaultIngressAgent,
+	SiteIsolationCard,
 	ti,
 } from "src/components/AgentIngress";
 import { useAgentIngress, useAgentIngressCheck, useAgents } from "src/hooks";
@@ -204,6 +205,9 @@ export function IngressPageContent() {
 			</div>
 
 			{check.error && <Alert variant="warning">{check.error.message}</Alert>}
+
+			{/* hub-wide, above the per-site view: which sites may reach each other at all */}
+			<SiteIsolationCard />
 
 			{entries.length === 0 ? (
 				<div className="text-secondary">{ti("page.no-agents")}</div>

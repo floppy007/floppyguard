@@ -10,6 +10,7 @@ export * from "./RuleForm";
 export * from "./RuleSentence";
 export * from "./RuleSentences";
 export * from "./RulesTable";
+export * from "./SiteIsolation";
 export * from "./TechTab";
 export * from "./utils";
 export * from "./wizards";

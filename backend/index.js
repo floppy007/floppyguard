@@ -4,6 +4,7 @@ import app from "./app.js";
 import internalAgent from "./internal/agent.js";
 import internalCertificate from "./internal/certificate.js";
 import internalIpRanges from "./internal/ip_ranges.js";
+import internalSiteIsolation from "./internal/site-isolation.js";
 import internalWireGuard from "./internal/wireguard.js";
 import { global as logger } from "./logger.js";
 import { migrateUp } from "./migrate.js";
@@ -37,6 +38,12 @@ async function appStart() {
 			internalCertificate.initTimer();
 			internalIpRanges.initTimer();
 			internalAgent.startBackgroundTasks();
+			// Hub-side site-to-site isolation (own nft table). Applies once now and
+			// re-applies whenever syncAgentConfigs runs (link/network changes, the
+			// reconciler). Never blocks start-up; failures keep the previous table.
+			internalSiteIsolation.start().catch((err) => {
+				logger.error(`Site isolation could not start: ${err.message}`);
+			});
 			// Record traffic history from boot on, not only once someone opens
 			// a WireGuard page.
 			internalWireGuard.startBandwidthPolling().catch((err) => {

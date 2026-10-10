@@ -37,6 +37,7 @@ import {
 	sanitizeIngressRule,
 } from "./agent-ingress-rules.js";
 import internalAuditLog from "./audit-log.js";
+import internalSiteIsolation from "./site-isolation.js";
 import internalWireGuard from "./wireguard.js";
 
 const OBJECT_TYPE = "agent-ingress";
@@ -1084,6 +1085,21 @@ const internalAgentIngress = {
 		const ctx = await wgContext();
 		const site = agentSiteLink(agent.wg_link_name, { statusLinks: ctx.statusLinks, metaLinks: ctx.metadataLinks });
 		const applied = await this.appliedFor(agent);
+		// Hub-side site isolation is checked first: it drops the flow at the hub,
+		// before any agent filter sees it. A failing lookup must not break the
+		// tester — it then reports the Freigaben view only, with a note.
+		let isolation = null;
+		try {
+			isolation = await internalSiteIsolation.verdict(q.src, q.dst);
+		} catch (err) {
+			logger.warn(`Ingress test: site isolation lookup failed: ${err.message}`);
+		}
+		if (!site && isolation?.blocked) {
+			return {
+				...evaluateFlow({ mode: agent.ingress_mode || "open", ...q, applied, isolation }),
+				link_found: false,
+			};
+		}
 		if (!site) {
 			// Without its site the agent's networks are unknown: every query would
 			// read "not via this agent", hiding the real cause (missing/renamed link).
@@ -1107,7 +1123,9 @@ const internalAgentIngress = {
 			hubNets: ctx.hubNets,
 			...q,
 			applied,
+			isolation,
 		});
+		if (!isolation) result.notes = [...result.notes, "site-isolation-unknown"];
 		return { ...result, link_found: true };
 	},
 

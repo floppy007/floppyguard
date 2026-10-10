@@ -6,6 +6,7 @@ import AgentIngressRule from "../models/agent_ingress_rule.js";
 import Setting from "../models/setting.js";
 import internalAgentIngress from "./agent-ingress.js";
 import { cidrContains } from "./agent-ingress-rules.js";
+import { triggerSiteIsolation } from "./site-isolation-trigger.js";
 import internalWireGuard, { canonicalizeIpv4Network, withWriteLock } from "./wireguard.js";
 
 /**
@@ -2302,6 +2303,11 @@ echo "[floppyguard-agent]   journalctl -u floppyguard-agent -f"
 				results.push({ agentId: agent.id, name: agent.name, changed: false, error: err.message });
 			}
 		}
+
+		// Site isolation sets follow the links' networks: every path that changes
+		// links/networks ends up here (and the 5-min reconciler), so re-apply the
+		// hub's site table too (debounced, no-op unless started by index.js).
+		triggerSiteIsolation("syncAgentConfigs");
 
 		return results;
 	},

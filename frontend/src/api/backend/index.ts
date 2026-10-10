@@ -63,6 +63,7 @@ export * from "./responseTypes";
 export * from "./restoreWireGuardMetadata";
 export * from "./security";
 export * from "./setPermissions";
+export * from "./siteIsolation";
 export * from "./startApplicationUpdate";
 export * from "./testHttpCertificate";
 export * from "./toggleDeadHost";

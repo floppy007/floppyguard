@@ -759,15 +759,28 @@ export interface AgentIngressTestResult {
 	allowed: boolean | null;
 	filtered: boolean;
 	/** link-not-found: the agent's bound WireGuard link is missing/renamed — its networks are unknown */
-	reason: "rule" | "no-rule" | "open-mode" | "not-via-agent" | "same-site" | "link-not-found";
+	/** site-isolation: the hub drops the flow before it reaches the agent ("Standorte untereinander") */
+	reason: "rule" | "no-rule" | "open-mode" | "not-via-agent" | "same-site" | "link-not-found" | "site-isolation";
 	rule: AgentIngressRuleRef | null;
 	matchedRules: AgentIngressRuleRef[];
 	/** a disabled rule that would match */
 	disabledMatch: AgentIngressRuleRef | null;
 	/** no port given and only port-restricted rules would match */
 	portUnknown: boolean;
-	notes: Array<"established-return" | "forward-only" | "not-applied" | string>;
+	notes: Array<
+		| "established-return"
+		| "forward-only"
+		| "not-applied"
+		| "site-isolation-not-applied"
+		| "site-isolation-partial"
+		| "site-isolation-unknown"
+		| string
+	>;
 	linkFound?: boolean;
+	/** reason site-isolation: the blocked pair, direction = which side is the source */
+	siteIsolation?: SiteIsolationPairRef | null;
+	/** reason site-isolation without a pair: a drop rule set by hand at the hub, outside FloppyGuard */
+	siteIsolationManual?: SiteIsolationForeignRule | null;
 }
 
 export interface AgentIngressBulkResult {
@@ -775,4 +788,121 @@ export interface AgentIngressBulkResult {
 	/** switched-off rules with the same targets, switched back on instead of a duplicate (older backends: absent) */
 	reenabled?: AgentIngressRule[];
 	skipped: Array<{ index: number; reason: "duplicate"; ruleId: number | null }>;
+}
+
+// ── "Standorte untereinander" (hub-side site isolation) ──────────────────────
+
+/** A site-to-site link as the isolation matrix shows it. */
+export interface SiteIsolationSite {
+	linkId: string;
+	name: string;
+	/** imported networks behind the site (canonical CIDRs) */
+	networks: string[];
+	/** tunnel /32s of the site */
+	tunnel: string[];
+	online: boolean;
+}
+
+/** One isolated (blocked) pair; linkA < linkB. */
+export interface SiteIsolationPair {
+	id: number;
+	linkA: string;
+	linkB: string;
+	/** null = the link no longer exists */
+	nameA: string | null;
+	nameB: string | null;
+	/** false = stored but not in the hub table (link gone, no networks …) */
+	enforced: boolean;
+	/** drop counters of both directions; null = no counters (not applied / nft unavailable) */
+	dropped: { packets: number; bytes: number } | null;
+}
+
+export interface SiteIsolationApplied {
+	hash: string | null;
+	/** unix seconds of the last successful apply */
+	at: number | null;
+	error: string | null;
+	errorAt: number | null;
+	/** persisted boot copy (null = not written) */
+	file: string | null;
+	/** "input" | "nft" | "links-unresolved" (previous table kept); null = no error */
+	errorCode?: string | null;
+	/** the table exists on the hub right now */
+	tablePresent?: boolean;
+}
+
+/** A drop rule outside FloppyGuard (another forward chain on the hub). */
+export interface SiteIsolationForeignRule {
+	family: string;
+	table: string;
+	chain: string;
+	comment: string | null;
+	srcSet?: string | null;
+	dstSet?: string | null;
+}
+
+/** Two sites that a manual hub rule (outside FloppyGuard) separates. */
+export interface SiteIsolationManualPair {
+	linkA: string;
+	linkB: string;
+	rules: SiteIsolationForeignRule[];
+}
+
+export interface SiteIsolationWarning {
+	code:
+		| "network-skipped"
+		| "link-missing"
+		| "link-missing-held"
+		| "manual-drop"
+		| "boot-include-missing"
+		| "link-not-site"
+		| "no-networks"
+		| "overlap"
+		| "persist-failed"
+		| "route-dropped"
+		| string;
+	/** German text from the backend (fallback for codes without a translation) */
+	message: string;
+	linkId?: string;
+	name?: string;
+	pair?: { a: string; b: string };
+	networks?: string[];
+	agentId?: number;
+	agentName?: string;
+	otherLinkId?: string;
+	otherName?: string;
+	via?: "allowed_networks" | "allowed_sites" | "full-mesh";
+	/** network-skipped: why */
+	reason?: "invalid" | "default-route" | "ipv6-unsupported" | string;
+	value?: string;
+	/** manual-drop: the foreign rules */
+	rules?: SiteIsolationForeignRule[];
+	/** boot-include-missing: the file the boot config should include */
+	file?: string;
+}
+
+export interface SiteIsolationOverview {
+	sites: SiteIsolationSite[];
+	pairs: SiteIsolationPair[];
+	applied: SiteIsolationApplied;
+	warnings: SiteIsolationWarning[];
+	/** pairs separated by manual hub rules outside FloppyGuard (older backends: absent) */
+	manualPairs?: SiteIsolationManualPair[];
+	/** last change of the pair set (audit log); null = none recorded */
+	lastChange?: { at: number | null; by: string | null } | null;
+}
+
+/** PUT body entry: the full set replaces the stored pairs. */
+export interface SiteIsolationPairInput {
+	linkA: string;
+	linkB: string;
+}
+
+/** Pair reference in a tester verdict. */
+export interface SiteIsolationPairRef {
+	a: string;
+	b: string;
+	nameA: string;
+	nameB: string;
+	direction: "a-to-b" | "b-to-a";
 }

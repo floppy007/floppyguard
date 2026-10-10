@@ -461,6 +461,10 @@ const ruleRef = (r) => (r ? { id: r.id, name: r.name } : null);
 /**
  * What this agent's FG_IN does with one flow (src → dst:port/proto). Pure.
  * Rule order = ascending id (the line iptables hits first, whose counter rises).
+ *
+ * `isolation` = siteIsolationVerdict result for the flow (or null). The hub's
+ * site isolation drops the flow BEFORE it ever reaches the agent, so a blocked
+ * verdict wins over every Freigabe (reason "site-isolation", pair attached).
  */
 export function evaluateFlow({
 	mode = "open",
@@ -472,10 +476,25 @@ export function evaluateFlow({
 	port = null,
 	proto = "tcp",
 	applied = null,
+	isolation = null,
 }) {
 	const notes = ["established-return", "forward-only"];
 	if (applied && applied.state !== "applied") notes.push("not-applied");
 	const base = { mode, matched_rules: [], disabled_match: null, port_unknown: false, notes };
+	if (isolation?.blocked) {
+		if (isolation.applied === false) notes.push("site-isolation-not-applied");
+		return {
+			...base,
+			allowed: false,
+			filtered: true,
+			reason: "site-isolation",
+			rule: null,
+			site_isolation: isolation.pair || null,
+			// blocked by a drop rule set by hand outside FloppyGuard (no pair)
+			site_isolation_manual: isolation.manual || null,
+		};
+	}
+	if (isolation?.partial) notes.push("site-isolation-partial");
 	if (!ownNets.some((n) => cidrContains(n, dst)) || hubNets.some((n) => cidrContains(n, dst))) {
 		return { ...base, allowed: null, filtered: false, reason: "not-via-agent", rule: null };
 	}

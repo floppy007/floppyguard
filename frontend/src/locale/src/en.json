@@ -1529,6 +1529,12 @@
 	"wireguard.agent.ingress.badge.restricted": {
 		"defaultMessage": "Filter on"
 	},
+	"wireguard.agent.ingress.banner.isolated-from": {
+		"defaultMessage": "Separated from: {sites}"
+	},
+	"wireguard.agent.ingress.banner.isolated-hint": {
+		"defaultMessage": "(see “Sites among each other”)"
+	},
 	"wireguard.agent.ingress.banner.networks": {
 		"defaultMessage": "Networks"
 	},
@@ -1934,6 +1940,177 @@
 	"wireguard.agent.ingress.sentence.ports": {
 		"defaultMessage": "ports {list}"
 	},
+	"wireguard.agent.ingress.sites.action.allow": {
+		"defaultMessage": "Click to allow the connection again"
+	},
+	"wireguard.agent.ingress.sites.action.block": {
+		"defaultMessage": "Click to separate"
+	},
+	"wireguard.agent.ingress.sites.active": {
+		"defaultMessage": "active"
+	},
+	"wireguard.agent.ingress.sites.adopt-button": {
+		"defaultMessage": "Take over into FloppyGuard"
+	},
+	"wireguard.agent.ingress.sites.adopt-text": {
+		"defaultMessage": "The blocks between sites that were set by hand on the hub are saved as site separations in FloppyGuard. Traffic does not change. Afterwards the manual rules can be removed on the hub – only then can the separation be lifted here again."
+	},
+	"wireguard.agent.ingress.sites.adopt-title": {
+		"defaultMessage": "Take over manual blocks?"
+	},
+	"wireguard.agent.ingress.sites.also-manual": {
+		"defaultMessage": "also blocked by hand on the hub"
+	},
+	"wireguard.agent.ingress.sites.applied-at": {
+		"defaultMessage": "Last applied on the hub: {time}"
+	},
+	"wireguard.agent.ingress.sites.applied-error": {
+		"defaultMessage": "Applying failed ({time}) – the hub keeps the previous rules."
+	},
+	"wireguard.agent.ingress.sites.applied-error-short": {
+		"defaultMessage": "Apply failed"
+	},
+	"wireguard.agent.ingress.sites.applied-never": {
+		"defaultMessage": "Not applied yet"
+	},
+	"wireguard.agent.ingress.sites.applying": {
+		"defaultMessage": "Applying on the hub …"
+	},
+	"wireguard.agent.ingress.sites.cleanup-button": {
+		"defaultMessage": "Remove orphaned separations"
+	},
+	"wireguard.agent.ingress.sites.clients-unaffected": {
+		"defaultMessage": "Applies to site links only; VPN devices (clients) are not affected."
+	},
+	"wireguard.agent.ingress.sites.collapse": {
+		"defaultMessage": "Collapse"
+	},
+	"wireguard.agent.ingress.sites.confirm-affected": {
+		"defaultMessage": "Affected:"
+	},
+	"wireguard.agent.ingress.sites.confirm-allow": {
+		"defaultMessage": "{a} and {b} will be able to reach each other again – as far as the rules at each site allow."
+	},
+	"wireguard.agent.ingress.sites.confirm-allow-button": {
+		"defaultMessage": "Allow connection again"
+	},
+	"wireguard.agent.ingress.sites.confirm-allow-manual": {
+		"defaultMessage": "Note: a rule set by hand on the hub also blocks this connection. It stays until it is removed there."
+	},
+	"wireguard.agent.ingress.sites.confirm-allow-title": {
+		"defaultMessage": "Allow the connection between {a} and {b} again?"
+	},
+	"wireguard.agent.ingress.sites.confirm-block": {
+		"defaultMessage": "{a} and {b} will no longer be able to reach each other – in both directions, immediately; open connections drop as well."
+	},
+	"wireguard.agent.ingress.sites.confirm-block-button": {
+		"defaultMessage": "Separate"
+	},
+	"wireguard.agent.ingress.sites.confirm-block-title": {
+		"defaultMessage": "Separate {a} and {b}?"
+	},
+	"wireguard.agent.ingress.sites.confirm-no-networks": {
+		"defaultMessage": "no networks"
+	},
+	"wireguard.agent.ingress.sites.dropped": {
+		"defaultMessage": "{count, plural, one {{packets} packet dropped} other {{packets} packets dropped}}"
+	},
+	"wireguard.agent.ingress.sites.edit": {
+		"defaultMessage": "Edit"
+	},
+	"wireguard.agent.ingress.sites.error.links-unresolved": {
+		"defaultMessage": "No stored separation matches an existing site link (WireGuard data empty or links re-created). So that nothing is opened by accident, the hub keeps the previous rules. Please set the separations again here."
+	},
+	"wireguard.agent.ingress.sites.last-change": {
+		"defaultMessage": "Last changed: {time}"
+	},
+	"wireguard.agent.ingress.sites.last-change-by": {
+		"defaultMessage": "Last changed: {time} by {user}"
+	},
+	"wireguard.agent.ingress.sites.lead": {
+		"defaultMessage": "Decide which sites may reach each other. Separation happens on the hub – in addition to the rules at each site. Applies to site links only; VPN devices (clients) are not affected."
+	},
+	"wireguard.agent.ingress.sites.matrix-caption": {
+		"defaultMessage": "Which sites are separated from each other (each pair once)"
+	},
+	"wireguard.agent.ingress.sites.not-enforced": {
+		"defaultMessage": "currently not enforced (see notes)"
+	},
+	"wireguard.agent.ingress.sites.offline": {
+		"defaultMessage": "offline"
+	},
+	"wireguard.agent.ingress.sites.online": {
+		"defaultMessage": "online"
+	},
+	"wireguard.agent.ingress.sites.state.blocked": {
+		"defaultMessage": "separated"
+	},
+	"wireguard.agent.ingress.sites.state.manual": {
+		"defaultMessage": "separated by hand"
+	},
+	"wireguard.agent.ingress.sites.state.not-enforced": {
+		"defaultMessage": "separated – not in effect"
+	},
+	"wireguard.agent.ingress.sites.state.open": {
+		"defaultMessage": "not separated"
+	},
+	"wireguard.agent.ingress.sites.summary": {
+		"defaultMessage": "{blocked, plural, =0 {{total, plural, one {The site pair is not separated} other {None of the # site pairs separated}}} other {# of {total} site pairs separated}}"
+	},
+	"wireguard.agent.ingress.sites.switch-hint": {
+		"defaultMessage": "Switch on = not separated (the site rules apply), off = separated on the hub."
+	},
+	"wireguard.agent.ingress.sites.title": {
+		"defaultMessage": "Sites among each other"
+	},
+	"wireguard.agent.ingress.sites.too-few": {
+		"defaultMessage": "There are fewer than two site-to-site links – nothing to separate."
+	},
+	"wireguard.agent.ingress.sites.too-few-short": {
+		"defaultMessage": "Fewer than two sites"
+	},
+	"wireguard.agent.ingress.sites.unavailable": {
+		"defaultMessage": "Site isolation unavailable: {error}"
+	},
+	"wireguard.agent.ingress.sites.warning.boot-include-missing": {
+		"defaultMessage": "After a hub restart the separation only takes effect again once FloppyGuard is running – the firewall's boot configuration does not load it yet."
+	},
+	"wireguard.agent.ingress.sites.warning.link-missing": {
+		"defaultMessage": "A stored separation refers to a link that no longer exists – it is skipped and removed on the next save."
+	},
+	"wireguard.agent.ingress.sites.warning.link-missing-held": {
+		"defaultMessage": "{site} can no longer be found – the separation stays in place with the last known networks for now."
+	},
+	"wireguard.agent.ingress.sites.warning.link-not-site": {
+		"defaultMessage": "{site} is no longer a site link – this separation is skipped."
+	},
+	"wireguard.agent.ingress.sites.warning.manual-drop": {
+		"defaultMessage": "The hub has additional blocks set by hand outside FloppyGuard ({chains}). They apply regardless of this overview."
+	},
+	"wireguard.agent.ingress.sites.warning.network-skipped.default-route": {
+		"defaultMessage": "{site}: the default route {value} is not used for the separation."
+	},
+	"wireguard.agent.ingress.sites.warning.network-skipped.invalid": {
+		"defaultMessage": "{site}: the invalid network {value} is ignored."
+	},
+	"wireguard.agent.ingress.sites.warning.network-skipped.ipv6-unsupported": {
+		"defaultMessage": "{site}: the IPv6 network {value} is not covered by the site separation – IPv6 traffic is not separated."
+	},
+	"wireguard.agent.ingress.sites.warning.no-networks": {
+		"defaultMessage": "{site} has no networks – the separation from {other} has no effect."
+	},
+	"wireguard.agent.ingress.sites.warning.overlap": {
+		"defaultMessage": "{a} and {b} have overlapping networks ({networks}) – traffic within them is dropped as well."
+	},
+	"wireguard.agent.ingress.sites.warning.persist-failed": {
+		"defaultMessage": "The separation is active, but after a hub restart it is only set again once FloppyGuard is running."
+	},
+	"wireguard.agent.ingress.sites.warning.route-dropped": {
+		"defaultMessage": "{agent}: route to {site} ({networks}) is still configured – the hub drops this traffic."
+	},
+	"wireguard.agent.ingress.sites.warnings-title": {
+		"defaultMessage": "{count, plural, one {Note} other {# notes}}"
+	},
 	"wireguard.agent.ingress.summary.rules": {
 		"defaultMessage": "{count, plural, one {# active rule} other {# active rules}}"
 	},
@@ -2006,6 +2183,15 @@
 	"wireguard.agent.ingress.tester.note.not-applied": {
 		"defaultMessage": "The agent has not confirmed the current ruleset yet — it may still run an older one."
 	},
+	"wireguard.agent.ingress.tester.note.site-isolation-not-applied": {
+		"defaultMessage": "The site isolation is saved but has not been applied successfully on the hub yet."
+	},
+	"wireguard.agent.ingress.tester.note.site-isolation-partial": {
+		"defaultMessage": "Parts of the tested ranges are blocked by the site isolation on the hub."
+	},
+	"wireguard.agent.ingress.tester.note.site-isolation-unknown": {
+		"defaultMessage": "The site isolation on the hub could not be checked."
+	},
 	"wireguard.agent.ingress.tester.observing-rule": {
 		"defaultMessage": "Would match rule “{name}” once the filter is on"
 	},
@@ -2035,6 +2221,12 @@
 	},
 	"wireguard.agent.ingress.tester.reason.same-site": {
 		"defaultMessage": "Same site, not filtered"
+	},
+	"wireguard.agent.ingress.tester.reason.site-isolation": {
+		"defaultMessage": "Blocked by site isolation ({pair})"
+	},
+	"wireguard.agent.ingress.tester.reason.site-isolation-manual": {
+		"defaultMessage": "Dropped on the hub by a block set by hand outside FloppyGuard ({rule})"
 	},
 	"wireguard.agent.ingress.tester.run": {
 		"defaultMessage": "Check"
