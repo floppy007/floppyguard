@@ -3,7 +3,13 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { buildApplyContract, buildPlanPreview, classifyChangeScope, normalizePatch } from "./wireguard-plan.js";
+import {
+	buildApplyContract,
+	buildPlanPreview,
+	classifyChangeScope,
+	mergeBackupIntoLive,
+	normalizePatch,
+} from "./wireguard-plan.js";
 
 async function withPlanEnv(env, suffix, fn) {
 	const previous = {
@@ -338,25 +344,54 @@ test("buildPlanPreview rejects duplicate subnet claims between non-client peers"
 				},
 			},
 		},
-		interfaces: [{
-			name: "wg0",
-			active: true,
-			configExists: true,
-			privateKeyPresent: true,
-			peerCount: 2,
-			activePeerCount: 2,
-			rxBytes: 0, txBytes: 0,
-			peerNetworks: ["192.168.10.0/24", "192.168.20.0/24"],
-			importedNetworks: ["192.168.10.0/24", "192.168.20.0/24"],
-			exportedNetworks: [], routeTargets: [], notes: [],
-		}],
+		interfaces: [
+			{
+				name: "wg0",
+				active: true,
+				configExists: true,
+				privateKeyPresent: true,
+				peerCount: 2,
+				activePeerCount: 2,
+				rxBytes: 0,
+				txBytes: 0,
+				peerNetworks: ["192.168.10.0/24", "192.168.20.0/24"],
+				importedNetworks: ["192.168.10.0/24", "192.168.20.0/24"],
+				exportedNetworks: [],
+				routeTargets: [],
+				notes: [],
+			},
+		],
 		links: [
-			{ id: "wg0:peer-a", interfaceName: "wg0", type: "site-to-site", name: "Site-A",
-			  allowedIps: ["192.168.10.0/24"], tunnelAddresses: [], importedNetworks: ["192.168.10.0/24"],
-			  exportedNetworks: [], active: true, hasMetadata: true, warnings: [], nextActions: [], notes: [] },
-			{ id: "wg0:peer-b", interfaceName: "wg0", type: "site-to-site", name: "Site-B",
-			  allowedIps: ["192.168.20.0/24"], tunnelAddresses: [], importedNetworks: ["192.168.20.0/24"],
-			  exportedNetworks: [], active: true, hasMetadata: true, warnings: [], nextActions: [], notes: [] },
+			{
+				id: "wg0:peer-a",
+				interfaceName: "wg0",
+				type: "site-to-site",
+				name: "Site-A",
+				allowedIps: ["192.168.10.0/24"],
+				tunnelAddresses: [],
+				importedNetworks: ["192.168.10.0/24"],
+				exportedNetworks: [],
+				active: true,
+				hasMetadata: true,
+				warnings: [],
+				nextActions: [],
+				notes: [],
+			},
+			{
+				id: "wg0:peer-b",
+				interfaceName: "wg0",
+				type: "site-to-site",
+				name: "Site-B",
+				allowedIps: ["192.168.20.0/24"],
+				tunnelAddresses: [],
+				importedNetworks: ["192.168.20.0/24"],
+				exportedNetworks: [],
+				active: true,
+				hasMetadata: true,
+				warnings: [],
+				nextActions: [],
+				notes: [],
+			},
 		],
 		routes: { all: [], wireguard: [], privateRoutes: [] },
 	};
@@ -372,7 +407,10 @@ test("buildPlanPreview rejects duplicate subnet claims between non-client peers"
 		links: { "wg0:peer-b": { importedNetworks: ["192.168.20.0/24", "192.168.10.0/24"] } },
 	});
 	assert.equal(bad.valid, false, "conflicting subnets should be invalid");
-	assert.ok(bad.errors.some((e) => e.includes("192.168.10.0/24")), "error should mention the conflicting subnet");
+	assert.ok(
+		bad.errors.some((e) => e.includes("192.168.10.0/24")),
+		"error should mention the conflicting subnet",
+	);
 });
 
 test("restoreMetadataBackup restores a known backup and records restore audit", async () => {
@@ -448,4 +486,90 @@ PrivateKey = test-private-key
 			assert.equal(state.lastApply?.restoredFrom, backupPath);
 		},
 	);
+});
+
+test("mergeBackupIntoLive restores only live links and never resurrects ghosts", () => {
+	const current = {
+		interfaces: { wg0: { notes: ["now"] } },
+		links: {
+			"wg0:home": { name: "Floppy Home", importedNetworks: ["192.168.11.0/24"] },
+			"wg0:hin": { name: "Hinderlich Office", importedNetworks: ["192.168.200.0/24"] },
+		},
+	};
+	const backup = {
+		interfaces: { wg0: { notes: ["old"] }, wg1: { notes: ["gone"] } },
+		links: {
+			"wg1:ghost": { importedNetworks: ["192.168.200.0/24", "192.168.210.0/24"] },
+			"wg0:home": { name: "Floppy UniFi Manager" },
+		},
+	};
+	const r = mergeBackupIntoLive(current, backup, new Set(["wg0:home", "wg0:hin"]), new Set(["wg0"]));
+	assert.deepEqual(r.restoredLinks, ["wg0:home"]);
+	assert.deepEqual(r.keptLinks, ["wg0:hin"]);
+	assert.deepEqual(r.skippedLinks, ["wg1:ghost"]);
+	assert.deepEqual(r.skippedInterfaces, ["wg1"]);
+	assert.equal(r.store.links["wg1:ghost"], undefined, "ghost link must not come back");
+	assert.equal(r.store.links["wg0:home"].name, "Floppy UniFi Manager");
+	assert.deepEqual(
+		r.store.links["wg0:hin"],
+		current.links["wg0:hin"],
+		"live link missing from backup keeps its metadata",
+	);
+	assert.deepEqual(r.store.interfaces.wg0.notes, ["old"]);
+	assert.equal(r.store.interfaces.wg1, undefined);
+	assert.deepEqual(current.links["wg0:home"].name, "Floppy Home", "input not mutated");
+});
+
+test("restore of a backup taken before the link was named keeps the name and its agent binding", async () => {
+	const { cascadeLinkRenames, diffLinkRenames, statusLinkNames } = await import("./wireguard-plan.js");
+	const current = {
+		interfaces: {},
+		links: {
+			"wg0:hin": {
+				name: "Hinderlich Office",
+				type: "site-to-site",
+				importedNetworks: ["10.4.0.0/16"],
+				notes: ["now"],
+			},
+		},
+	};
+	// Backup from before the link was named/typed — only notes were set back then.
+	const backup = { interfaces: {}, links: { "wg0:hin": { notes: ["then"] } } };
+	const r = mergeBackupIntoLive(current, backup, new Set(["wg0:hin"]), new Set(["wg0"]));
+	assert.equal(r.store.links["wg0:hin"].name, "Hinderlich Office", "name kept");
+	assert.equal(r.store.links["wg0:hin"].type, "site-to-site", "type kept");
+	assert.deepEqual(r.store.links["wg0:hin"].importedNetworks, ["10.4.0.0/16"], "importedNetworks kept");
+	assert.deepEqual(r.store.links["wg0:hin"].notes, ["then"], "other fields restored from the backup");
+
+	// An agent bound via wg_link_name / allowed_sites to the current name stays bound.
+	const bindings = { "Hinderlich Office": "agent-hinderlich" };
+	const rename = async (from, to) => {
+		if (bindings[from]) {
+			bindings[to] = bindings[from];
+			delete bindings[from];
+		}
+	};
+	const statusBefore = { links: [{ id: "wg0:hin", name: "Hinderlich Office" }] };
+	const renames = diffLinkRenames(current, r.store, statusLinkNames(statusBefore), statusLinkNames(statusBefore));
+	assert.deepEqual(renames, [], "no rename → nothing to cascade");
+	await cascadeLinkRenames(renames, { rename });
+	assert.deepEqual(bindings, { "Hinderlich Office": "agent-hinderlich" });
+});
+
+test("diffLinkRenames follows a link whose name falls back to the conf/generated name", async () => {
+	const { cascadeLinkRenames, diffLinkRenames } = await import("./wireguard-plan.js");
+	const before = { links: { "wg0:abc": { name: "Floppy Lappi" } } };
+	const after = { links: { "wg0:abc": { notes: [] } } }; // name dropped
+	// Without the post-write status the effective new name is unknown → skipped.
+	assert.deepEqual(diffLinkRenames(before, after), []);
+	const renames = diffLinkRenames(before, after, {}, { "wg0:abc": "client-abc12345" });
+	assert.deepEqual(renames, [{ oldName: "Floppy Lappi", newName: "client-abc12345" }]);
+	const bindings = { "Floppy Lappi": "agent-x" };
+	await cascadeLinkRenames(renames, {
+		rename: async (from, to) => {
+			bindings[to] = bindings[from];
+			delete bindings[from];
+		},
+	});
+	assert.deepEqual(bindings, { "client-abc12345": "agent-x" }, "binding follows the effective name");
 });

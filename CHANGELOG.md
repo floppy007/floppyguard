@@ -5,6 +5,138 @@ This project diverges from upstream nginx-proxy-manager starting at v1.0.0.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+Audit follow-up. Agent script 1.5.0 (fleet-wide self-update).
+
+### English
+
+#### Changed
+
+- **Ingress mode "open" with rules is now observation only.** Agent script 1.4.0 ACCEPTed matching flows (and all RELATED,ESTABLISHED traffic) in `FG_IN` at FORWARD position 1. From 1.5.0 on, an *open* agent with rules only RETURNs: the rules count hits, but everything falls through to the gateway's own FORWARD rules (e.g. VPN_MGR, ufw, docker). Every open agent with rules gets a new ruleset hash and changes behaviour on its first poll after the self-update. Only *restricted* filters. **Rollout:** remove an external filter such as VPN_MGR only after the agent is switched to *restricted* and the panel shows the filter as applied — an open agent without VPN_MGR filters nothing. The panel now says so for open agents with rules.
+- **Agents report a re-checked config hash.** On the first start of 1.5.0 the agent drops the `last_hash` written by 1.4.0 (which was also written after a failed apply) and re-applies the current config once (no-op when it is already live), so "applied" in the UI is confirmed again.
+- **Pending ingress state is polled for at most 3 minutes** after a change; an agent without a heartbeat for 5 minutes is shown as *agent offline* instead of *pending*.
+- **Hub URLs for the internet path are https only.** The public URL of the agent hub-URL setting (`agent-hub-url` value / fallback) and `public_url` of the agent install script are rejected with 400 when they use `http://`; the internal primary URL may stay http. Agent 1.5.0 `get_server` no longer falls back to a plain-http URL outside the tunnel: when the primary is unreachable and the fallback is http and not routed through the tunnel, the agent waits instead of sending its token in cleartext. Switch an http fallback to https before the agents update.
+- **Agents can be force-deleted** (`DELETE /api/agents/:id?force=1`, second confirmation in the UI) once they have not reported for 1 hour. The tokens are revoked, but the gateway keeps its last Freigaben filter (`FG_IN`) until it is removed there by hand.
+- **Deleting a WireGuard link or interface handles its bound agents in the backend.** `deletePeer`/`deleteInterface` refuse (409) while non-deleted agents are bound to the link name(s) (an agent would outlive the link with a valid token and be inherited by a later link of the same name). With `deleteBoundAgents` every bound agent is checked first — nothing is removed while one refuses (e.g. Freigaben filter still active) — then the peer/interface is removed and only after that the agents. `dryRun: true` reports the bound agents and whether each can be deleted; `forceAgentIds` force-deletes agents offline for 1 hour. The UI runs this as one operation.
+- **Network lists reject prefixes shorter than /8.** Every WireGuard metadata network list (link and interface exported/imported networks, route targets) and the reach list of a new or edited client reject `/0` and any prefix below `/8` (`0.0.0.0/1` + `128.0.0.0/1` covered the default route in two pieces). Full tunnel is the client option. Stored legacy values below /8 are no longer put on hub peer AllowedIPs or agent routes.
+- **Site network conflicts are checked by CIDR overlap**, not string equality (link edit, retyping a client to a site, metadata save, plan preview): `192.168.0.0/16` against another site's `192.168.20.0/24` is refused.
+- **Freigaben check:** hub-sourced rules without a port list, or with ports no proxy host/stream uses, are listed as too broad; an upstream without a known port (e.g. `proxy_pass $server` without scheme/port) gets no one-click rule.
+
+#### Known limitations
+
+- **Site ACLs are not enforced at the hub.** The hub forwards everything between its WireGuard peers (`FORWARD -i/-o wgN -j ACCEPT`); `allowed_networks`/`allowed_sites` and client reach lists only shape the routes/AllowedIPs of the restricted party's own gateway or client config. A site or client that adds routes itself can reach every other site through the hub. Do not treat them as a security boundary; filter at the target with Freigaben (*restricted*).
+- **Hub-sourced Freigaben also admit the Hetzner LAN.** The hub masquerades `10.10.10.0/24` to its tunnel address, so a rule with the hub as source also lets Mailcow, the web server CT, … in. Keep such rules limited to the upstream ports (the check flags broader ones).
+
+#### Fixed
+
+- Deleting a WireGuard peer rewrites `wg0.conf` before removing the peer live: a failed rewrite leaves the link fully intact and retryable.
+- Hub MASQUERADE rules are owned by set membership (marker comment `# floppyguard-masq:` above PostUp), so an operator rule written as `-o eth1 -s X` is no longer dropped on rewrite.
+- Restoring a metadata backup keeps a link's current name, type and imported networks when the backup has none, so bound agents keep their link; renames follow the effective name.
+- Saving a proxy host/redirection/stream/404 host whose new config fails `nginx -t` keeps the previous config live (new one kept as `.err`, error in `nginx_err`).
+- The ingress check reports VPN clients from the live status, including road warriors without imported networks and full-tunnel clients.
+- Agent: PostDown/PostUp hooks run only after a successful `wg syncconf` and are not re-run on retries.
+- SSO: every sign-in and every refused account link is written to the audit log (no tokens).
+- `PUT /api/wireguard/metadata` with link changes failed with "is not a function".
+- nginx: disabling/deleting hosts and writing the Let's Encrypt request conf now run under the same lock as saving a host, so they cannot interleave with its backup/test/restore.
+- Imported Freigaben (VPN_MGR import) get the same `armed_on` start as hand-made ones.
+- Freigaben check: an agent bound to an unnamed link (`<type>-<key>`) keeps its link when the inferred type changes; a link typed as client is reported as such instead of "not found".
+- Traffic/Dashboard: peer colours come from the current links only (12 colours), so a peer keeps its colour across ranges and pages, and the charted peers never share a colour.
+- Admin UI (install script): content-hashed `/assets/` are cached for a year (`immutable`); `worker_shutdown_timeout 30s` bounds how long old nginx workers live after a reload.
+
+### Deutsch
+
+#### Geändert
+
+- **Modus „offen" mit Freigaben beobachtet nur noch.** Agent-Skript 1.4.0 hat passende Verbindungen (und allen RELATED,ESTABLISHED-Verkehr) in `FG_IN` an Position 1 von FORWARD per ACCEPT durchgelassen. Ab 1.5.0 springt ein *offener* Agent mit Freigaben nur noch per RETURN zurück: Die Freigaben zählen Treffer, der Verkehr läuft weiter durch die eigenen FORWARD-Regeln des Gateways (z. B. VPN_MGR, ufw, docker). Jeder offene Agent mit Freigaben bekommt einen neuen Regelsatz-Hash und ändert sein Verhalten beim ersten Abruf nach dem Selbst-Update. Gefiltert wird nur im Modus *nur Freigaben*. **Umstellung:** Einen externen Filter wie VPN_MGR erst entfernen, wenn der Agent auf *nur Freigaben* steht und der Bereich den Filter als gesetzt meldet – ein offener Agent ohne VPN_MGR filtert gar nichts. Der Bereich weist bei offenen Agents mit Freigaben jetzt darauf hin.
+- **Agents melden einen neu geprüften Konfigurations-Hash.** Beim ersten Start von 1.5.0 verwirft der Agent die von 1.4.0 geschriebene `last_hash` (die auch nach einem fehlgeschlagenen Anwenden geschrieben wurde) und wendet die aktuelle Konfiguration einmal neu an (ohne Wirkung, wenn sie schon aktiv ist).
+- **Ein ausstehender Freigaben-Status wird nach einer Änderung höchstens 3 Minuten abgefragt**; ein Agent ohne Heartbeat seit 5 Minuten erscheint als *Agent offline* statt *ausstehend*.
+- **Hub-URLs für den Weg übers Internet nur noch per https.** Die öffentliche URL der Einstellung `agent-hub-url` (Wert / Fallback) und `public_url` des Agent-Installationsskripts werden mit `http://` per 400 abgelehnt; die interne Primär-URL darf http bleiben. `get_server` im Agent 1.5.0 fällt außerhalb des Tunnels nicht mehr auf eine http-URL zurück: Ist die Primär-URL nicht erreichbar und der Fallback http und nicht durch den Tunnel geroutet, wartet der Agent, statt sein Token im Klartext zu senden. Einen http-Fallback vor dem Agent-Update auf https umstellen.
+- **Agents lassen sich erzwungen löschen** (`DELETE /api/agents/:id?force=1`, in der Oberfläche mit zweiter Bestätigung), wenn sie sich seit 1 Stunde nicht gemeldet haben. Die Tokens werden widerrufen, das Gateway behält aber seinen letzten Freigaben-Filter (`FG_IN`), bis er dort von Hand entfernt wird.
+- **Beim Löschen einer WireGuard-Verbindung oder -Schnittstelle kümmert sich das Backend um gebundene Agents.** `deletePeer`/`deleteInterface` lehnen ab (409), solange nicht gelöschte Agents an den Verbindungsnamen gebunden sind (ein Agent würde die Verbindung mit gültigem Token überleben und von einer späteren Verbindung gleichen Namens geerbt). Mit `deleteBoundAgents` wird zuerst jeder gebundene Agent geprüft – lehnt einer ab (z. B. Freigaben-Filter noch aktiv), wird nichts gelöscht –, dann der Peer bzw. die Schnittstelle entfernt und erst danach die Agents. `dryRun: true` meldet die gebundenen Agents und ob sie sich löschen lassen; `forceAgentIds` löscht seit 1 Stunde stumme Agents erzwungen. Die Oberfläche führt das als einen Vorgang aus.
+- **Netzlisten lehnen Präfixe kürzer als /8 ab.** Alle Netzlisten der WireGuard-Metadaten (exportierte/importierte Netze von Verbindungen und Schnittstellen, Routenziele) und die Erreichbarkeitsliste eines neuen oder bearbeiteten Clients lehnen `/0` und jedes Präfix unter `/8` ab (`0.0.0.0/1` + `128.0.0.0/1` deckten die Default-Route in zwei Teilen ab). Full-Tunnel ist die Client-Option. Gespeicherte Altwerte unter /8 landen nicht mehr in den AllowedIPs der Hub-Peers oder in Agent-Routen.
+- **Netzkonflikte zwischen Standorten werden per CIDR-Überlappung geprüft** statt per Textgleichheit (Verbindung bearbeiten, Client zu Standort umtypisieren, Metadaten speichern, Plan-Vorschau): `192.168.0.0/16` gegen das `192.168.20.0/24` eines anderen Standorts wird abgelehnt.
+- **Freigaben-Prüfung:** Freigaben vom Hub ohne Port-Liste oder mit Ports, die kein Proxy-Host/Stream nutzt, werden als zu weit gemeldet; ein Upstream ohne bekannten Port (z. B. `proxy_pass $server` ohne Schema/Port) bekommt keinen Ein-Klick-Vorschlag.
+
+#### Bekannte Einschränkungen
+
+- **Standort-ACLs werden am Hub nicht durchgesetzt.** Der Hub leitet zwischen seinen WireGuard-Peers alles weiter (`FORWARD -i/-o wgN -j ACCEPT`); `allowed_networks`/`allowed_sites` und die Erreichbarkeitslisten von Clients bestimmen nur Routen/AllowedIPs am Gateway bzw. in der Client-Konfiguration der eingeschränkten Seite. Ein Standort oder Client, der selbst Routen setzt, erreicht über den Hub jeden anderen Standort. Sie sind keine Sicherheitsgrenze; gefiltert wird am Ziel mit Freigaben (*nur Freigaben*).
+- **Freigaben mit dem Hub als Quelle lassen auch das Hetzner-LAN herein.** Der Hub maskiert `10.10.10.0/24` auf seine Tunnel-Adresse; eine Freigabe vom Hub lässt daher auch Mailcow, den Webserver-CT usw. durch. Solche Freigaben auf die Ports der Upstreams beschränken (die Prüfung meldet weitere).
+
+#### Behoben
+
+- Beim Löschen eines WireGuard-Peers wird zuerst `wg0.conf` umgeschrieben und erst dann der Peer live entfernt: Schlägt das Umschreiben fehl, bleibt die Verbindung vollständig erhalten und das Löschen kann wiederholt werden.
+- MASQUERADE-Regeln des Hubs gehören FloppyGuard nur noch per Mengenzugehörigkeit (Markierung `# floppyguard-masq:` über PostUp); eine eigene Regel der Form `-o eth1 -s X` wird beim Umschreiben nicht mehr entfernt.
+- Beim Wiederherstellen einer Metadaten-Sicherung bleiben Name, Typ und importierte Netze einer Verbindung erhalten, wenn die Sicherung keine enthält; gebundene Agents behalten ihre Verbindung.
+- Speichern eines Hosts, dessen neue Konfiguration `nginx -t` nicht besteht, lässt die bisherige Konfiguration aktiv (die neue bleibt als `.err`, Fehler in `nginx_err`).
+- Die Freigaben-Prüfung meldet VPN-Clients aus dem Live-Status, auch Road-Warrior ohne importierte Netze und Full-Tunnel-Clients.
+- Agent: PostDown/PostUp laufen erst nach erfolgreichem `wg syncconf` und bei Wiederholungen nicht erneut.
+- SSO: Jede Anmeldung und jede abgewiesene Kontoverknüpfung steht im Audit-Log (ohne Tokens).
+- `PUT /api/wireguard/metadata` mit Verbindungsänderungen schlug mit „is not a function“ fehl.
+- nginx: Deaktivieren/Löschen von Hosts und das Schreiben der Let's-Encrypt-Anfrage-Konfiguration laufen jetzt unter derselben Sperre wie das Speichern eines Hosts und können sich nicht mehr mit dessen Sichern/Testen/Zurückspielen überschneiden.
+- Importierte Freigaben (VPN_MGR-Import) bekommen denselben `armed_on`-Start wie von Hand angelegte.
+- Freigaben-Prüfung: Ein Agent an einer unbenannten Verbindung (`<Typ>-<Schlüssel>`) behält seine Verbindung, wenn sich der erkannte Typ ändert; eine als Client eingetragene Verbindung wird als solche gemeldet statt „nicht gefunden“.
+- Traffic/Dashboard: Die Peer-Farben kommen nur aus den aktuellen Verbindungen (12 Farben); ein Peer behält seine Farbe über Zeiträume und Seiten hinweg, und die Peers im Diagramm teilen sich nie eine Farbe.
+- Admin-Oberfläche (Installationsskript): Die Dateien unter `/assets/` (mit Inhalts-Hash) werden ein Jahr gecacht (`immutable`); `worker_shutdown_timeout 30s` begrenzt, wie lange alte nginx-Worker nach einem Reload weiterlaufen.
+
+## [2.3.0] - 2026-10-10
+
+Per-agent ingress filter ("Freigaben") with an intuitive editor, a modern topology map and the fixes of a four-round audit. Agent script 1.5.1.
+
+Per-agent ingress filter ("Freigaben"): FloppyGuard now decides which traffic arriving through a site's tunnel may reach which targets in that site's LAN. This replaces the external VPN_MGR chain of the UniFi Manager on the Floppy Home gateway, so routing (exported/imported networks) and filtering live in one place. Agent script 1.4.0, then 1.5.1 later the same day (also ships the UniFi clean-up from 2.2.2). One migration runs on startup (`agent.ingress_mode`, table `agent_ingress_rule`). Agents without rules are untouched: no chain, no rule.
+
+### English
+
+#### Added
+
+- **Ingress rules per agent.** Each rule has sources (CIDRs, e.g. the hub tunnel address or a site network), destinations (empty = any target), optional ports (tcp/udp, ranges) and a note. Mode per agent: *open* (no filter) or *restricted* (everything else arriving via the tunnel is dropped; established return traffic always passes). Switching to restricted, or disabling/deleting the last active rule while restricted, is refused so a site cannot be cut off by accident.
+- **Agent applies the filter itself** as chain `FG_IN`: atomic `iptables-restore --noflush` (a broken ruleset changes nothing), exactly one jump at FORWARD position 1, inserted before the old one is removed. The ruleset is cached on the agent and restored at start before the hub is reachable, so a reboot never leaves a restricted gateway open; a flushed chain or a moved jump is repaired on the next poll. Payloads are hash-checked and validated (only `FG_IN` rules with ACCEPT/DROP).
+- **Proxy check.** Proxy hosts and streams whose upstream lies behind a restricted agent but is not covered by a rule are listed with a one-click "create rule"; rules from the hub address whose targets no proxy host/stream uses are flagged.
+- **Hit counters.** Agents report packet counters per rule in the heartbeat; the UI shows the last hit and flags rules without hits for 30 days.
+- **UI.** New page *Freigaben* (admin), a summary block with a dialog in the agent panel, generated-rules preview, audit log entries (`agent-ingress`). Translations: en, de, fr.
+- **API.** `GET/PUT /api/agents/:id/ingress`, `GET /api/agents/:id/ingress/preview`, `POST /api/agents/:id/ingress/rules`, `PUT/DELETE /api/agents/:id/ingress/rules/:ruleId`, `GET /api/agent-ingress/check`.
+
+#### Fixed
+
+- **Duplicate tunnel rules on agents.** Older PostUp re-runs left exact duplicate `-i/-o <wg>` FORWARD and NAT rules (on the Floppy Home gateway 12 FORWARD and ~50 NAT copies). The agent now removes later copies of terminal rules on start and after each config apply; behaviour is unchanged.
+
+### Deutsch
+
+#### Neu
+
+- **Freigaben pro Agent.** Jede Freigabe hat Quellen (CIDRs, z. B. die Tunnel-Adresse des Hubs oder ein Standortnetz), Ziele (leer = alle), optional Ports (tcp/udp, Bereiche) und eine Notiz. Modus pro Agent: *offen* (kein Filter) oder *nur Freigaben* (alles andere, was über den Tunnel kommt, wird verworfen; Antwortverkehr bestehender Verbindungen geht immer durch). Das Umschalten auf „nur Freigaben" ohne aktive Freigabe sowie das Abschalten/Löschen der letzten aktiven Freigabe werden abgelehnt, damit kein Standort versehentlich abgeschnitten wird.
+- **Der Agent setzt den Filter selbst** als Kette `FG_IN`: atomar per `iptables-restore --noflush` (ein fehlerhafter Regelsatz ändert nichts), genau ein Sprung an Position 1 in FORWARD, ohne Lücke. Der Regelsatz wird auf dem Agent zwischengespeichert und beim Start gesetzt, bevor der Hub erreichbar ist – nach einem Neustart steht ein Gateway also nie offen. Eine geleerte Kette oder ein verschobener Sprung wird beim nächsten Abruf repariert. Die Nutzlast wird per Hash geprüft und validiert (nur `FG_IN`-Regeln mit ACCEPT/DROP).
+- **Proxy-Prüfung.** Proxy-Hosts und Streams, deren Ziel hinter einem Agent mit „nur Freigaben" liegt, aber von keiner Freigabe abgedeckt ist, werden mit „Freigabe anlegen" (ein Klick) angezeigt; Freigaben vom Hub, deren Ziele kein Proxy-Host/Stream mehr nutzt, werden markiert.
+- **Trefferzähler.** Die Agents melden pro Freigabe die Paketzähler im Heartbeat; die Oberfläche zeigt den letzten Treffer und markiert Freigaben ohne Treffer seit 30 Tagen.
+- **Oberfläche.** Neue Seite *Freigaben* (Admin), Übersicht mit Dialog im Agent-Bereich, Vorschau der erzeugten Regeln, Audit-Log-Einträge (`agent-ingress`). Übersetzungen: en, de, fr.
+
+#### Behoben
+
+- **Doppelte Tunnel-Regeln auf Agents.** Frühere PostUp-Wiederholungen hatten exakte Duplikate von `-i/-o <wg>`-Regeln in FORWARD und NAT hinterlassen (am Floppy-Home-Gateway 12 FORWARD- und rund 50 NAT-Kopien). Der Agent entfernt beim Start und nach jedem Konfigurations-Update spätere Kopien terminierender Regeln; das Verhalten bleibt gleich.
+
+#### Added (later on 2026-10-10)
+
+- **Intuitive Freigaben.** Sources and targets are picked by name from a catalog (sites, their networks, VPN clients, "Reverse Proxy (Hub)"; proxy hosts/streams with their domains, discovered services, site networks) instead of typing CIDRs; ports as presets (Web, SSH, SMB, LDAP, RDP, DNS, Proxmox, PBS). Three wizards: publish a service via the proxy, site may reach servers, site gets full access. Rules read as sentences grouped by source. A "may X reach Y?" tester shows the verdict and the matching rule. "Freigeben" for all missing proxy targets at once and "disable unused rules" (never the last active rule in restricted mode). API: `GET /api/agents/:id/ingress/catalog`, `POST /api/agents/:id/ingress/test`, bulk create/disable.
+- **Modern topology map** on the WireGuard page: hub in the centre, cards per site/agent/client with type icons, status colour from the handshake age, traffic on the links, legend, light and dark theme, responsive fallback grid.
+
+#### Fixed (ultracode audit, 4 rounds, 119 confirmed findings)
+
+- **Certificate renewal could delete the live certificate** when certbot failed; intact lineages are now renewed in place, an interrupted renewal is restored, and a failing nginx reload no longer triggers a renewal on every timer run.
+- **"Download config" / "Show QR" on a site or agent link rotated the hub-side key** and cut the site off; it is now refused for those links.
+- **Renaming a link in the metadata editor orphaned its agent**; renames now cascade to the agent binding.
+- **SSO users were logged out every 5 minutes** (token refresh called a non-existent method).
+- **Agent script 1.5.1:** the WireGuard private key no longer lands in `/tmp`, the token no longer appears in the process list, failed applies are reported instead of being marked applied, the Freigaben are restored by a boot unit before WireGuard comes up, and the self-update check no longer fails at random on large scripts (SIGPIPE under pipefail). The hub now shows whether each agent actually applied its config and Freigaben.
+- Timeouts for Cloudflare DNS and the remote version check, plus many smaller logic, resilience and performance fixes (see git history).
+
+#### Neu (später am 10.10.2026)
+
+- **Freigaben einfacher:** Quellen und Ziele per Auswahl mit Namen statt CIDR, Ports als Vorlagen, drei Assistenten, Regeln als Sätze nach Quelle gruppiert, Test „Darf X auf Y?“, alle fehlenden Proxy-Ziele auf einmal freigeben, ungenutzte Regeln abschalten.
+- **Moderne Topologie-Karte** auf der WireGuard-Seite.
+
+#### Behoben (Ultracode-Audit, 4 Runden, 119 bestätigte Funde)
+
+- Zertifikats-Erneuerung konnte das Live-Zertifikat löschen; „Config herunterladen“ an Standort-Links schnitt den Standort ab; Umbenennen im Metadaten-Editor verwaiste Agents; SSO-Nutzer flogen alle 5 Minuten raus; Agent-Skript 1.5.1 (Schlüssel nicht mehr in /tmp, Token nicht in der Prozessliste, Fehler werden gemeldet, Freigaben vor WireGuard beim Booten, Selbst-Update scheitert nicht mehr zufällig).
+
 ## [2.2.2] - 2026-10-09
 
 Removes the UniFi integration. The UniFi agent mode was never exposed in the UI and no agent used it. One migration runs on startup and drops the stored UniFi columns. The agent script changes only in dead UniFi code, so `AGENT_SCRIPT_VERSION` stays 1.3.23 to avoid a fleet-wide re-download and restart; the cleaned script ships with the next agent script bump.

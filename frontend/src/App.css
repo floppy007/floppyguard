@@ -417,6 +417,12 @@ body:not(.auth) {
 			background: rgba(var(--tblr-primary-rgb), .1);
 		}
 
+		/* the current choice stays visible when the menu reopens (light + dark) */
+		&.react-select__option--is-selected {
+			background: rgba(var(--tblr-primary-rgb), .16);
+			font-weight: 600;
+		}
+
 		&.react-select__option--is-focused.react-select__option--is-selected {
 			background: rgba(var(--tblr-primary-rgb), .2);
 		}

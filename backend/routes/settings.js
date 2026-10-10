@@ -20,6 +20,9 @@ const router = express.Router({
 // internal/agent.js — these URLs end up in root-sourced agent config.env, so
 // shell/sed metacharacters are rejected at the door.
 const HUB_URL_PATTERN = "^$|^https?://[^\\s\"'$`\\\\;|&(){}<>!#]+$";
+// The public/fallback URL (value, meta.fallback) is the agents' path across the
+// internet when the tunnel is down: https only (sanitizeFallbackHubUrl).
+const HUB_FALLBACK_URL_PATTERN = "^$|^https://[^\\s\"'$`\\\\;|&(){}<>!#]+$";
 const agentHubUrlPutSchema = {
 	type: "object",
 	additionalProperties: false,
@@ -28,7 +31,7 @@ const agentHubUrlPutSchema = {
 		value: {
 			type: "string",
 			maxLength: 255,
-			pattern: HUB_URL_PATTERN,
+			pattern: HUB_FALLBACK_URL_PATTERN,
 		},
 		meta: {
 			type: "object",
@@ -42,7 +45,7 @@ const agentHubUrlPutSchema = {
 				fallback: {
 					type: "string",
 					maxLength: 255,
-					pattern: HUB_URL_PATTERN,
+					pattern: HUB_FALLBACK_URL_PATTERN,
 				},
 			},
 		},

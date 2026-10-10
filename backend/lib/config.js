@@ -122,6 +122,7 @@ const getKeys = () => {
 	} else if (process.env.DEBUG) {
 		logger.info("Keys file exists OK");
 	}
+	restrictKeysFileMode();
 	try {
 		// Load this json keysFile synchronously and return the json object
 		const rawData = fs.readFileSync(keysFile);
@@ -129,6 +130,20 @@ const getKeys = () => {
 	} catch (err) {
 		logger.error(`Could not read JWT key pair from config file: ${keysFile}`, err);
 		process.exit(1);
+	}
+};
+
+// Older installs wrote keys.json with the umask default (0644), readable by
+// every local account (nginx workers run as www-data): tighten it on start.
+const restrictKeysFileMode = () => {
+	try {
+		const mode = fs.statSync(keysFile).mode & 0o777;
+		if (mode & 0o077) {
+			fs.chmodSync(keysFile, 0o600);
+			logger.warn(`Restricted JWT key file ${keysFile} to mode 0600 (was ${mode.toString(8)})`);
+		}
+	} catch (err) {
+		logger.warn(`Could not restrict mode of JWT key file ${keysFile}: ${err.message}`);
 	}
 };
 
@@ -145,7 +160,8 @@ const generateKeys = () => {
 
 	// Write keys config
 	try {
-		fs.writeFileSync(keysFile, JSON.stringify(keys, null, 2));
+		// The private key signs every API token: owner-only from the start.
+		fs.writeFileSync(keysFile, JSON.stringify(keys, null, 2), { mode: 0o600 });
 	} catch (err) {
 		logger.error(`Could not write JWT key pair to config file: ${keysFile}: ${err.message}`);
 		process.exit(1);

@@ -6,6 +6,7 @@ import authModel from "../models/auth.js";
 import TokenModel from "../models/token.js";
 import userModel from "../models/user.js";
 import userPermissionModel from "../models/user_permission.js";
+import internalAuditLog from "./audit-log.js";
 import { expirySeconds } from "./oidc-settings.js";
 
 // Anmeldung über einen OpenID-Connect-Anbieter (hier: Authentik unter
@@ -165,6 +166,54 @@ const markSso = async (userId, claims) => {
 	}
 };
 
+// Entscheidet, ob eine Anmeldung mit `claims` an ein bestehendes Konto (per
+// E-Mail gefunden) gebunden werden darf. Gibt null zurück oder einen Grund für
+// die Ablehnung. Regeln:
+//   * Ein Konto, das schon an eine Anbieter-Identität (sub) gebunden ist,
+//     nimmt nur genau diese an — eine geänderte E-Mail beim Anbieter übernimmt
+//     sonst ein fremdes Konto.
+//   * Ein noch nicht verknüpftes Konto mit lokalem Passwort (z. B. der lokale
+//     Notfall-Admin mit 2FA) wird NIE automatisch verknüpft.
+//   * Meldet der Anbieter die E-Mail ausdrücklich als unbestätigt, wird nicht
+//     verknüpft.
+export const ssoLinkRefusal = ({ storedSub, hasPassword, claims }) => {
+	const sub = String(claims?.sub || "");
+	const bound = String(storedSub || "");
+	if (bound) {
+		return bound === sub ? null : "Konto ist an eine andere Anbieter-Identität gebunden";
+	}
+	if (hasPassword) {
+		return "Konto hat ein lokales Passwort und ist nicht mit dem Anbieter verknüpft";
+	}
+	if (claims?.email_verified === false) {
+		return "E-Mail-Adresse ist beim Anbieter nicht bestätigt";
+	}
+	return null;
+};
+
+// System audit entry for SSO events: account created / raised to admin, every
+// successful SSO sign-in ("sso-login") and every refused link attempt
+// ("sso-refused" — the security-relevant one: someone presented a provider
+// identity for an account it may not take over). The entry is filed under the
+// account concerned; meta carries the e-mail, the provider subject and, for a
+// refusal, the reason — never tokens. A failed write is only logged.
+async function auditSso(userId, action, email, note, extra = {}) {
+	try {
+		await internalAuditLog.add(
+			{ token: { getUserId: () => userId } },
+			{
+				user_id: userId,
+				action,
+				object_type: "user",
+				object_id: userId,
+				meta: { name: `${email} (${note})`, ...extra },
+			},
+		);
+	} catch (err) {
+		logger.warn(`OIDC audit log failed: ${err.message}`);
+	}
+}
+
 const internalOidc = {
 	status: () => {
 		const cfg = readConfig();
@@ -305,10 +354,55 @@ const internalOidc = {
 	 * Gruppe ist, ist Admin - auch ein bestehendes Konto wird dazu angehoben.
 	 */
 	ensureUser: async (email, claims) => {
-		const existing = await userModel.query().where("email", email).andWhere("is_deleted", 0).first();
+		const sub = String(claims.sub || "");
+		// Zuerst über die gebundene Anbieter-Identität suchen: Ein bereits
+		// verknüpftes Konto bleibt das eigene, auch wenn sich die E-Mail beim
+		// Anbieter ändert.
+		let existing = null;
+		if (sub) {
+			const oidcRows = await authModel.query().where("type", "oidc").andWhere("is_deleted", 0);
+			const bound = oidcRows.find((r) => String(r.meta?.sub || "") === sub);
+			if (bound) {
+				existing = await userModel.query().where("id", bound.user_id).andWhere("is_deleted", 0).first();
+			}
+		}
+		if (!existing) {
+			existing = await userModel.query().where("email", email).andWhere("is_deleted", 0).first();
+			if (existing) {
+				const oidcRow = await authModel
+					.query()
+					.where("user_id", existing.id)
+					.andWhere("type", "oidc")
+					.andWhere("is_deleted", 0)
+					.first();
+				const passwordRow = await authModel
+					.query()
+					.where("user_id", existing.id)
+					.andWhere("type", "password")
+					.andWhere("is_deleted", 0)
+					.first();
+				const refusal = ssoLinkRefusal({
+					storedSub: oidcRow?.meta?.sub,
+					hasPassword: !!passwordRow?.secret,
+					claims,
+				});
+				if (refusal) {
+					logger.warn(`OIDC: ${email} abgewiesen: ${refusal}`);
+					await auditSso(existing.id, "sso-refused", email, `SSO abgewiesen: ${refusal}`, {
+						sub,
+						reason: refusal,
+					});
+					throw rejected("linked", "Dieses Konto ist für FloppyGuard nicht freigegeben");
+				}
+			}
+		}
 
 		if (existing) {
 			if (existing.is_disabled) {
+				await auditSso(existing.id, "sso-refused", email, "SSO abgewiesen: Konto deaktiviert", {
+					sub,
+					reason: "disabled",
+				});
 				throw rejected("disabled", "Dieses Konto ist deaktiviert");
 			}
 			const roles = Array.isArray(existing.roles) ? existing.roles : [];
@@ -318,8 +412,10 @@ const internalOidc = {
 					.patch({ roles: [...roles, "admin"] })
 					.where("id", existing.id);
 				logger.info(`OIDC: ${email} auf Admin angehoben`);
+				await auditSso(existing.id, "updated", email, "SSO: Admin-Rolle");
 			}
 			await markSso(existing.id, claims);
+			await auditSso(existing.id, "sso-login", email, "SSO-Anmeldung", { sub });
 			return existing;
 		}
 
@@ -344,6 +440,8 @@ const internalOidc = {
 		});
 		await markSso(created.id, claims);
 		logger.info(`OIDC: Konto für ${email} angelegt (Admin)`);
+		await auditSso(created.id, "created", email, "SSO: Konto angelegt, Admin");
+		await auditSso(created.id, "sso-login", email, "SSO-Anmeldung", { sub });
 		return created;
 	},
 };

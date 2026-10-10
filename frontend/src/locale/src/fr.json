@@ -134,8 +134,23 @@
 	"action.view-details": {
 		"defaultMessage": "Voir les Détails"
 	},
+	"agent": {
+		"defaultMessage": "Agent"
+	},
+	"agent-ingress": {
+		"defaultMessage": "Autorisation d'entrée d'agent"
+	},
 	"agents": {
 		"defaultMessage": "Agents"
+	},
+	"app.chunk-error": {
+		"defaultMessage": "Cette page n'a pas pu être chargée — FloppyGuard a probablement été mis à jour. Veuillez recharger la page."
+	},
+	"app.reload": {
+		"defaultMessage": "Recharger la page"
+	},
+	"app.render-error": {
+		"defaultMessage": "Une erreur inattendue s'est produite lors de l'affichage de cette page."
 	},
 	"auditlogs": {
 		"defaultMessage": "Journaux d'audit"
@@ -326,6 +341,18 @@
 	"dashboard": {
 		"defaultMessage": "Tableau de bord"
 	},
+	"dashboard.ago-hours": {
+		"defaultMessage": "il y a {count} h"
+	},
+	"dashboard.ago-minutes": {
+		"defaultMessage": "il y a {count} min"
+	},
+	"dashboard.ago-seconds": {
+		"defaultMessage": "il y a {count} s"
+	},
+	"dashboard.dead-blocked": {
+		"defaultMessage": "{count} bloqués"
+	},
 	"dashboard.gateway-overview": {
 		"defaultMessage": "Vue d'ensemble Gateway"
 	},
@@ -356,6 +383,12 @@
 	"dashboard.no-route-risks": {
 		"defaultMessage": "Aucun risque de routage détecté"
 	},
+	"dashboard.peers-idle": {
+		"defaultMessage": "{count} {count, plural, one {pair inactif} other {pairs inactifs}}"
+	},
+	"dashboard.proxy-active-disabled": {
+		"defaultMessage": "{active} actifs · {disabled} désactivés"
+	},
 	"dashboard.stat.logical-links": {
 		"defaultMessage": "Liens logiques"
 	},
@@ -365,11 +398,23 @@
 	"dashboard.total-traffic": {
 		"defaultMessage": "Trafic total"
 	},
+	"dashboard.update-notice.action": {
+		"defaultMessage": "Mettre à jour"
+	},
+	"dashboard.update-notice.body": {
+		"defaultMessage": "Installée : {version}. La mise à jour ne démarre qu'après votre confirmation."
+	},
+	"dashboard.update-notice.title": {
+		"defaultMessage": "Mise à jour FloppyGuard disponible : {version}"
+	},
 	"dashboard.view-routing": {
 		"defaultMessage": "Détails du routage"
 	},
 	"dashboard.view-traffic": {
 		"defaultMessage": "Détails du trafic"
+	},
+	"dashboard.wg-interfaces": {
+		"defaultMessage": "Interfaces WG"
 	},
 	"dashboard.wg-routes": {
 		"defaultMessage": "{count} routes WG"
@@ -500,6 +545,9 @@
 	"f2b.unban": {
 		"defaultMessage": "Débloquer"
 	},
+	"fail2ban": {
+		"defaultMessage": "Blocage Fail2ban"
+	},
 	"footer.github-fork": {
 		"defaultMessage": "Visiter FloppyGuard"
 	},
@@ -629,6 +677,9 @@
 	"gateway.unavailable": {
 		"defaultMessage": "Les données Gateway ne sont pas encore disponibles dans ce runtime."
 	},
+	"health.refetch-error": {
+		"defaultMessage": "L'API est momentanément injoignable — nouvelle tentative automatique."
+	},
 	"host.flags.block-exploits": {
 		"defaultMessage": "Bloquer les exploits courants"
 	},
@@ -650,11 +701,17 @@
 	"host.forward-scheme": {
 		"defaultMessage": "Schéma"
 	},
+	"host.nginx-rejected": {
+		"defaultMessage": "Config rejetée"
+	},
 	"hosts": {
 		"defaultMessage": "Hôtes"
 	},
 	"http-only": {
 		"defaultMessage": "HTTP uniquement"
+	},
+	"ingress": {
+		"defaultMessage": "Autorisations"
 	},
 	"lets-encrypt": {
 		"defaultMessage": "Let's Encrypt"
@@ -800,14 +857,26 @@
 	"object.event.enabled": {
 		"defaultMessage": "{object} activé"
 	},
+	"object.event.floppyguard.update": {
+		"defaultMessage": "Mise à jour de l'application lancée"
+	},
 	"object.event.renewed": {
 		"defaultMessage": "{object} renouvelé"
+	},
+	"object.event.sso-login": {
+		"defaultMessage": "Connexion SSO"
+	},
+	"object.event.sso-refused": {
+		"defaultMessage": "Connexion SSO refusée"
 	},
 	"object.event.updated": {
 		"defaultMessage": "{object} mis à jour"
 	},
 	"offline": {
 		"defaultMessage": "Hors ligne"
+	},
+	"oidc-settings": {
+		"defaultMessage": "Paramètres SSO"
 	},
 	"online": {
 		"defaultMessage": "En ligne"
@@ -1028,6 +1097,51 @@
 	"settings.default-site.redirect": {
 		"defaultMessage": "Redirection"
 	},
+	"settings.update.available": {
+		"defaultMessage": "Une mise à jour est disponible."
+	},
+	"settings.update.check-failed": {
+		"defaultMessage": "La vérification de version est injoignable."
+	},
+	"settings.update.confirm": {
+		"defaultMessage": "FloppyGuard va télécharger la mise à jour depuis la branche Git configurée, installer les dépendances verrouillées, reconstruire l'interface et redémarrer le service. Démarrer maintenant ?"
+	},
+	"settings.update.footer": {
+		"defaultMessage": "Le service reste disponible jusqu'au redémarrage contrôlé. La progression est mise à jour ici automatiquement."
+	},
+	"settings.update.in-progress": {
+		"defaultMessage": "Mise à jour en cours"
+	},
+	"settings.update.install": {
+		"defaultMessage": "Installer la mise à jour"
+	},
+	"settings.update.installed": {
+		"defaultMessage": "Installée : {version}"
+	},
+	"settings.update.intro": {
+		"defaultMessage": "Les mises à jour sont lancées volontairement par les administrateurs uniquement et chargées depuis la branche Git configurée."
+	},
+	"settings.update.new-version": {
+		"defaultMessage": "Nouvelle version : {version}"
+	},
+	"settings.update.reloading": {
+		"defaultMessage": "La page va se recharger avec la nouvelle version."
+	},
+	"settings.update.status": {
+		"defaultMessage": "Statut : {step}"
+	},
+	"settings.update.target": {
+		"defaultMessage": "Cible : {target}"
+	},
+	"settings.update.title": {
+		"defaultMessage": "Mise à jour de l'application"
+	},
+	"settings.update.unknown": {
+		"defaultMessage": "inconnue"
+	},
+	"settings.update.up-to-date": {
+		"defaultMessage": "FloppyGuard est à jour."
+	},
 	"setup.preamble": {
 		"defaultMessage": "Commencez par créer votre compte administrateur."
 	},
@@ -1079,6 +1193,9 @@
 	"traffic.chart-tx": {
 		"defaultMessage": "Envoyé (octets/s)"
 	},
+	"traffic.col-activity": {
+		"defaultMessage": "Activité"
+	},
 	"traffic.col-handshake": {
 		"defaultMessage": "Dernier handshake"
 	},
@@ -1112,6 +1229,18 @@
 	"traffic.peers": {
 		"defaultMessage": "pairs"
 	},
+	"traffic.range-subtitle.12m": {
+		"defaultMessage": "Moyennes journalières"
+	},
+	"traffic.range-subtitle.24h": {
+		"defaultMessage": "Moyennes sur 1 minute"
+	},
+	"traffic.range-subtitle.30d": {
+		"defaultMessage": "Moyennes sur 15 minutes"
+	},
+	"traffic.range-subtitle.live": {
+		"defaultMessage": "10 dernières minutes"
+	},
 	"traffic.routing-details": {
 		"defaultMessage": "Détails du routage"
 	},
@@ -1123,6 +1252,12 @@
 	},
 	"traffic.table-title": {
 		"defaultMessage": "Détails des liens"
+	},
+	"traffic.tick-minutes": {
+		"defaultMessage": "{count} min"
+	},
+	"traffic.tick-now": {
+		"defaultMessage": "Maintenant"
 	},
 	"traffic.total": {
 		"defaultMessage": "total"
@@ -1194,10 +1329,16 @@
 		"defaultMessage": "Tous (aucune restriction)"
 	},
 	"wireguard.agent.allowed-networks-hint": {
-		"defaultMessage": "CIDR séparés par des virgules que cet agent peut atteindre via le hub. Vide = maillage complet (tous les autres sites)."
+		"defaultMessage": "CIDR séparés par des virgules que cet agent peut atteindre via le hub. Vide = maillage complet (tous les autres sites). Appliqué uniquement sur la passerelle de cet agent, pas au hub : ce n'est pas une frontière de sécurité."
 	},
 	"wireguard.agent.change": {
 		"defaultMessage": "modifier"
+	},
+	"wireguard.agent.config-failed": {
+		"defaultMessage": "Configuration non appliquée"
+	},
+	"wireguard.agent.config-pending": {
+		"defaultMessage": "Configuration en attente"
 	},
 	"wireguard.agent.copied": {
 		"defaultMessage": "Copié !"
@@ -1205,8 +1346,23 @@
 	"wireguard.agent.copy": {
 		"defaultMessage": "Copier"
 	},
+	"wireguard.agent.create-failed": {
+		"defaultMessage": "L'agent n'a pas pu être créé : {error}"
+	},
 	"wireguard.agent.creating": {
 		"defaultMessage": "Création de l'agent…"
+	},
+	"wireguard.agent.delete": {
+		"defaultMessage": "Supprimer l'agent"
+	},
+	"wireguard.agent.delete-confirm": {
+		"defaultMessage": "Supprimer l'agent {name} ? Son jeton est révoqué immédiatement et la passerelle n'est plus gérée d'ici. Si son filtre Freigaben est restreint, passez-le d'abord en ouvert."
+	},
+	"wireguard.agent.delete-force-confirm": {
+		"defaultMessage": "{name} ne peut pas être supprimé normalement : son filtre Freigaben n'est pas confirmé comme ouvert et l'agent ne s'est pas manifesté depuis plus d'une heure. Le supprimer quand même ? La passerelle garde alors son dernier filtre Freigaben (chaîne FG_IN) jusqu'à ce qu'il y soit retiré à la main."
+	},
+	"wireguard.agent.delete-title": {
+		"defaultMessage": "Supprimer l'agent"
 	},
 	"wireguard.agent.host": {
 		"defaultMessage": "Hôte"
@@ -1219,6 +1375,558 @@
 	},
 	"wireguard.agent.hub-url-invalid": {
 		"defaultMessage": "Doit être une URL http(s) valide"
+	},
+	"wireguard.agent.ingress.add": {
+		"defaultMessage": "Ajouter une règle"
+	},
+	"wireguard.agent.ingress.add.expert": {
+		"defaultMessage": "Règle personnalisée (experts)"
+	},
+	"wireguard.agent.ingress.add.guided": {
+		"defaultMessage": "Guidé (recommandé)"
+	},
+	"wireguard.agent.ingress.all": {
+		"defaultMessage": "tous"
+	},
+	"wireguard.agent.ingress.applied.failed": {
+		"defaultMessage": "L'agent n'a PAS appliqué le jeu de règles — le filtre n'est pas actif comme affiché."
+	},
+	"wireguard.agent.ingress.applied.failed-short": {
+		"defaultMessage": "non appliqué"
+	},
+	"wireguard.agent.ingress.applied.offline": {
+		"defaultMessage": "L'agent ne s'est pas manifesté depuis plus de 5 minutes (hors ligne) — le jeu de règles actuel ne sera appliqué qu'à son retour."
+	},
+	"wireguard.agent.ingress.applied.offline-short": {
+		"defaultMessage": "agent hors ligne"
+	},
+	"wireguard.agent.ingress.applied.pending": {
+		"defaultMessage": "L'agent n'a pas encore confirmé le jeu de règles actuel (appliqué à sa prochaine interrogation)."
+	},
+	"wireguard.agent.ingress.applied.pending-short": {
+		"defaultMessage": "en attente"
+	},
+	"wireguard.agent.ingress.applied.unknown": {
+		"defaultMessage": "L'agent ne signale aucun état de filtre (script trop ancien ou hors ligne) — on ne sait pas si le filtre est actif."
+	},
+	"wireguard.agent.ingress.applied.unknown-short": {
+		"defaultMessage": "état inconnu"
+	},
+	"wireguard.agent.ingress.catalog.group.clients": {
+		"defaultMessage": "Clients VPN"
+	},
+	"wireguard.agent.ingress.catalog.group.hub": {
+		"defaultMessage": "Hub"
+	},
+	"wireguard.agent.ingress.catalog.group.networks": {
+		"defaultMessage": "Réseaux"
+	},
+	"wireguard.agent.ingress.catalog.group.published": {
+		"defaultMessage": "Services publiés"
+	},
+	"wireguard.agent.ingress.catalog.group.services": {
+		"defaultMessage": "Services de l’agent"
+	},
+	"wireguard.agent.ingress.catalog.group.sites": {
+		"defaultMessage": "Sites"
+	},
+	"wireguard.agent.ingress.catalog.group.tunnel": {
+		"defaultMessage": "Réseau VPN"
+	},
+	"wireguard.agent.ingress.catalog.hub": {
+		"defaultMessage": "Reverse proxy (hub)"
+	},
+	"wireguard.agent.ingress.catalog.hub-snat-hint": {
+		"defaultMessage": "Transporte aussi chaque hôte du LAN du hub (SNAT vers l’adresse du hub)"
+	},
+	"wireguard.agent.ingress.catalog.masquerade-hint": {
+		"defaultMessage": "Ce site masque ses adresses LAN (masquerade) : son trafic arrive avec l’adresse du tunnel"
+	},
+	"wireguard.agent.ingress.catalog.networks": {
+		"defaultMessage": "{count, plural, one {# réseau} other {# réseaux}}"
+	},
+	"wireguard.agent.ingress.catalog.tunnel": {
+		"defaultMessage": "Tous les participants VPN ({net})"
+	},
+	"wireguard.agent.ingress.catalog.unavailable": {
+		"defaultMessage": "Noms et assistants indisponibles (catalogue non chargé) — les règles peuvent toujours être saisies en IP/CIDR."
+	},
+	"wireguard.agent.ingress.check": {
+		"defaultMessage": "Vérification"
+	},
+	"wireguard.agent.ingress.check.broad": {
+		"defaultMessage": "Règles du hub plus larges que le trafic proxy ne l'exige — l'adresse du hub porte aussi tous les hôtes du LAN Hetzner (SNAT), donc Mailcow, le CT du serveur web etc. passent aussi :"
+	},
+	"wireguard.agent.ingress.check.broad.all-ports": {
+		"defaultMessage": "aucune liste de ports : tous les ports des cibles sont ouverts — limitez aux ports des upstreams"
+	},
+	"wireguard.agent.ingress.check.broad.unused-ports": {
+		"defaultMessage": "ports qu'aucun proxy host/stream n'utilise : {ports}"
+	},
+	"wireguard.agent.ingress.check.create": {
+		"defaultMessage": "Créer la règle"
+	},
+	"wireguard.agent.ingress.check.disabled": {
+		"defaultMessage": "désactivé"
+	},
+	"wireguard.agent.ingress.check.egress-note": {
+		"defaultMessage": "Le trafic émis par le hub via l'adresse SNAT/tunnel (p. ex. Mailcow → DC) n'utilise aucun proxy host — il n'est vérifié que s'il figure dans /data/hub-egress-flows.json ({count} entrée(s))."
+	},
+	"wireguard.agent.ingress.check.kind.hub-egress": {
+		"defaultMessage": "Egress hub"
+	},
+	"wireguard.agent.ingress.check.kind.manual": {
+		"defaultMessage": "Manuel (nginx)"
+	},
+	"wireguard.agent.ingress.check.kind.proxy-host": {
+		"defaultMessage": "Proxy host"
+	},
+	"wireguard.agent.ingress.check.kind.stream": {
+		"defaultMessage": "Stream"
+	},
+	"wireguard.agent.ingress.check.kind.vpn-client": {
+		"defaultMessage": "Client VPN"
+	},
+	"wireguard.agent.ingress.check.link-client": {
+		"defaultMessage": "La liaison WireGuard associée « {link} » existe mais est de type « client » : elle n'est pas vérifiée comme site. Passez son type à site-to-site s'il s'agit d'une passerelle de site."
+	},
+	"wireguard.agent.ingress.check.link-missing": {
+		"defaultMessage": "La liaison WireGuard associée « {link} » est introuvable — rien n'a été vérifié. Réassociez l'agent à une liaison."
+	},
+	"wireguard.agent.ingress.check.missing-disabled": {
+		"defaultMessage": "Hôtes proxy/streams désactivés sans règle (aucun trafic actuellement, 504 au hub une fois activés) :"
+	},
+	"wireguard.agent.ingress.check.missing-open": {
+		"defaultMessage": "Non couvert par une règle (informatif en mode « ouvert » — en « autorisations uniquement » ces cibles seraient rejetées) :"
+	},
+	"wireguard.agent.ingress.check.missing-restricted": {
+		"defaultMessage": "L'agent rejette actuellement ces cibles de proxy hosts / streams (504 au hub) :"
+	},
+	"wireguard.agent.ingress.check.no-port": {
+		"defaultMessage": "port inconnu — créez la règle à la main avec le(s) port(s) utilisé(s)"
+	},
+	"wireguard.agent.ingress.check.none": {
+		"defaultMessage": "Aucune donnée de vérification pour cet agent."
+	},
+	"wireguard.agent.ingress.check.ok": {
+		"defaultMessage": "Rien à signaler."
+	},
+	"wireguard.agent.ingress.check.unchecked": {
+		"defaultMessage": "Non vérifiable — la cible est un nom d'hôte qui ne se résout pas :"
+	},
+	"wireguard.agent.ingress.check.unused": {
+		"defaultMessage": "aucun proxy host/stream n'utilise cette cible (configuration manuelle ?)"
+	},
+	"wireguard.agent.ingress.col.active": {
+		"defaultMessage": "Active"
+	},
+	"wireguard.agent.ingress.col.destinations": {
+		"defaultMessage": "Cibles"
+	},
+	"wireguard.agent.ingress.col.hits": {
+		"defaultMessage": "Correspondances"
+	},
+	"wireguard.agent.ingress.col.name": {
+		"defaultMessage": "Nom"
+	},
+	"wireguard.agent.ingress.col.ports": {
+		"defaultMessage": "Ports"
+	},
+	"wireguard.agent.ingress.col.sources": {
+		"defaultMessage": "Sources"
+	},
+	"wireguard.agent.ingress.comfort.missing": {
+		"defaultMessage": "Autoriser toutes les cibles proxy manquantes ({count})"
+	},
+	"wireguard.agent.ingress.comfort.missing-confirm": {
+		"defaultMessage": "Créer {count, plural, one {# règle} other {# règles}} pour les cibles proxy manquantes ?"
+	},
+	"wireguard.agent.ingress.comfort.prune": {
+		"defaultMessage": "Désactiver les règles inutilisées ({count})"
+	},
+	"wireguard.agent.ingress.comfort.prune-confirm": {
+		"defaultMessage": "Désactiver {count, plural, one {# règle} other {# règles}} sans nouvelle connexion depuis 30 jours ?"
+	},
+	"wireguard.agent.ingress.comfort.prune-done": {
+		"defaultMessage": "{count, plural, one {# règle désactivée} other {# règles désactivées}}."
+	},
+	"wireguard.agent.ingress.comfort.prune-hint": {
+		"defaultMessage": "Les compteurs ne voient que les NOUVELLES connexions : les sessions longues (LDAP, IMAP, iSCSI) semblent inactives. Les règles désactivées peuvent être réactivées à tout moment."
+	},
+	"wireguard.agent.ingress.confirm-restricted": {
+		"defaultMessage": "Passer en « autorisations uniquement » ? Tout trafic routé du tunnel vers le réseau local qui ne correspond à aucune règle active sera rejeté — une règle manquante coupe le site pour ce trafic. Les services de la passerelle elle-même ne sont pas filtrés."
+	},
+	"wireguard.agent.ingress.delete-confirm": {
+		"defaultMessage": "Supprimer vraiment la règle « {name} » ?"
+	},
+	"wireguard.agent.ingress.delete-title": {
+		"defaultMessage": "Supprimer la règle"
+	},
+	"wireguard.agent.ingress.empty": {
+		"defaultMessage": "Aucune règle pour l'instant."
+	},
+	"wireguard.agent.ingress.err.invalid-cidr": {
+		"defaultMessage": "Adresse IPv4/CIDR invalide : {value}"
+	},
+	"wireguard.agent.ingress.err.invalid-port": {
+		"defaultMessage": "Port invalide : {value} (format tcp/443, udp/53 ou tcp/8000:8010)"
+	},
+	"wireguard.agent.ingress.err.name-required": {
+		"defaultMessage": "Le nom est obligatoire."
+	},
+	"wireguard.agent.ingress.err.ports-required": {
+		"defaultMessage": "Choisissez des ports ou cochez « Tous les ports »."
+	},
+	"wireguard.agent.ingress.err.sources-required": {
+		"defaultMessage": "Indiquez au moins une source."
+	},
+	"wireguard.agent.ingress.explain": {
+		"defaultMessage": "Définit quel trafic arrivant par le tunnel peut atteindre quelles cibles du réseau local de ce site. Seul le trafic routé est filtré — les services de la passerelle elle-même (p. ex. SSH) ne sont pas couverts."
+	},
+	"wireguard.agent.ingress.field.destinations": {
+		"defaultMessage": "Cibles"
+	},
+	"wireguard.agent.ingress.field.destinations-hint": {
+		"defaultMessage": "Adresses IPv4 ou CIDR du réseau local du site — vide = toutes les cibles."
+	},
+	"wireguard.agent.ingress.field.enabled": {
+		"defaultMessage": "Active"
+	},
+	"wireguard.agent.ingress.field.name": {
+		"defaultMessage": "Nom"
+	},
+	"wireguard.agent.ingress.field.name-auto-hint": {
+		"defaultMessage": "Laisser vide : le nom est formé à partir de la règle."
+	},
+	"wireguard.agent.ingress.field.note": {
+		"defaultMessage": "Note"
+	},
+	"wireguard.agent.ingress.field.ports": {
+		"defaultMessage": "Ports"
+	},
+	"wireguard.agent.ingress.field.ports-hint": {
+		"defaultMessage": "p. ex. tcp/443, udp/53, tcp/8000:8010 — ou cochez « Tous les ports »."
+	},
+	"wireguard.agent.ingress.field.sources": {
+		"defaultMessage": "Sources"
+	},
+	"wireguard.agent.ingress.field.sources-hint": {
+		"defaultMessage": "Adresses IPv4 ou CIDR, séparées par des virgules ou des retours à la ligne (au moins une)."
+	},
+	"wireguard.agent.ingress.form.add-title": {
+		"defaultMessage": "Nouvelle règle"
+	},
+	"wireguard.agent.ingress.form.broad": {
+		"defaultMessage": "Cette règle ouvre tous les ports ou tout le site — vérifiez que c’est voulu."
+	},
+	"wireguard.agent.ingress.form.edit-title": {
+		"defaultMessage": "Modifier la règle"
+	},
+	"wireguard.agent.ingress.hit.last": {
+		"defaultMessage": "dernière nouvelle connexion {ago}"
+	},
+	"wireguard.agent.ingress.hit.never": {
+		"defaultMessage": "aucune correspondance"
+	},
+	"wireguard.agent.ingress.hit.packets": {
+		"defaultMessage": "{count, plural, one {# paquet} other {# paquets}}"
+	},
+	"wireguard.agent.ingress.hit.stale": {
+		"defaultMessage": "aucune nouvelle connexion depuis plus de 30 jours — les connexions persistantes (p. ex. LDAP, IMAP) ne sont pas comptées, vérifier avant de supprimer"
+	},
+	"wireguard.agent.ingress.legacy": {
+		"defaultMessage": "Héritage"
+	},
+	"wireguard.agent.ingress.manage": {
+		"defaultMessage": "Gérer les autorisations"
+	},
+	"wireguard.agent.ingress.modal-title": {
+		"defaultMessage": "Autorisations d'entrée — {name}"
+	},
+	"wireguard.agent.ingress.mode": {
+		"defaultMessage": "Mode"
+	},
+	"wireguard.agent.ingress.mode.open": {
+		"defaultMessage": "Ouvert (aucun filtre)"
+	},
+	"wireguard.agent.ingress.mode.open-short": {
+		"defaultMessage": "ouvert"
+	},
+	"wireguard.agent.ingress.mode.restricted": {
+		"defaultMessage": "Autorisations uniquement (le trafic routé sans règle est rejeté)"
+	},
+	"wireguard.agent.ingress.mode.restricted-short": {
+		"defaultMessage": "autorisations uniquement"
+	},
+	"wireguard.agent.ingress.open-hint": {
+		"defaultMessage": "Le mode ouvert ne filtre rien : les règles ci-dessous ne font que compter les correspondances, tout le trafic continue vers le pare-feu de la passerelle. Avant de supprimer un filtre externe sur la passerelle (p. ex. VPN_MGR), passez en « règles uniquement » et attendez que l'agent signale le filtre comme appliqué."
+	},
+	"wireguard.agent.ingress.open-page": {
+		"defaultMessage": "Afficher toutes les autorisations"
+	},
+	"wireguard.agent.ingress.page.no-agents": {
+		"defaultMessage": "Aucun agent pour l'instant."
+	},
+	"wireguard.agent.ingress.page.stat.open": {
+		"defaultMessage": "Agents ouverts (aucun filtre)"
+	},
+	"wireguard.agent.ingress.page.stat.restricted": {
+		"defaultMessage": "Agents en « autorisations uniquement »"
+	},
+	"wireguard.agent.ingress.page.stat.warnings": {
+		"defaultMessage": "Avertissements (upstreams rejetés)"
+	},
+	"wireguard.agent.ingress.picker.custom": {
+		"defaultMessage": "IP/CIDR personnalisée : {value}"
+	},
+	"wireguard.agent.ingress.picker.no-options": {
+		"defaultMessage": "Rien trouvé — saisissez une IP ou un CIDR"
+	},
+	"wireguard.agent.ingress.picker.placeholder.destinations": {
+		"defaultMessage": "vide = tout le site"
+	},
+	"wireguard.agent.ingress.picker.placeholder.destinations-required": {
+		"defaultMessage": "Serveur, service ou IP/CIDR …"
+	},
+	"wireguard.agent.ingress.picker.placeholder.sources": {
+		"defaultMessage": "Site, client, hub ou IP/CIDR …"
+	},
+	"wireguard.agent.ingress.ports.custom": {
+		"defaultMessage": "Autres ports"
+	},
+	"wireguard.agent.ingress.ports.custom-hint": {
+		"defaultMessage": "p. ex. tcp/8443, udp/51820, tcp/8000:8010"
+	},
+	"wireguard.agent.ingress.preset.all": {
+		"defaultMessage": "Tous les ports"
+	},
+	"wireguard.agent.ingress.preset.dns": {
+		"defaultMessage": "DNS (53)"
+	},
+	"wireguard.agent.ingress.preset.ldap": {
+		"defaultMessage": "LDAP (389/636)"
+	},
+	"wireguard.agent.ingress.preset.pbs": {
+		"defaultMessage": "PBS (8007)"
+	},
+	"wireguard.agent.ingress.preset.proxmox": {
+		"defaultMessage": "Proxmox (8006)"
+	},
+	"wireguard.agent.ingress.preset.rdp": {
+		"defaultMessage": "RDP (3389)"
+	},
+	"wireguard.agent.ingress.preset.smb": {
+		"defaultMessage": "SMB (445)"
+	},
+	"wireguard.agent.ingress.preset.ssh": {
+		"defaultMessage": "SSH (22)"
+	},
+	"wireguard.agent.ingress.preset.web": {
+		"defaultMessage": "Web (80/443)"
+	},
+	"wireguard.agent.ingress.preview": {
+		"defaultMessage": "Règles générées"
+	},
+	"wireguard.agent.ingress.preview.count": {
+		"defaultMessage": "{count, plural, one {# règle} other {# règles}}"
+	},
+	"wireguard.agent.ingress.preview.empty": {
+		"defaultMessage": "Aucun filtre actif (mode « ouvert »)."
+	},
+	"wireguard.agent.ingress.result.created-one": {
+		"defaultMessage": "Règle « {name} » créée."
+	},
+	"wireguard.agent.ingress.result.reenabled": {
+		"defaultMessage": "{count} réactivée(s)"
+	},
+	"wireguard.agent.ingress.result.reenabled-one": {
+		"defaultMessage": "La règle « {name} » était désactivée et a été réactivée."
+	},
+	"wireguard.agent.ingress.rule-name.anything": {
+		"defaultMessage": "{source} → tout le site"
+	},
+	"wireguard.agent.ingress.rules": {
+		"defaultMessage": "Règles"
+	},
+	"wireguard.agent.ingress.sentence.active-count": {
+		"defaultMessage": "{active} sur {count} actives"
+	},
+	"wireguard.agent.ingress.sentence.all-ports": {
+		"defaultMessage": "tous les ports"
+	},
+	"wireguard.agent.ingress.sentence.anything": {
+		"defaultMessage": "peut accéder à tout le site – {ports}"
+	},
+	"wireguard.agent.ingress.sentence.may-access": {
+		"defaultMessage": "peut accéder à {targets} – {ports}"
+	},
+	"wireguard.agent.ingress.sentence.more": {
+		"defaultMessage": "+{count} de plus"
+	},
+	"wireguard.agent.ingress.sentence.off": {
+		"defaultMessage": "désactivée"
+	},
+	"wireguard.agent.ingress.sentence.ports": {
+		"defaultMessage": "ports {list}"
+	},
+	"wireguard.agent.ingress.summary.rules": {
+		"defaultMessage": "{count, plural, one {# règle active} other {# règles actives}}"
+	},
+	"wireguard.agent.ingress.summary.unused": {
+		"defaultMessage": "{count, plural, one {# règle sans utilisation proxy} other {# règles sans utilisation proxy}}"
+	},
+	"wireguard.agent.ingress.summary.warnings": {
+		"defaultMessage": "{count, plural, one {# avertissement} other {# avertissements}}"
+	},
+	"wireguard.agent.ingress.tester.destination": {
+		"defaultMessage": "Destination"
+	},
+	"wireguard.agent.ingress.tester.disabled-match": {
+		"defaultMessage": "La règle désactivée « {name} » correspondrait"
+	},
+	"wireguard.agent.ingress.tester.go-to-rule": {
+		"defaultMessage": "Aller à la règle {name}"
+	},
+	"wireguard.agent.ingress.tester.note.established-return": {
+		"defaultMessage": "Les réponses aux connexions autorisées passent toujours (established/related)."
+	},
+	"wireguard.agent.ingress.tester.note.forward-only": {
+		"defaultMessage": "Seul le trafic routé est filtré, pas celui destiné à l’agent lui-même."
+	},
+	"wireguard.agent.ingress.tester.note.not-applied": {
+		"defaultMessage": "L’agent n’a pas encore confirmé le jeu de règles actuel — un plus ancien peut encore tourner."
+	},
+	"wireguard.agent.ingress.tester.observing-rule": {
+		"defaultMessage": "Correspondrait à la règle « {name} » en mode restreint"
+	},
+	"wireguard.agent.ingress.tester.port": {
+		"defaultMessage": "Port"
+	},
+	"wireguard.agent.ingress.tester.port-unknown": {
+		"defaultMessage": "Sans port : seules des règles limitées à des ports correspondraient — indiquez le port"
+	},
+	"wireguard.agent.ingress.tester.proto": {
+		"defaultMessage": "Protocole"
+	},
+	"wireguard.agent.ingress.tester.reason.link-not-found": {
+		"defaultMessage": "Inconnu — la liaison WireGuard associée à l'agent est introuvable (renommée ou supprimée ?). Réassociez l'agent à une liaison."
+	},
+	"wireguard.agent.ingress.tester.reason.no-rule": {
+		"defaultMessage": "Rejeté – aucune règle correspondante"
+	},
+	"wireguard.agent.ingress.tester.reason.not-via-agent": {
+		"defaultMessage": "Ne passe pas par cet agent"
+	},
+	"wireguard.agent.ingress.tester.reason.open-mode": {
+		"defaultMessage": "Aucun filtre actif (mode ouvert)"
+	},
+	"wireguard.agent.ingress.tester.reason.rule": {
+		"defaultMessage": "Le filtre FloppyGuard laisse passer – règle « {name} »"
+	},
+	"wireguard.agent.ingress.tester.reason.same-site": {
+		"defaultMessage": "Même site, non filtré"
+	},
+	"wireguard.agent.ingress.tester.run": {
+		"defaultMessage": "Vérifier"
+	},
+	"wireguard.agent.ingress.tester.source": {
+		"defaultMessage": "Source"
+	},
+	"wireguard.agent.ingress.tester.tested-address": {
+		"defaultMessage": "Vérifié : {src} → {dst}{port}/{proto}"
+	},
+	"wireguard.agent.ingress.tester.title": {
+		"defaultMessage": "Vérifier une connexion : une source peut-elle atteindre une cible ?"
+	},
+	"wireguard.agent.ingress.title": {
+		"defaultMessage": "Autorisations d'entrée"
+	},
+	"wireguard.agent.ingress.toggle-label": {
+		"defaultMessage": "Règle {name} active"
+	},
+	"wireguard.agent.ingress.view.label": {
+		"defaultMessage": "Affichage des règles"
+	},
+	"wireguard.agent.ingress.view.sentences": {
+		"defaultMessage": "Phrases"
+	},
+	"wireguard.agent.ingress.view.table": {
+		"defaultMessage": "Tableau"
+	},
+	"wireguard.agent.ingress.wizard.back": {
+		"defaultMessage": "Retour"
+	},
+	"wireguard.agent.ingress.wizard.broad": {
+		"defaultMessage": "Au moins une règle ouvre tous les ports ou tout le site — vérifiez que c’est voulu."
+	},
+	"wireguard.agent.ingress.wizard.covered-badge": {
+		"defaultMessage": "déjà autorisé"
+	},
+	"wireguard.agent.ingress.wizard.full.ack": {
+		"defaultMessage": "Compris"
+	},
+	"wireguard.agent.ingress.wizard.full.rule-name": {
+		"defaultMessage": "{site} – accès complet"
+	},
+	"wireguard.agent.ingress.wizard.full.step.preview": {
+		"defaultMessage": "Aperçu"
+	},
+	"wireguard.agent.ingress.wizard.full.step.source": {
+		"defaultMessage": "Site"
+	},
+	"wireguard.agent.ingress.wizard.full.title": {
+		"defaultMessage": "Un site obtient un accès complet"
+	},
+	"wireguard.agent.ingress.wizard.full.warning": {
+		"defaultMessage": "Cela ouvre tout le LAN de {site} sur tous les ports pour la source choisie."
+	},
+	"wireguard.agent.ingress.wizard.lines": {
+		"defaultMessage": "{count, plural, one {# ligne de filtre} other {# lignes de filtre}}"
+	},
+	"wireguard.agent.ingress.wizard.menu": {
+		"defaultMessage": "Assistant"
+	},
+	"wireguard.agent.ingress.wizard.missing-badge": {
+		"defaultMessage": "manquant"
+	},
+	"wireguard.agent.ingress.wizard.next": {
+		"defaultMessage": "Suivant"
+	},
+	"wireguard.agent.ingress.wizard.preview": {
+		"defaultMessage": "Ces règles seront créées :"
+	},
+	"wireguard.agent.ingress.wizard.proxy.none": {
+		"defaultMessage": "Aucun hôte proxy, flux ou flux du hub ne pointe vers ce site."
+	},
+	"wireguard.agent.ingress.wizard.proxy.step.hosts": {
+		"defaultMessage": "Choisir les serveurs"
+	},
+	"wireguard.agent.ingress.wizard.proxy.step.preview": {
+		"defaultMessage": "Aperçu"
+	},
+	"wireguard.agent.ingress.wizard.proxy.title": {
+		"defaultMessage": "Publier un service via le proxy"
+	},
+	"wireguard.agent.ingress.wizard.result": {
+		"defaultMessage": "{created} créée(s), {skipped} ignorée(s)"
+	},
+	"wireguard.agent.ingress.wizard.site.step.ports": {
+		"defaultMessage": "Ports"
+	},
+	"wireguard.agent.ingress.wizard.site.step.preview": {
+		"defaultMessage": "Aperçu"
+	},
+	"wireguard.agent.ingress.wizard.site.step.source": {
+		"defaultMessage": "Site"
+	},
+	"wireguard.agent.ingress.wizard.site.step.targets": {
+		"defaultMessage": "Serveurs"
+	},
+	"wireguard.agent.ingress.wizard.site.title": {
+		"defaultMessage": "Un site peut accéder à des serveurs"
+	},
+	"wireguard.agent.ingress.wizard.too-many": {
+		"defaultMessage": "plus de {max} lignes de filtre par règle — à scinder"
 	},
 	"wireguard.agent.last-seen": {
 		"defaultMessage": "Dernière activité"
@@ -1247,8 +1955,14 @@
 	"wireguard.agent.reinstall": {
 		"defaultMessage": "Réinstaller"
 	},
+	"wireguard.agent.reinstall-confirm": {
+		"defaultMessage": "Réinstaller l'agent « {name} » ? Un nouveau jeton est émis – l'agent en cours est déconnecté immédiatement et ne reçoit plus de configuration, routes, autorisations ni mises à jour tant que la nouvelle commande d'installation n'a pas été exécutée sur la passerelle."
+	},
 	"wireguard.agent.renewing-token": {
 		"defaultMessage": "Renouvellement du jeton…"
+	},
+	"wireguard.agent.retry": {
+		"defaultMessage": "Réessayer"
 	},
 	"wireguard.agent.tunnel-url-label": {
 		"defaultMessage": "URL du tunnel (WireGuard VPN)"
@@ -1267,6 +1981,9 @@
 	},
 	"wireguard.apply.peers-updated": {
 		"defaultMessage": "{count, plural, one {# pair mis à jour} other {# pairs mis à jour}}"
+	},
+	"wireguard.apply.rename-failed": {
+		"defaultMessage": "Les liaisons d'agents du lien renommé n'ont pas été entièrement reprises — vérifiez les agents concernés :"
 	},
 	"wireguard.apply.saved": {
 		"defaultMessage": "Enregistré."
@@ -1324,6 +2041,12 @@
 	},
 	"wireguard.create.platform-mobile": {
 		"defaultMessage": "Mobile (iOS/Android)"
+	},
+	"wireguard.create.site-networks": {
+		"defaultMessage": "Réseaux de ce site"
+	},
+	"wireguard.create.site-networks-hint": {
+		"defaultMessage": "Réseaux LAN derrière cette passerelle, séparés par des virgules (routés vers elle par le hub). Vide = uniquement sous-réseau tunnel."
 	},
 	"wireguard.create.submit": {
 		"defaultMessage": "Créer le tunnel"
@@ -1397,6 +2120,9 @@
 	"wireguard.iface.preview": {
 		"defaultMessage": "Aperçu"
 	},
+	"wireguard.iface.preview-failed": {
+		"defaultMessage": "Échec de l'aperçu."
+	},
 	"wireguard.iface.preview-loading": {
 		"defaultMessage": "Aperçu en cours…"
 	},
@@ -1441,6 +2167,9 @@
 	},
 	"wireguard.link.delete": {
 		"defaultMessage": "Supprimer"
+	},
+	"wireguard.link.delete-agent-note": {
+		"defaultMessage": "Son agent {agent} est également supprimé (jeton révoqué)."
 	},
 	"wireguard.link.delete-confirm": {
 		"defaultMessage": "Voulez-vous vraiment supprimer le pair {name} ? Le pair sera retiré de l'interface WireGuard active et du fichier de configuration. Cette action est irréversible."
@@ -1526,6 +2255,9 @@
 	"wireguard.link.return-path": {
 		"defaultMessage": "Chemin de retour"
 	},
+	"wireguard.link.rotate-confirm": {
+		"defaultMessage": "Générer une nouvelle clé pour « {name} » ? L'appareil qui utilise ce tunnel perd la connexion jusqu'à l'import de la nouvelle configuration."
+	},
 	"wireguard.link.save-failed": {
 		"defaultMessage": "Échec de l'enregistrement."
 	},
@@ -1594,6 +2326,12 @@
 	},
 	"wireguard.overview.restore": {
 		"defaultMessage": "Restaurer"
+	},
+	"wireguard.overview.restore-confirm": {
+		"defaultMessage": "Restaurer {file} ? La configuration du hub et celles de TOUS les agents sont réécrites immédiatement depuis cette sauvegarde (AllowedIPs, réseaux importés, routes). L'état actuel est sauvegardé auparavant."
+	},
+	"wireguard.overview.restore-confirm-title": {
+		"defaultMessage": "Restaurer la sauvegarde ?"
 	},
 	"wireguard.overview.restore-failed": {
 		"defaultMessage": "Échec de la restauration."
@@ -1709,6 +2447,15 @@
 	"wireguard.time.never": {
 		"defaultMessage": "jamais"
 	},
+	"wireguard.topo.aria.handshake": {
+		"defaultMessage": "handshake il y a {ago}"
+	},
+	"wireguard.topo.aria.map": {
+		"defaultMessage": "Topologie : {sites} sites, {clients} clients, {online} en ligne"
+	},
+	"wireguard.topo.aria.node": {
+		"defaultMessage": "{name}, {type}, {status}"
+	},
 	"wireguard.topo.client": {
 		"defaultMessage": "Client"
 	},
@@ -1718,20 +2465,98 @@
 	"wireguard.topo.hub-link": {
 		"defaultMessage": "Lien Hub"
 	},
+	"wireguard.topo.hub.interfaces": {
+		"defaultMessage": "Interfaces"
+	},
+	"wireguard.topo.hub.online": {
+		"defaultMessage": "{online}/{total} en ligne"
+	},
 	"wireguard.topo.legend-active": {
 		"defaultMessage": "actif"
-	},
-	"wireguard.topo.legend-exported": {
-		"defaultMessage": "réseaux exportés"
-	},
-	"wireguard.topo.legend-imported": {
-		"defaultMessage": "réseaux importés"
 	},
 	"wireguard.topo.legend-inactive": {
 		"defaultMessage": "inactif"
 	},
+	"wireguard.topo.legend.agent": {
+		"defaultMessage": "Agent"
+	},
+	"wireguard.topo.legend.client-idle": {
+		"defaultMessage": "déconnecté / jamais connecté (clients)"
+	},
+	"wireguard.topo.legend.flow": {
+		"defaultMessage": "Flux de données"
+	},
+	"wireguard.topo.legend.idle": {
+		"defaultMessage": "connecté, sans trafic"
+	},
+	"wireguard.topo.legend.offline": {
+		"defaultMessage": "hors ligne / déconnecté"
+	},
+	"wireguard.topo.legend.restricted": {
+		"defaultMessage": "trafic autorisé uniquement"
+	},
+	"wireguard.topo.legend.stale": {
+		"defaultMessage": "obsolète"
+	},
+	"wireguard.topo.node.agent": {
+		"defaultMessage": "Agent {name}"
+	},
+	"wireguard.topo.node.agent-state.error": {
+		"defaultMessage": "erreur"
+	},
+	"wireguard.topo.node.agent-state.offline": {
+		"defaultMessage": "hors ligne"
+	},
+	"wireguard.topo.node.agent-state.online": {
+		"defaultMessage": "en ligne"
+	},
+	"wireguard.topo.node.agent-state.pending": {
+		"defaultMessage": "en attente"
+	},
+	"wireguard.topo.node.more": {
+		"defaultMessage": "+{count} autres"
+	},
+	"wireguard.topo.node.networks": {
+		"defaultMessage": "{count} {count, plural, one {réseau} other {réseaux}}"
+	},
+	"wireguard.topo.node.restricted": {
+		"defaultMessage": "Seul le trafic autorisé"
+	},
+	"wireguard.topo.rate.down": {
+		"defaultMessage": "↓ {value}"
+	},
+	"wireguard.topo.rate.total": {
+		"defaultMessage": "Σ {value}"
+	},
+	"wireguard.topo.rate.up": {
+		"defaultMessage": "↑ {value}"
+	},
+	"wireguard.topo.section.clients": {
+		"defaultMessage": "Clients"
+	},
+	"wireguard.topo.section.sites": {
+		"defaultMessage": "Sites"
+	},
 	"wireguard.topo.site-to-site": {
 		"defaultMessage": "Site à Site"
+	},
+	"wireguard.topo.status.ago": {
+		"defaultMessage": "{status} · {ago}"
+	},
+	"wireguard.topo.status.idle": {
+		"defaultMessage": "déconnecté"
+	},
+	"wireguard.topo.status.never": {
+		"defaultMessage": "jamais connecté"
+	},
+	"wireguard.topo.status.offline": {
+		"defaultMessage": "hors ligne"
+	},
+	"wireguard.topo.status.online": {
+		"defaultMessage": "en ligne"
+	},
+	"wireguard.topo.status.stale": {
+		"defaultMessage": "obsolète"
 	},
 	"wireguard.topo.this": {
 		"defaultMessage": "Ce"

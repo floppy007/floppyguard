@@ -1,0 +1,576 @@
+/* WireGuard topology map: SVG edges + HTML node cards (TopologyMap.tsx).
+   Colours come only from Tabler variables and the --wg-type-* tokens
+   (light/dark defined in index.module.css). */
+
+.map {
+	--topo-online: var(--tblr-green);
+	--topo-stale: var(--tblr-yellow);
+	--topo-offline: var(--tblr-red);
+	--topo-idle: var(--tblr-secondary);
+	container-type: inline-size;
+	margin: 0;
+	overflow: hidden;
+	border-radius: 0 0 var(--tblr-border-radius-lg) var(--tblr-border-radius-lg);
+}
+
+.canvas {
+	position: relative;
+	aspect-ratio: 16 / 9;
+	max-height: 640px;
+	min-height: 360px;
+	width: 100%;
+	background-color: var(--tblr-bg-surface-secondary);
+	background-image: radial-gradient(
+		color-mix(in srgb, var(--tblr-border-color) 70%, transparent) 1px,
+		transparent 1px
+	);
+	background-size: 18px 18px;
+	font-size: 12px;
+}
+
+/* ── Edges ── */
+
+.edges {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	overflow: visible;
+	pointer-events: none;
+}
+
+.edge {
+	fill: none;
+	stroke: var(--edge-color, var(--topo-idle));
+	stroke-linecap: round;
+}
+
+.type-site {
+	--edge-color: var(--wg-type-site);
+}
+.type-hub-link {
+	--edge-color: var(--wg-type-hub);
+}
+.type-client {
+	--edge-color: var(--wg-type-client);
+}
+.type-other {
+	--edge-color: var(--wg-type-unclassified);
+}
+
+.edge-online {
+	opacity: 0.6;
+}
+
+.edge-stale {
+	stroke-dasharray: 6 4;
+	opacity: 0.5;
+}
+
+.edge-offline,
+.edge-never,
+.edge-idle {
+	stroke: var(--tblr-secondary);
+	stroke-dasharray: 3 6;
+	opacity: 0.55;
+}
+
+.flow {
+	stroke: var(--topo-online);
+	stroke-dasharray: 2 12;
+	animation: flow 1.2s linear infinite;
+}
+
+.flowReverse {
+	animation-direction: reverse;
+}
+
+/* A flowing edge: its base line is fully opaque */
+.edge-online:has(+ .flow) {
+	opacity: 1;
+}
+
+@keyframes flow {
+	to {
+		stroke-dashoffset: -14;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.flow {
+		animation: none;
+	}
+}
+
+.edgeLabel {
+	position: absolute;
+	transform: translate(-50%, -50%);
+	padding: 0 0.4rem;
+	border-radius: 999px;
+	font-size: 10px;
+	line-height: 1.6;
+	white-space: nowrap;
+	color: var(--tblr-body-color);
+	background: var(--tblr-bg-surface);
+	border: 1px solid var(--tblr-border-color);
+	pointer-events: none;
+	z-index: 1;
+}
+
+.edgeLabelMuted {
+	color: var(--tblr-secondary);
+	background: color-mix(in srgb, var(--tblr-bg-surface) 80%, transparent);
+}
+
+/* ── Cards ── */
+
+.section {
+	display: contents;
+}
+
+.sectionTitle {
+	display: none;
+}
+
+.node,
+.hub {
+	position: absolute;
+	transform: translate(-50%, -50%);
+	z-index: 2;
+	box-sizing: border-box;
+	padding: 0.4rem 0.5rem;
+	background: var(--tblr-bg-surface);
+	border: 1px solid var(--tblr-border-color);
+	border-top: 3px solid var(--node-accent, var(--wg-type-unclassified));
+	border-radius: var(--tblr-border-radius);
+	box-shadow: var(--tblr-box-shadow-card, var(--tblr-box-shadow-sm));
+	color: var(--tblr-body-color);
+	font-size: 12px;
+	line-height: 1.35;
+	text-align: left;
+}
+
+.node {
+	width: 148px;
+}
+
+.hub {
+	--node-accent: var(--tblr-primary);
+	width: 184px;
+	z-index: 3;
+}
+
+.kind-site {
+	--node-accent: var(--wg-type-site);
+}
+.kind-hub-link {
+	--node-accent: var(--wg-type-hub);
+}
+.kind-client {
+	--node-accent: var(--wg-type-client);
+}
+.kind-other {
+	--node-accent: var(--wg-type-unclassified);
+}
+
+.more {
+	font: inherit;
+	cursor: pointer;
+	border-style: dashed;
+	border-top-style: solid;
+}
+
+button.more:hover,
+button.more:focus-visible {
+	border-color: var(--node-accent);
+}
+
+.nodeHead {
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+	min-width: 0;
+}
+
+.avatar {
+	flex-shrink: 0;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: 24px;
+	border-radius: 50%;
+	color: var(--node-accent, var(--wg-type-unclassified));
+	background: color-mix(in srgb, var(--node-accent, var(--wg-type-unclassified)) 14%, transparent);
+}
+
+.hubAvatar {
+	width: 28px;
+	height: 28px;
+}
+
+.nodeName,
+.hubName {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-weight: 600;
+}
+
+.hubName {
+	font-size: 13px;
+}
+
+.nodeStatus {
+	display: flex;
+	align-items: center;
+	gap: 0.35rem;
+	margin-top: 0.2rem;
+	min-width: 0;
+	color: var(--tblr-secondary);
+}
+
+.statusText {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.st-offline .statusText {
+	color: var(--topo-offline);
+}
+
+/* Status dots differ in shape, not only colour: filled / ring / hollow */
+.dot {
+	flex-shrink: 0;
+	display: inline-block;
+	width: 9px;
+	height: 9px;
+	border-radius: 50%;
+	box-sizing: border-box;
+}
+
+.dot-online {
+	background: var(--topo-online);
+}
+
+.dot-stale {
+	border: 2px solid var(--topo-stale);
+	background: color-mix(in srgb, var(--topo-stale) 30%, transparent);
+}
+
+.dot-offline {
+	border: 2px solid var(--topo-offline);
+	background: transparent;
+}
+
+.dot-never,
+.dot-idle {
+	border: 1.5px solid var(--topo-idle);
+	background: transparent;
+}
+
+.chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.25rem;
+	margin-top: 0.3rem;
+}
+
+.chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.2rem;
+	max-width: 100%;
+	padding: 0 0.35rem;
+	border-radius: 999px;
+	font-size: 11px;
+	line-height: 1.6;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	color: var(--tblr-secondary);
+	background: var(--tblr-bg-surface-secondary);
+	border: 1px solid var(--tblr-border-color);
+}
+
+.chipOff {
+	opacity: 0.6;
+}
+
+.chipLabel {
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.chipShort {
+	display: none;
+}
+
+.agentChip {
+	min-width: 0;
+	flex: 0 1 auto;
+}
+
+.agent-online {
+	color: var(--topo-online);
+	border-color: color-mix(in srgb, var(--topo-online) 40%, var(--tblr-border-color));
+}
+.agent-offline {
+	color: var(--topo-offline);
+	border-color: color-mix(in srgb, var(--topo-offline) 40%, var(--tblr-border-color));
+}
+.agent-pending {
+	color: var(--topo-stale);
+	border-color: color-mix(in srgb, var(--topo-stale) 40%, var(--tblr-border-color));
+}
+.agent-error {
+	color: var(--topo-offline);
+	border-style: dashed;
+}
+
+.shieldChip {
+	color: var(--tblr-primary);
+}
+
+.hubStats {
+	display: flex;
+	gap: 0.6rem;
+	margin-top: 0.3rem;
+	color: var(--tblr-secondary);
+	font-variant-numeric: tabular-nums;
+}
+
+.hubOnline {
+	margin-top: 0.15rem;
+	font-weight: 600;
+}
+
+/* ── Legend ── */
+
+.legend {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.4rem 1rem;
+	padding: 0.65rem 1.25rem;
+	border-top: 1px solid var(--tblr-border-color);
+	background: var(--tblr-bg-surface);
+	font-size: 0.8125rem;
+	color: var(--tblr-secondary);
+}
+
+.legendItem {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.4rem;
+	white-space: nowrap;
+}
+
+.legendIcon {
+	display: inline-flex;
+	color: var(--node-accent);
+}
+
+.legendSep {
+	width: 1px;
+	height: 1rem;
+	background: var(--tblr-border-color);
+}
+
+.legendTotal {
+	margin-left: auto;
+}
+
+.legendCount {
+	font-size: 0.75rem;
+	font-weight: 600;
+	background: var(--tblr-bg-surface-secondary);
+	border: 1px solid var(--tblr-border-color);
+	border-radius: 999px;
+	padding: 0 0.5rem;
+	line-height: 1.6;
+	color: var(--tblr-body-color);
+}
+
+.lineSample {
+	flex-shrink: 0;
+	overflow: visible;
+}
+
+.lineSample .edge {
+	stroke-width: 2px;
+}
+
+/* ── Responsive ── */
+
+@container (max-width: 900px) {
+	.node {
+		width: 120px;
+	}
+	.node .chipLabel {
+		display: none;
+	}
+	.node .chipShort {
+		display: inline;
+	}
+}
+
+@container (max-width: 719.98px) {
+	.edgeLabel {
+		display: none;
+	}
+}
+
+/* Narrow: no lines, cards stack; a coloured rail stands in for the connections. */
+@container (max-width: 640px) {
+	.edges,
+	.edgeLabel {
+		display: none;
+	}
+	.canvas {
+		aspect-ratio: auto;
+		min-height: 0;
+		max-height: none;
+		display: grid;
+		gap: 0.5rem;
+		padding: 0.75rem;
+	}
+	.node,
+	.hub {
+		position: static;
+		transform: none;
+		width: auto;
+	}
+	.section {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+		gap: 0.5rem;
+		padding-left: 0.6rem;
+		border-left: 2px solid var(--wg-type-site);
+	}
+	.sectionClients {
+		border-left-color: var(--wg-type-client);
+	}
+	.sectionTitle {
+		display: block;
+		grid-column: 1 / -1;
+		font-size: 0.6875rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--tblr-secondary);
+	}
+	.node .chipLabel {
+		display: inline;
+	}
+	.node .chipShort {
+		display: none;
+	}
+	.legendTotal {
+		margin-left: 0;
+	}
+	.legendSep {
+		display: none;
+	}
+}
+
+/* Too many cards for the map at this width (layout() found no overlap-free
+   placement): same stacked grid as the narrow block. */
+.stacked .edges,
+.stacked .edgeLabel {
+	display: none;
+}
+.stacked .canvas {
+	aspect-ratio: auto;
+	min-height: 0;
+	max-height: none;
+	display: grid;
+	gap: 0.5rem;
+	padding: 0.75rem;
+}
+.stacked .node,
+.stacked .hub {
+	position: static;
+	transform: none;
+	width: auto;
+}
+.stacked .section {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+	gap: 0.5rem;
+	padding-left: 0.6rem;
+	border-left: 2px solid var(--wg-type-site);
+}
+.stacked .sectionClients {
+	border-left-color: var(--wg-type-client);
+}
+.stacked .sectionTitle {
+	display: block;
+	grid-column: 1 / -1;
+	font-size: 0.6875rem;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: var(--tblr-secondary);
+}
+.stacked .node .chipLabel {
+	display: inline;
+}
+.stacked .node .chipShort {
+	display: none;
+}
+
+/* Fallback for browsers without container queries: same as the narrow block. */
+@media (max-width: 575.98px) {
+	.edges,
+	.edgeLabel {
+		display: none;
+	}
+	.canvas {
+		aspect-ratio: auto;
+		min-height: 0;
+		max-height: none;
+		display: grid;
+		gap: 0.5rem;
+		padding: 0.75rem;
+	}
+	.node,
+	.hub {
+		position: static;
+		transform: none;
+		width: auto;
+	}
+	.section {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+		gap: 0.5rem;
+		padding-left: 0.6rem;
+		border-left: 2px solid var(--wg-type-site);
+	}
+	.sectionClients {
+		border-left-color: var(--wg-type-client);
+	}
+	.sectionTitle {
+		display: block;
+		grid-column: 1 / -1;
+		font-size: 0.6875rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--tblr-secondary);
+	}
+	.node .chipLabel {
+		display: inline;
+	}
+	.node .chipShort {
+		display: none;
+	}
+	.legendTotal {
+		margin-left: 0;
+	}
+	.legendSep {
+		display: none;
+	}
+}

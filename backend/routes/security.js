@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import express from "express";
+import { auditOnSuccess } from "../internal/audit-route.js";
 import error from "../lib/error.js";
 import jwtdecode from "../lib/express/jwt-decode.js";
 import requireAdmin from "../lib/express/require-admin.js";
@@ -92,6 +93,16 @@ router
 	})
 	.all(jwtdecode())
 	.all(requireAdmin())
+	.all(
+		auditOnSuccess("fail2ban", ({ method, params }) =>
+			method === "DELETE"
+				? {
+						action: "deleted",
+						meta: { name: `unban ${String(params.ip).slice(0, 64)} (${String(params.jail).slice(0, 64)})` },
+					}
+				: null,
+		),
+	)
 	.delete(async (req, res, next) => {
 		try {
 			const { jail, ip } = req.params;

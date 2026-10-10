@@ -27,6 +27,10 @@ const certbotWorkDir = "/tmp/letsencrypt-lib";
 // Preview/staging can point at imported live certificate trees instead of the
 // upstream fixed container paths.
 const letsencryptRoot = process.env.NPM_LETSENCRYPT_ROOT || "/etc/letsencrypt";
+// certbot runs without --config-dir, so it reads its renewal confs from its
+// default dir — which on the hub is NOT letsencryptRoot (live/ and archive/ are
+// symlinks into it, renewal/ is a separate real directory).
+const certbotConfigDir = process.env.NPM_CERTBOT_CONFIG_DIR || path.dirname(letsencryptConfig);
 const customSslRoot = process.env.NPM_CUSTOM_SSL_ROOT || "/data/custom_ssl";
 
 const omissions = () => {
@@ -60,15 +64,50 @@ const writeCredentialsFile = (location, provider, credentials) => {
 	fs.writeFileSync(location, content, { mode: 0o600 });
 };
 
+/**
+ * Back-off after a failed automatic renewal: 2h, 4h, 8h, 16h, then daily. The
+ * timer runs hourly; without a back-off a persistent failure (e.g. nginx -t
+ * broken by another host) re-ran certbot --force-renewal every hour and burned
+ * through the Let's Encrypt duplicate-certificate limit.
+ */
+export function renewalBackoffMs(failures) {
+	const hour = 60 * 60 * 1000;
+	return Math.min(24 * hour, hour * 2 ** Math.max(1, Math.min(failures, 5)));
+}
+
 const internalCertificate = {
 	allowedSslFiles: ["certificate", "certificate_key", "intermediate_certificate"],
 	intervalTimeout: 1000 * 60 * 60, // 1 hour
 	interval: null,
 	intervalProcessing: false,
 	renewBeforeExpirationBy: [30, "days"],
+	// certificate id → { failures, nextAttempt } (automatic renewals only)
+	renewFailures: new Map(),
+	// A renewal wrote the new cert (expires_on already updated) but nginx could
+	// not be reloaded: nginx still serves the OLD certificate from memory and the
+	// timer would never pick this cert again. Retried every timer tick until a
+	// reload succeeds; reported by the health check (GET /api).
+	reloadPending: false,
+
+	/** Retry a pending nginx reload (see reloadPending). Never throws. */
+	retryPendingReload: async () => {
+		if (!internalCertificate.reloadPending) return;
+		try {
+			await internalNginx.reload();
+			internalCertificate.reloadPending = false;
+			logger.info("Pending nginx reload after a certificate renewal succeeded — renewed certificates are served now");
+		} catch (err) {
+			logger.error(
+				`nginx reload after a certificate renewal still fails — nginx serves the old certificate(s): ${err.message}`,
+			);
+		}
+	},
 
 	initTimer: () => {
 		logger.info("Let's Encrypt Renewal Timer initialized");
+		// A renewal interrupted by a crash/restart leaves the only copy of the
+		// still-valid certificate in its .renewal-backup-npm-<id> dir: put it back.
+		internalCertificate.recoverAllStaleRenewalBackups();
 		internalCertificate.interval = setInterval(
 			internalCertificate.processExpiringHosts,
 			internalCertificate.intervalTimeout,
@@ -83,6 +122,7 @@ const internalCertificate = {
 	processExpiringHosts: () => {
 		if (!internalCertificate.intervalProcessing) {
 			internalCertificate.intervalProcessing = true;
+			internalCertificate.retryPendingReload();
 			logger.info(
 				`Renewing SSL certs expiring within ${internalCertificate.renewBeforeExpirationBy[0]} ${internalCertificate.renewBeforeExpirationBy[1]} ...`,
 			);
@@ -109,6 +149,14 @@ const internalCertificate = {
 					let sequence = Promise.resolve();
 
 					certificates.forEach((certificate) => {
+						const failed = internalCertificate.renewFailures.get(certificate.id);
+						if (failed && Date.now() < failed.nextAttempt) {
+							debug(
+								logger,
+								`Skipping renewal of certificate #${certificate.id} until ${new Date(failed.nextAttempt).toISOString()} (${failed.failures} failed attempt(s))`,
+							);
+							return;
+						}
 						sequence = sequence.then(() =>
 							internalCertificate
 								.renew(
@@ -121,9 +169,18 @@ const internalCertificate = {
 									},
 									{ id: certificate.id },
 								)
+								.then(() => {
+									internalCertificate.renewFailures.delete(certificate.id);
+								})
 								.catch((err) => {
 									// Don't want to stop the train here, just log the error
-									logger.error(err.message);
+									const failures =
+										(internalCertificate.renewFailures.get(certificate.id)?.failures || 0) + 1;
+									const nextAttempt = Date.now() + renewalBackoffMs(failures);
+									internalCertificate.renewFailures.set(certificate.id, { failures, nextAttempt });
+									logger.error(
+										`Renewal of certificate #${certificate.id} failed (${failures}x), next attempt ${new Date(nextAttempt).toISOString()}: ${err.message}`,
+									);
 								}),
 						);
 					});
@@ -889,7 +946,11 @@ const internalCertificate = {
 
 		const credentialsLocation = `${letsencryptRoot}/credentials/credentials-${certificate.id}`;
 		fs.mkdirSync(`${letsencryptRoot}/credentials`, { recursive: true });
-		writeCredentialsFile(credentialsLocation, certificate.meta.dns_provider, certificate.meta.dns_provider_credentials);
+		writeCredentialsFile(
+			credentialsLocation,
+			certificate.meta.dns_provider,
+			certificate.meta.dns_provider_credentials,
+		);
 
 		// Whether the plugin has a --<name>-credentials argument
 		const hasConfigArg = certificate.meta.dns_provider !== "route53";
@@ -965,10 +1026,10 @@ const internalCertificate = {
 				`${internalCertificate.getLiveCertPath(certificate.id)}/fullchain.pem`,
 			);
 
-			// The renewed cert files are confirmed on disk, reload nginx so it
-			// actually serves them instead of the old in-memory certificate
-			await internalNginx.reload();
-
+			// Record the new expiry BEFORE the reload: the renewed cert is on disk
+			// and valid. If nginx -t fails (often because of an unrelated host), the
+			// old order left expires_on untouched and the hourly timer re-issued the
+			// same certificate again and again (Let's Encrypt rate limit).
 			const updatedCertificate = await certificateModel.query().patchAndFetchById(certificate.id, {
 				expires_on: moment(certInfo.dates.to, "X").format("YYYY-MM-DD HH:mm:ss"),
 			});
@@ -981,6 +1042,23 @@ const internalCertificate = {
 				meta: updatedCertificate,
 			});
 
+			// The renewed cert files are confirmed on disk, reload nginx so it
+			// actually serves them instead of the old in-memory certificate
+			try {
+				await internalNginx.reload();
+				internalCertificate.reloadPending = false;
+			} catch (err) {
+				// expires_on is already >30 days out, so the timer would not select
+				// this cert again: keep retrying the reload instead (retryPendingReload)
+				internalCertificate.reloadPending = true;
+				logger.error(
+					`Certificate #${certificate.id} renewed, but nginx reload failed — nginx still serves the old certificate until the next successful reload (retried every timer run): ${err.message}`,
+				);
+				throw new error.ConfigurationError(
+					`Zertifikat erneuert (gültig bis ${updatedCertificate.expires_on}), aber nginx konnte nicht neu geladen werden: ${err.message}`,
+				);
+			}
+
 			return updatedCertificate;
 		}
 
@@ -992,20 +1070,81 @@ const internalCertificate = {
 	 * @returns {Promise}
 	 */
 	/**
-	 * Move all certbot dirs and configs for a given certificate ID aside before
-	 * running certonly --force-renewal, so certbot always creates a clean
-	 * npm-<id> lineage without versioned suffixes like npm-<id>-0001 — without
-	 * destroying the still-valid certificate if certbot fails. Discard the
-	 * backup after a successful run, restore it if certbot fails.
+	 * True when certbot can renew lineage npm-<id> in place: its renewal conf
+	 * (in certbot's config dir) and the live fullchain both exist. Then
+	 * `certonly --cert-name npm-<id> --force-renewal` keeps the name and leaves
+	 * the old cert untouched on failure, so nothing has to be moved aside.
 	 */
-	backupCertDirsForRenewal: (certificateId) => {
-		const letsencryptDir = "/etc/letsencrypt";
+	lineageIsIntact: (certificateId, configDir = certbotConfigDir) => {
+		const prefix = `npm-${certificateId}`;
+		return (
+			fs.existsSync(`${configDir}/renewal/${prefix}.conf`) &&
+			fs.existsSync(`${configDir}/live/${prefix}/fullchain.pem`)
+		);
+	},
+
+	/**
+	 * Run certbot for a renewal. An intact lineage is renewed in place, so the
+	 * live cert nginx references never disappears during the certbot run. Only
+	 * a broken lineage (renewal conf or live dir missing; certbot would create
+	 * npm-<id>-0001 or refuse) is moved aside first. Even then the backup is
+	 * discarded only once live/npm-<id>/fullchain.pem really exists again.
+	 */
+	runCertbotRenewal: async (certificateId, args, opts) => {
+		if (internalCertificate.lineageIsIntact(certificateId)) {
+			return utils.execFile(certbotCommand, args, opts);
+		}
+		logger.warn(`Lineage npm-${certificateId} is incomplete, moving it aside for a clean renewal`);
+		const backup = internalCertificate.backupCertDirsForRenewal(certificateId);
+		let result;
+		try {
+			result = await utils.execFile(certbotCommand, args, opts);
+		} catch (err) {
+			internalCertificate.restoreCertDirsBackup(backup);
+			throw err;
+		}
+		if (!internalCertificate.renewedLiveCertExists(certificateId)) {
+			internalCertificate.restoreCertDirsBackup(backup);
+			throw new Error(
+				`certbot did not write live/npm-${certificateId}/fullchain.pem (versioned lineage?); previous certificate restored`,
+			);
+		}
+		internalCertificate.discardCertDirsBackup(backup);
+		return result;
+	},
+
+	renewedLiveCertExists: (certificateId, dirs = [letsencryptRoot, certbotConfigDir]) =>
+		dirs.every((d) => fs.existsSync(`${d}/live/npm-${certificateId}/fullchain.pem`)),
+
+	/**
+	 * Map a backup entry (archive/…, live/…, renewal/…, certbot-renewal/…) to
+	 * the place it was moved from. certbot-renewal/ holds confs from certbot's
+	 * own renewal dir when that is not letsencryptRoot/renewal.
+	 */
+	backupEntryTarget: (letsencryptDir, relPath, configDir = certbotConfigDir) => {
+		if (relPath.startsWith("certbot-renewal/")) {
+			return `${configDir}/renewal/${relPath.slice("certbot-renewal/".length)}`;
+		}
+		return `${letsencryptDir}/${relPath}`;
+	},
+
+	/**
+	 * Move all certbot dirs and configs for a given certificate ID aside before
+	 * running certonly --force-renewal on a BROKEN lineage, so certbot creates a
+	 * clean npm-<id> lineage without versioned suffixes like npm-<id>-0001 —
+	 * without destroying the still-valid certificate if certbot fails. The
+	 * renewal confs are moved from certbot's own config dir too: leaving the
+	 * conf certbot actually reads in place is exactly what makes it create
+	 * npm-<id>-0001.
+	 */
+	backupCertDirsForRenewal: (certificateId, letsencryptDir = letsencryptRoot, configDir = certbotConfigDir) => {
 		const prefix = `npm-${certificateId}`;
 		const backupDir = `${letsencryptDir}/.renewal-backup-${prefix}`;
 		const entries = [];
 
-		// Discard any stale backup left over from a previous interrupted renewal
-		fs.rmSync(backupDir, { recursive: true, force: true });
+		// A backup left over from an interrupted renewal may hold the ONLY copy of
+		// the valid certificate: put back what is missing before discarding it.
+		internalCertificate.recoverStaleRenewalBackup(backupDir, configDir);
 
 		for (const subdir of ["archive", "live"]) {
 			const base = `${letsencryptDir}/${subdir}`;
@@ -1032,7 +1171,27 @@ const internalCertificate = {
 			}
 		}
 
-		return { backupDir, entries };
+		const certbotRenewalDir = `${configDir}/renewal`;
+		let separateCertbotRenewal = false;
+		try {
+			separateCertbotRenewal =
+				fs.existsSync(certbotRenewalDir) &&
+				(!fs.existsSync(renewalDir) || fs.realpathSync(certbotRenewalDir) !== fs.realpathSync(renewalDir));
+		} catch {
+			separateCertbotRenewal = false;
+		}
+		if (separateCertbotRenewal) {
+			for (const entry of fs.readdirSync(certbotRenewalDir)) {
+				if ((entry === `${prefix}.conf` || entry.startsWith(`${prefix}-`)) && entry.endsWith(".conf")) {
+					fs.mkdirSync(`${backupDir}/certbot-renewal`, { recursive: true });
+					fs.renameSync(`${certbotRenewalDir}/${entry}`, `${backupDir}/certbot-renewal/${entry}`);
+					entries.push(`certbot-renewal/${entry}`);
+					logger.info(`Moved certbot renewal config ${entry} aside for renewal`);
+				}
+			}
+		}
+
+		return { backupDir, entries, letsencryptDir, configDir };
 	},
 
 	/**
@@ -1040,12 +1199,13 @@ const internalCertificate = {
 	 * anything certbot partially created in their place first.
 	 */
 	restoreCertDirsBackup: (backup) => {
-		const letsencryptDir = "/etc/letsencrypt";
+		const letsencryptDir = backup.letsencryptDir || letsencryptRoot;
 		try {
 			for (const relPath of backup.entries) {
-				fs.rmSync(`${letsencryptDir}/${relPath}`, { recursive: true, force: true });
-				fs.mkdirSync(path.dirname(`${letsencryptDir}/${relPath}`), { recursive: true });
-				fs.renameSync(`${backup.backupDir}/${relPath}`, `${letsencryptDir}/${relPath}`);
+				const target = internalCertificate.backupEntryTarget(letsencryptDir, relPath, backup.configDir);
+				fs.rmSync(target, { recursive: true, force: true });
+				fs.mkdirSync(path.dirname(target), { recursive: true });
+				fs.renameSync(`${backup.backupDir}/${relPath}`, target);
 				logger.info(`Restored ${relPath} after failed renewal`);
 			}
 			fs.rmSync(backup.backupDir, { recursive: true, force: true });
@@ -1057,6 +1217,92 @@ const internalCertificate = {
 
 	discardCertDirsBackup: (backup) => {
 		fs.rmSync(backup.backupDir, { recursive: true, force: true });
+	},
+
+	/**
+	 * Recover a .renewal-backup-npm-<id> dir left by an interrupted renewal.
+	 * Entries are only kept in place when they are verifiably usable:
+	 *   - live/<lineage>: its fullchain.pem must resolve (symlinks followed) to a
+	 *     non-empty file. A dir certbot created before crashing (no fullchain yet,
+	 *     dangling symlinks) is replaced by the backup copy — otherwise the only
+	 *     valid certificate would be deleted with the backup dir.
+	 *   - archive/<lineage>: kept when live/<lineage> is usable, else replaced
+	 *     (the restored live symlinks point into the backed-up archive).
+	 *   - renewal confs: kept when present (certbot re-created them for the same
+	 *     lineage paths), else restored.
+	 * The backup dir is removed only after every entry was restored or verified.
+	 * On failure it is KEPT and the error is rethrown, so a renewal never starts
+	 * on top of it.
+	 */
+	recoverStaleRenewalBackup: (backupDir, configDir = certbotConfigDir) => {
+		if (!fs.existsSync(backupDir)) return;
+		const letsencryptDir = path.dirname(backupDir);
+		// lstat: a dangling symlink still occupies the path
+		const occupied = (p) => {
+			try {
+				fs.lstatSync(p);
+				return true;
+			} catch {
+				return false;
+			}
+		};
+		const liveUsable = (dir) => {
+			try {
+				const st = fs.statSync(`${dir}/fullchain.pem`);
+				return st.isFile() && st.size > 0;
+			} catch {
+				return false;
+			}
+		};
+		const restore = (from, target, rel) => {
+			if (occupied(target)) fs.rmSync(target, { recursive: true, force: true });
+			fs.mkdirSync(path.dirname(target), { recursive: true });
+			fs.renameSync(from, target);
+			logger.warn(`Recovered ${rel} from an interrupted renewal`);
+		};
+		const liveEntries = fs.existsSync(`${backupDir}/live`) ? fs.readdirSync(`${backupDir}/live`) : [];
+		try {
+			// live first: whether a lineage's live dir is usable decides about its archive
+			for (const subdir of ["live", "archive", "renewal", "certbot-renewal"]) {
+				const base = `${backupDir}/${subdir}`;
+				if (!fs.existsSync(base)) continue;
+				for (const entry of fs.readdirSync(base)) {
+					const rel = `${subdir}/${entry}`;
+					const target = internalCertificate.backupEntryTarget(letsencryptDir, rel, configDir);
+					let keep = occupied(target);
+					if (keep && subdir === "live") keep = liveUsable(target);
+					if (keep && subdir === "archive") keep = liveUsable(`${letsencryptDir}/live/${entry}`);
+					if (keep) continue;
+					restore(`${base}/${entry}`, target, rel);
+				}
+			}
+			for (const entry of liveEntries) {
+				if (!liveUsable(`${letsencryptDir}/live/${entry}`)) {
+					logger.error(`live/${entry} has no usable fullchain.pem after recovering ${backupDir}`);
+				}
+			}
+			fs.rmSync(backupDir, { recursive: true, force: true });
+		} catch (err) {
+			// Keep the backup dir: it may still hold the only valid copy
+			logger.error(`Failed to recover renewal backup ${backupDir}: ${err.message}`);
+			throw err;
+		}
+	},
+
+	recoverAllStaleRenewalBackups: () => {
+		let entries = [];
+		try {
+			entries = fs.readdirSync(letsencryptRoot).filter((e) => /^\.renewal-backup-npm-\d+$/.test(e));
+		} catch {
+			return;
+		}
+		for (const e of entries) {
+			try {
+				internalCertificate.recoverStaleRenewalBackup(`${letsencryptRoot}/${e}`);
+			} catch {
+				// logged above; the next renewal attempt retries the recovery
+			}
+		}
 	},
 
 	renewLetsEncryptSsl: async (certificate) => {
@@ -1097,16 +1343,9 @@ const internalCertificate = {
 
 		logger.info(`Command: ${certbotCommand} ${args ? args.join(" ") : ""}`);
 
-		const backup = internalCertificate.backupCertDirsForRenewal(certificate.id);
-		try {
-			const result = await utils.execFile(certbotCommand, args, adds.opts);
-			internalCertificate.discardCertDirsBackup(backup);
-			logger.info(result);
-			return result;
-		} catch (err) {
-			internalCertificate.restoreCertDirsBackup(backup);
-			throw err;
-		}
+		const result = await internalCertificate.runCertbotRenewal(certificate.id, args, adds.opts);
+		logger.info(result);
+		return result;
 	},
 
 	/**
@@ -1177,14 +1416,11 @@ const internalCertificate = {
 
 		logger.info(`Command: ${certbotCommand} ${args ? args.join(" ") : ""}`);
 
-		const backup = internalCertificate.backupCertDirsForRenewal(certificate.id);
 		try {
-			const result = await utils.execFile(certbotCommand, args, adds.opts);
-			internalCertificate.discardCertDirsBackup(backup);
+			const result = await internalCertificate.runCertbotRenewal(certificate.id, args, adds.opts);
 			logger.info(result);
 			return result;
 		} catch (err) {
-			internalCertificate.restoreCertDirsBackup(backup);
 			fs.unlink(credentialsLocation, () => {});
 			throw err;
 		}
@@ -1220,7 +1456,9 @@ const internalCertificate = {
 
 		try {
 			const result = await utils.execFile(certbotCommand, args, adds.opts);
-			await utils.execFile("rm", ["-f", `${letsencryptRoot}/credentials/credentials-${certificate.id}`]).catch(() => {});
+			await utils
+				.execFile("rm", ["-f", `${letsencryptRoot}/credentials/credentials-${certificate.id}`])
+				.catch(() => {});
 			logger.info(result);
 			return result;
 		} catch (err) {
@@ -1249,43 +1487,55 @@ const internalCertificate = {
 	 * @returns {Promise}
 	 */
 	disableInUseHosts: async (inUseResult) => {
+		// Stash (not delete) the confs: enableInUseHosts -> bulkGenerateConfigs
+		// restores a stashed conf when the regenerated one fails nginx -t.
 		if (inUseResult?.total_count) {
 			if (inUseResult?.proxy_hosts.length) {
-				await internalNginx.bulkDeleteConfigs("proxy_host", inUseResult.proxy_hosts);
+				await internalNginx.bulkStashConfigs("proxy_host", inUseResult.proxy_hosts);
 			}
 
 			if (inUseResult?.redirection_hosts.length) {
-				await internalNginx.bulkDeleteConfigs("redirection_host", inUseResult.redirection_hosts);
+				await internalNginx.bulkStashConfigs("redirection_host", inUseResult.redirection_hosts);
 			}
 
 			if (inUseResult?.dead_hosts.length) {
-				await internalNginx.bulkDeleteConfigs("dead_host", inUseResult.dead_hosts);
+				await internalNginx.bulkStashConfigs("dead_host", inUseResult.dead_hosts);
 			}
 		}
 	},
 
 	/**
+	 * Regenerate the confs of the hosts taken out by disableInUseHosts. All three
+	 * host types are always processed; a host whose conf nginx -t rejects is
+	 * isolated by bulkGenerateConfigs (previous conf restored, meta.nginx_err
+	 * set) and logged here, so a single bad host does not fail the certificate
+	 * request or keep the other hosts down.
+	 *
 	 * @param   {Object}  inUseResult
 	 * @param   {Number}  inUseResult.total_count
 	 * @param   {Array}   inUseResult.proxy_hosts
 	 * @param   {Array}   inUseResult.redirection_hosts
 	 * @param   {Array}   inUseResult.dead_hosts
-	 * @returns {Promise}
+	 * @returns {Promise<Error[]>}  the per-type errors (empty when all passed)
 	 */
 	enableInUseHosts: async (inUseResult) => {
-		if (inUseResult.total_count) {
-			if (inUseResult.proxy_hosts.length) {
-				await internalNginx.bulkGenerateConfigs("proxy_host", inUseResult.proxy_hosts);
-			}
-
-			if (inUseResult.redirection_hosts.length) {
-				await internalNginx.bulkGenerateConfigs("redirection_host", inUseResult.redirection_hosts);
-			}
-
-			if (inUseResult.dead_hosts.length) {
-				await internalNginx.bulkGenerateConfigs("dead_host", inUseResult.dead_hosts);
+		const errors = [];
+		if (inUseResult?.total_count) {
+			for (const [type, hosts] of [
+				["proxy_host", inUseResult.proxy_hosts],
+				["redirection_host", inUseResult.redirection_hosts],
+				["dead_host", inUseResult.dead_hosts],
+			]) {
+				if (!hosts?.length) continue;
+				try {
+					await internalNginx.bulkGenerateConfigs(type, hosts);
+				} catch (err) {
+					logger.error(`Re-enabling ${type} configs after certificate issuance: ${err.message}`);
+					errors.push(err);
+				}
 			}
 		}
+		return errors;
 	},
 
 	/**

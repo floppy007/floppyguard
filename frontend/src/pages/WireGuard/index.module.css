@@ -42,33 +42,6 @@
 	border-bottom-color: var(--tblr-primary);
 }
 
-/* Topology map */
-.topologyContainer {
-	background: var(--tblr-bg-surface-secondary);
-	border: 1px solid var(--tblr-border-color);
-	border-radius: var(--tblr-border-radius-lg);
-	overflow: hidden;
-	padding: 0.5rem 0;
-}
-
-.topologySvg {
-	width: 100%;
-	height: auto;
-	max-height: 460px;
-	display: block;
-}
-
-.topoHubLabel {
-	font-weight: 600;
-	font-size: 11px;
-	fill: var(--tblr-primary);
-}
-
-.topoLabel {
-	fill: var(--tblr-body-color);
-	font-size: 9px;
-}
-
 /* Link card */
 .linkCard {
 	border: 1px solid var(--tblr-border-color);
@@ -160,42 +133,6 @@
 
 .ifaceCardBody {
 	padding: 0.875rem 1rem;
-}
-
-/* Topology legend bar */
-.topoLegend {
-	border-top: 1px solid var(--tblr-border-color);
-	padding: 0.75rem 1.25rem;
-	background: var(--tblr-bg-surface);
-}
-
-.topoLegendItems {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 1.25rem;
-	align-items: center;
-}
-
-.topoLegendItem {
-	display: flex;
-	align-items: center;
-	gap: 0.5rem;
-}
-
-.topoLegendLabel {
-	font-size: 0.8125rem;
-	color: var(--tblr-secondary);
-}
-
-.topoLegendCount {
-	font-size: 0.75rem;
-	font-weight: 600;
-	background: var(--tblr-bg-surface-secondary);
-	border: 1px solid var(--tblr-border-color);
-	border-radius: 999px;
-	padding: 0 0.5rem;
-	line-height: 1.6;
-	color: var(--tblr-body-color);
 }
 
 /* Install script block */

@@ -21,15 +21,17 @@ export function PeerSparkline({ data, color = "var(--tblr-green)", height = 32 }
 	}
 
 	const yMax = Math.max(...data, 1024) * 1.3;
-	const pts = data.map((v, i) => {
-		const x = (i / (data.length - 1)) * W;
+	// A single sample (new peer, first poll after a restart) has no span to divide
+	// by — draw it as a flat line across the full width instead of "M NaN,…".
+	const samples = data.length === 1 ? [data[0], data[0]] : data;
+	const pts = samples.map((v, i) => {
+		const x = (i / (samples.length - 1)) * W;
 		const y = H - (v / yMax) * H;
 		return `${x.toFixed(1)},${y.toFixed(1)}`;
 	});
 
 	const line = `M ${pts.join(" L ")}`;
-	const lastX = ((data.length - 1) / (data.length - 1)) * W;
-	const area = `${line} L ${lastX.toFixed(1)},${H} L 0,${H} Z`;
+	const area = `${line} L ${W.toFixed(1)},${H} L 0,${H} Z`;
 	const gradId = `sg-${Math.random().toString(36).slice(2, 8)}`;
 
 	return (

@@ -107,7 +107,8 @@ const Gateway = () => {
 		return <Loading />;
 	}
 
-	if (isError) {
+	// Only block without data: a failed background refetch keeps the last status
+	if (isError && !data) {
 		return (
 			<div className="alert alert-danger">
 				{intl.formatMessage({ id: "gateway.error" }, { error: error.message })}
@@ -136,6 +137,11 @@ const Gateway = () => {
 
 	return (
 		<div className="platform-page">
+			{isError && (
+				<div className="alert alert-warning">
+					{intl.formatMessage({ id: "gateway.error" }, { error: error?.message ?? "" })}
+				</div>
+			)}
 			<div className="platform-page-header">
 				<div>
 					<div className="platform-kicker">{intl.formatMessage({ id: "gateway.kicker" })}</div>

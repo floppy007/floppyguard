@@ -1,26 +1,11 @@
-import * as bg from "./bg/index";
-import * as cs from "./cs/index";
+// Only the languages selectable in IntlProvider (localeOptions) are bundled:
+// every .md is inlined as a data URI into the entry chunk, so unreachable
+// languages only cost download size. Others fall back to English below.
 import * as de from "./de/index";
 import * as en from "./en/index";
-import * as es from "./es/index";
-import * as et from "./et/index";
 import * as fr from "./fr/index";
-import * as ga from "./ga/index";
-import * as hu from "./hu/index";
-import * as id from "./id/index";
-import * as it from "./it/index";
-import * as ja from "./ja/index";
-import * as ko from "./ko/index";
-import * as nl from "./nl/index";
-import * as pl from "./pl/index";
-import * as pt from "./pt/index";
-import * as ru from "./ru/index";
-import * as sk from "./sk/index";
-import * as tr from "./tr/index";
-import * as vi from "./vi/index";
-import * as zh from "./zh/index";
 
-const items: any = { en, de, pt, es, et, ja, sk, cs, zh, pl, ru, it, vi, nl, bg, ko, ga, id, fr, tr, hu };
+const items: any = { en, de, fr };
 
 const fallbackLang = "en";
 

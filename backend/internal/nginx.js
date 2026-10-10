@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import fs from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -220,15 +221,70 @@ const assertSafeForwardField = (value, fieldName) => {
 	}
 };
 
+// Every conf mutation + `nginx -t` + reload runs behind one module-level
+// lock: configure() and bulkGenerateConfigs() put untested confs live and keep
+// the previous one in a fixed <conf>.bak, so two overlapping calls could test
+// against each other's half-written state or consume each other's backup.
+// Re-entrant (configure -> reload -> test) via AsyncLocalStorage.
+const configLockContext = new AsyncLocalStorage();
+let configLockTail = Promise.resolve();
+const withConfigLock = (fn) => {
+	if (configLockContext.getStore()) {
+		return new Promise((resolve) => resolve(fn()));
+	}
+	const run = configLockTail.then(() => configLockContext.run(true, fn));
+	configLockTail = run.catch(() => {});
+	return run;
+};
+
+// `nginx -t` holds the lock: do not let a hung run block every later save.
+const NGINX_TEST_TIMEOUT_MS = 120000;
+
 const internalNginx = {
+	/**
+	 * Run every render-time safety gate on the user-supplied fields that are
+	 * present in `data` (a full row or a partial update payload). Called by the
+	 * host create/update paths BEFORE the DB write, so a rejected value is never
+	 * persisted, and by configure() before the live conf is touched.
+	 *
+	 * @param   {String}  host_type
+	 * @param   {Object}  data
+	 * @throws  {errs.ValidationError}
+	 */
+	assertSafeHostFields: (host_type, data) => {
+		if (!data || typeof data !== "object") return;
+		const nice_host_type = internalNginx.getFileFriendlyHostType(host_type);
+		assertSafeAdvancedConfig(data.advanced_config);
+		if (nice_host_type === "redirection_host") {
+			assertSafeForwardField(data.forward_domain_name, "forward_domain_name");
+		}
+		if (nice_host_type === "stream") {
+			assertSafeForwardField(data.forwarding_host, "forwarding_host");
+		}
+		if (Array.isArray(data.locations)) {
+			for (const location of data.locations) {
+				if (!location || typeof location !== "object") continue;
+				assertSafeAdvancedConfig(location.advanced_config);
+				assertSafeLocationPath(location.path);
+				assertSafeForwardField(location.forward_host, "forward_host");
+				assertSafeForwardField(location.forward_path, "forward_path");
+			}
+		}
+	},
+
 	/**
 	 * This will:
 	 * - test the nginx config first to make sure it's OK
 	 * - create / recreate the config for the host
 	 * - test again
 	 * - IF OK:  update the meta with online status
-	 * - IF BAD: update the meta with offline status and remove the config entirely
+	 * - IF BAD: keep the new config as .err, put the previous working config back
+	 *           (meta: still online + nginx_err) or, when there was none, mark
+	 *           the host offline
 	 * - then reload nginx
+	 * - if the previous config was put back, reject with a ValidationError
+	 *   carrying the nginx -t output, so the save visibly fails instead of
+	 *   returning success while nginx keeps serving the old config
 	 *
 	 * @param   {Object|String}  model
 	 * @param   {String}         host_type
@@ -237,18 +293,45 @@ const internalNginx = {
 	 */
 	configure: (model, host_type, host) => {
 		let combined_meta = {};
+		// Whether the working conf was saved to <conf>.bak before regenerating. If the
+		// new conf fails `nginx -t` (or rendering), the previous one is put back so
+		// the host keeps serving instead of disappearing on the next reload.
+		let hadBackup = false;
+		// nginx -t output when the new conf was rejected and the previous one restored.
+		let rejectedOutput = null;
+
+		const restorePrevious = () => {
+			if (!hadBackup) return Promise.resolve(false);
+			return internalNginx.restoreConfigBackup(host_type, host);
+		};
 
 		return internalNginx
 			.test()
 			.then(() => {
+				// Run the safety gates BEFORE the working config is touched: a
+				// rejected value used to leave the host without a conf file (and
+				// still flagged online) until the next reload dropped it.
+				internalNginx.assertSafeHostFields(host_type, host);
+			})
+			.then(() => internalNginx.backupConfig(host_type, host))
+			.then((saved) => {
+				hadBackup = saved;
 				// Nginx is OK
-				// We're deleting this config regardless.
+				// We're deleting this config regardless (the working copy is in .bak).
 				// Don't throw errors, as the file may not exist at all
 				// Delete the .err file too
 				return internalNginx.deleteConfig(host_type, host, true);
 			})
 			.then(() => {
-				return internalNginx.generateConfig(host_type, host);
+				return internalNginx.generateConfig(host_type, host).catch((err) =>
+					// Rendering failed after the delete — put the working conf back.
+					internalNginx
+						.deleteConfig(host_type, host)
+						.then(restorePrevious)
+						.then(() => {
+							throw err;
+						}),
+				);
 			})
 			.then(() => {
 				// Test nginx again and update meta with result
@@ -261,9 +344,13 @@ const internalNginx = {
 							nginx_err: null,
 						});
 
-						return model.query().where("id", host.id).patch({
-							meta: combined_meta,
-						});
+						return model
+							.query()
+							.where("id", host.id)
+							.patch({
+								meta: combined_meta,
+							})
+							.then(() => internalNginx.dropConfigBackup(host_type, host));
 					})
 					.catch((err) => {
 						// Remove the error_log line because it's a docker-ism false positive that doesn't need to be reported.
@@ -281,25 +368,32 @@ const internalNginx = {
 
 						debug(logger, "Nginx test failed:", valid_lines.join("\n"));
 
-						// config is bad, update meta and delete config
-						combined_meta = _.assign({}, host.meta, {
-							nginx_online: false,
-							nginx_err: valid_lines.join("\n"),
-						});
-
-						return model
-							.query()
-							.where("id", host.id)
-							.patch({
-								meta: combined_meta,
-							})
-							.then(() => {
-								return internalNginx.renameConfigAsError(host_type, host);
-							})
-							.then(() => {
-								// The config file was renamed to .err above; this just makes
-								// sure nothing is left behind. Keep the .err file for debugging.
-								return internalNginx.deleteConfig(host_type, host);
+						// Keep the rejected conf as .err for debugging and take it out of
+						// the live set; then put the previous working conf back (if any).
+						return internalNginx
+							.renameConfigAsError(host_type, host)
+							.then(() => internalNginx.deleteConfig(host_type, host))
+							.then(restorePrevious)
+							.then((restored) => {
+								if (restored) rejectedOutput = valid_lines.join("\n");
+								combined_meta = _.assign(
+									{},
+									host.meta,
+									restored
+										? {
+												// The previous conf is live again — the host stays online,
+												// but the saved changes are NOT active.
+												nginx_online: true,
+												nginx_err: `New config rejected by nginx -t; the previous config is still active:\n${valid_lines.join("\n")}`,
+											}
+										: {
+												nginx_online: false,
+												nginx_err: valid_lines.join("\n"),
+											},
+								);
+								return model.query().where("id", host.id).patch({
+									meta: combined_meta,
+								});
 							});
 					});
 			})
@@ -307,8 +401,103 @@ const internalNginx = {
 				return internalNginx.reload();
 			})
 			.then(() => {
+				if (rejectedOutput !== null) {
+					// The DB already holds the new values; tell the admin they are
+					// not live so they can fix them and save again.
+					throw new errs.ValidationError(
+						`nginx rejected the new configuration, so the changes are not active; the previous configuration is still being served. Fix the settings and save again.\n${rejectedOutput}`,
+					);
+				}
 				return combined_meta;
 			});
+	},
+
+	/**
+	 * Copy the current conf of a host to <conf>.bak (not matched by the *.conf
+	 * include). Resolves true when a working conf existed and was saved.
+	 *
+	 * @param   {String}  host_type
+	 * @param   {Object}  host
+	 * @returns {Promise<boolean>}
+	 */
+	backupConfig: (host_type, host) => {
+		const config_file = internalNginx.getConfigName(internalNginx.getFileFriendlyHostType(host_type), host.id);
+		return new Promise((resolve, reject) => {
+			if (!fs.existsSync(config_file)) {
+				// Taken out of the live set by stashConfig() (certificate issuance):
+				// that stashed conf is the working one to fall back to.
+				if (fs.existsSync(`${config_file}.disabled`)) {
+					fs.rename(`${config_file}.disabled`, `${config_file}.bak`, (err) => (err ? reject(err) : resolve(true)));
+					return;
+				}
+				resolve(false);
+				return;
+			}
+			fs.copyFile(config_file, `${config_file}.bak`, (err) => (err ? reject(err) : resolve(true)));
+		});
+	},
+
+	/**
+	 * Take the conf of a host out of the live set WITHOUT losing it: it is moved
+	 * to <conf>.disabled (not matched by the *.conf include). The next
+	 * backupConfig() (configure / bulkGenerateConfigs) picks it up as the
+	 * working conf to restore if the regenerated one is rejected.
+	 *
+	 * @param   {String}  host_type
+	 * @param   {Object}  host
+	 * @returns {Promise}
+	 */
+	stashConfig: (host_type, host) => {
+		const config_file = internalNginx.getConfigName(internalNginx.getFileFriendlyHostType(host_type), host.id);
+		return new Promise((resolve) => {
+			if (!fs.existsSync(config_file)) {
+				resolve(false);
+				return;
+			}
+			fs.rename(config_file, `${config_file}.disabled`, (err) => {
+				if (err) logger.error(`Could not stash ${config_file}: ${err.message}`);
+				resolve(!err);
+			});
+		});
+	},
+
+	/**
+	 * @param   {String}  host_type
+	 * @param   {Array}   hosts
+	 * @returns {Promise}
+	 */
+	bulkStashConfigs: async (host_type, hosts) => {
+		for (const host of Array.isArray(hosts) ? hosts : []) {
+			await internalNginx.stashConfig(host_type, host);
+		}
+	},
+
+	/**
+	 * Move <conf>.bak back into place. Resolves true when it was restored.
+	 *
+	 * @param   {String}  host_type
+	 * @param   {Object}  host
+	 * @returns {Promise<boolean>}
+	 */
+	restoreConfigBackup: (host_type, host) => {
+		const config_file = internalNginx.getConfigName(internalNginx.getFileFriendlyHostType(host_type), host.id);
+		return new Promise((resolve) => {
+			fs.rename(`${config_file}.bak`, config_file, (err) => {
+				if (err) logger.error(`Could not restore ${config_file}.bak: ${err.message}`);
+				resolve(!err);
+			});
+		});
+	},
+
+	/**
+	 * @param   {String}  host_type
+	 * @param   {Object}  host
+	 * @returns {Promise}
+	 */
+	dropConfigBackup: (host_type, host) => {
+		const config_file = internalNginx.getConfigName(internalNginx.getFileFriendlyHostType(host_type), host.id);
+		internalNginx.deleteFile(`${config_file}.bak`);
+		return Promise.resolve();
 	},
 
 	/**
@@ -316,7 +505,7 @@ const internalNginx = {
 	 */
 	test: () => {
 		debug(logger, "Testing Nginx configuration");
-		return utils.execFile("/usr/sbin/nginx", ["-t", "-g", "error_log off;"]);
+		return utils.execFile("/usr/sbin/nginx", ["-t", "-g", "error_log off;"], { timeout: NGINX_TEST_TIMEOUT_MS });
 	},
 
 	/**
@@ -619,6 +808,8 @@ const internalNginx = {
 			internalNginx.deleteFile(config_file);
 			if (delete_err_file) {
 				internalNginx.deleteFile(config_file_err);
+				// A conf stashed for certificate issuance must not come back later.
+				if (fs.existsSync(`${config_file}.disabled`)) internalNginx.deleteFile(`${config_file}.disabled`);
 			}
 			resolve();
 		});
@@ -646,18 +837,190 @@ const internalNginx = {
 	},
 
 	/**
+	 * Regenerate the confs of several hosts straight from their DB rows
+	 * (access-list and certificate changes) without letting a bad row take the
+	 * others down.
+	 *
+	 * A row can hold settings that nginx -t rejected earlier (configure() put
+	 * the previous conf back but the DB keeps the new values). So: back up,
+	 * generate all, test. If nginx -t fails, isolate the offending host(s): put
+	 * every touched conf back, then regenerate one host at a time and keep each
+	 * new conf that passes. A rejected conf is kept as <conf>.err, the host gets
+	 * its previous conf back if it had one (otherwise it has no conf and is
+	 * offline), its meta is updated, and the call rejects naming those hosts.
+	 * The confs that passed stay in place and are reloaded.
+	 *
 	 * @param   {String}  hostType
 	 * @param   {Array}   hosts
-	 * @returns {Promise}
+	 * @returns {Promise<Array>}
 	 */
-	bulkGenerateConfigs: (hostType, hosts) => {
-		const promises = [];
-		hosts.map((host) => {
-			promises.push(internalNginx.generateConfig(hostType, host));
-			return true;
-		});
+	bulkGenerateConfigs: async (hostType, hosts) => {
+		const list = Array.isArray(hosts) ? hosts : [];
+		if (!list.length) return [];
+		const confOf = (host) =>
+			internalNginx.getConfigName(internalNginx.getFileFriendlyHostType(hostType), host.id);
+		const cleanOutput = (err) =>
+			String(err?.message || err)
+				.split("\n")
+				.filter((line) => line.indexOf("/var/log/nginx/error.log") === -1)
+				.join("\n");
 
-		return Promise.all(promises);
+		const backups = [];
+		for (const host of list) {
+			backups.push(await internalNginx.backupConfig(hostType, host));
+		}
+		// Put the pre-call state of host i back in the live set, keeping the .bak.
+		const putBack = async (i) => {
+			const conf = confOf(list[i]);
+			if (backups[i]) {
+				fs.copyFileSync(`${conf}.bak`, conf);
+			} else {
+				await internalNginx.deleteConfig(hostType, list[i]);
+			}
+		};
+		const dropBackups = async () => {
+			for (const [i, host] of list.entries()) {
+				if (backups[i]) await internalNginx.dropConfigBackup(hostType, host);
+			}
+		};
+
+		let firstOutput;
+		try {
+			await Promise.all(list.map((host) => internalNginx.generateConfig(hostType, host)));
+			await internalNginx.test();
+			await dropBackups();
+			await internalNginx.clearHostErrors(hostType, list);
+			return list;
+		} catch (err) {
+			firstOutput = cleanOutput(err);
+		}
+
+		// Something in the batch (or elsewhere) breaks nginx -t. Back to the
+		// state before this call, then check that state is valid on its own.
+		for (const i of list.keys()) await putBack(i);
+		try {
+			await internalNginx.test();
+		} catch (baseErr) {
+			await dropBackups();
+			const output = cleanOutput(baseErr);
+			logger.error(`Regenerating ${hostType} configs: nginx -t already fails without them: ${output}`);
+			throw new errs.ValidationError(
+				`nginx -t fails even with the previous ${hostType} configuration, so none of the regenerated configs were applied (the previous ones are still in place). Fix the nginx configuration first.\n${output}`,
+				baseErr,
+			);
+		}
+
+		const accepted = [];
+		const rejected = [];
+		for (const [i, host] of list.entries()) {
+			try {
+				await internalNginx.generateConfig(hostType, host);
+				await internalNginx.test();
+				accepted.push(host);
+			} catch (err) {
+				await internalNginx.renameConfigAsError(hostType, host);
+				await putBack(i);
+				rejected.push({ host, kept: backups[i], output: cleanOutput(err) });
+			}
+		}
+		await dropBackups();
+		await internalNginx.clearHostErrors(hostType, accepted);
+		try {
+			await internalNginx.markHostsRejected(hostType, rejected);
+		} catch (err) {
+			logger.error(`Could not record the rejected ${hostType} configs: ${err.message}`);
+		}
+		if (!rejected.length) {
+			// The batch failed only together (should not happen); every conf passed
+			// on its own and the combined state passed the last test.
+			return list;
+		}
+		// The accepted confs are valid; make them live now instead of leaving
+		// them for whatever reload comes next.
+		try {
+			await internalNginx.reload();
+		} catch (err) {
+			logger.error(`Reload after regenerating ${hostType} configs failed: ${err.message}`);
+		}
+		const lines = rejected.map(
+			(r) =>
+				`- ${hostType} #${r.host.id}: ${
+					r.kept
+						? "rejected, its previous configuration is still active"
+						: "rejected and it had no previous configuration, so it is OFFLINE until it is fixed and saved again"
+				}`,
+		);
+		logger.error(`Regenerating ${hostType} configs: ${rejected.length} rejected by nginx -t:\n${lines.join("\n")}\n${firstOutput}`);
+		throw new errs.ValidationError(
+			`nginx rejected the regenerated configuration of ${rejected.length} ${hostType}(s); the other hosts were updated. Fix the settings of these hosts and save them again:\n${lines.join("\n")}\n${rejected.map((r) => r.output).join("\n")}`,
+		);
+	},
+
+	/**
+	 * Load the model for a host type lazily (keeps nginx.js free of DB imports).
+	 *
+	 * @param   {String}  hostType
+	 * @returns {Promise<Object|null>}
+	 */
+	hostModel: async (hostType) => {
+		const file = {
+			proxy_host: "../models/proxy_host.js",
+			redirection_host: "../models/redirection_host.js",
+			dead_host: "../models/dead_host.js",
+			stream: "../models/stream.js",
+		}[internalNginx.getFileFriendlyHostType(hostType)];
+		if (!file) return null;
+		return (await import(file)).default;
+	},
+
+	/**
+	 * Record on each host that its regenerated conf was rejected by nginx -t.
+	 *
+	 * @param   {String}  hostType
+	 * @param   {Array<{host: Object, kept: boolean, output: string}>}  rejected
+	 */
+	markHostsRejected: async (hostType, rejected) => {
+		if (!rejected?.length) return;
+		const model = await internalNginx.hostModel(hostType);
+		if (!model) return;
+		for (const r of rejected) {
+			const meta = _.assign(
+				{},
+				r.host.meta || {},
+				r.kept
+					? {
+							nginx_online: true,
+							nginx_err: `Regenerated config rejected by nginx -t; the previous config is still active:\n${r.output}`,
+						}
+					: { nginx_online: false, nginx_err: r.output },
+			);
+			await model.query().where("id", r.host.id).patch({ meta });
+		}
+	},
+
+	/**
+	 * Clear a stale nginx_err on hosts whose regenerated conf passed nginx -t.
+	 *
+	 * @param   {String}  hostType
+	 * @param   {Array}   hosts
+	 */
+	clearHostErrors: async (hostType, hosts) => {
+		const stale = (hosts || []).filter(
+			(h) => h && h.enabled !== false && h.enabled !== 0 && (h.meta?.nginx_err || h.meta?.nginx_online === false),
+		);
+		if (!stale.length) return;
+		try {
+			const model = await internalNginx.hostModel(hostType);
+			if (!model) return;
+			for (const host of stale) {
+				await model
+					.query()
+					.where("id", host.id)
+					.patch({ meta: _.assign({}, host.meta, { nginx_online: true, nginx_err: null }) });
+			}
+		} catch (err) {
+			logger.error(`Could not clear nginx_err on ${hostType}: ${err.message}`);
+		}
 	},
 
 	/**
@@ -694,6 +1057,32 @@ const internalNginx = {
 	},
 };
 
+// Every function that writes, renames or deletes a conf runs under the lock too
+// (re-entrant, so configure()'s own calls just pass through): a disable/delete
+// of a host, a certificate's Let's Encrypt request conf or the default-site
+// conf (setting.js) can no longer interleave with configure()'s
+// backup -> generate -> test -> drop-.bak sequence of the same host.
+for (const name of [
+	"configure",
+	"bulkGenerateConfigs",
+	"bulkStashConfigs",
+	"bulkDeleteConfigs",
+	"stashConfig",
+	"backupConfig",
+	"restoreConfigBackup",
+	"dropConfigBackup",
+	"deleteConfig",
+	"renameConfigAsError",
+	"generateConfig",
+	"generateLetsEncryptRequestConfig",
+	"deleteLetsEncryptRequestConfig",
+	"test",
+	"reload",
+]) {
+	const impl = internalNginx[name];
+	internalNginx[name] = (...args) => withConfigLock(() => impl(...args));
+}
+
 export default internalNginx;
 
 // Exported for unit testing only
@@ -702,4 +1091,5 @@ export const _testExports = {
 	assertSafeLocationPath,
 	tokenizeNginxStatements,
 	assertSafeForwardField,
+	withConfigLock,
 };

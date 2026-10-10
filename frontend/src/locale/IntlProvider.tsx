@@ -85,7 +85,9 @@ const T = ({
 	if (tData) {
 		// iterate over tData and translate each value
 		Object.entries(tData).forEach(([key, value]) => {
-			translatedData[key] = intl.formatMessage({ id: value });
+			// formatMessage throws (invariant) on an empty id — e.g. an audit row
+			// without object_type would otherwise crash the whole table render
+			translatedData[key] = value ? intl.formatMessage({ id: value }) : "";
 		});
 	}
 	return (

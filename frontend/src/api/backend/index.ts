@@ -1,3 +1,4 @@
+export * from "./agentIngress";
 export * from "./agents";
 export * from "./applyWireGuardMetadata";
 export * from "./checkVersion";

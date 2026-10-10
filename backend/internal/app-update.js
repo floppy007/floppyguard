@@ -3,6 +3,8 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import errs from "../lib/error.js";
+import internalRemoteVersion from "./remote-version.js";
 
 const execFileAsync = promisify(execFile);
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -72,6 +74,31 @@ async function reconcileStale(status, deps = { isUpdateUnitActive, now: Date.now
 	};
 }
 
+// Release tags as published on GitHub (vX.Y.Z). The tag is passed to
+// update.sh, which installs exactly that release instead of the branch tip.
+const RELEASE_TAG_RE = /^v\d+\.\d+\.\d+$/;
+
+/**
+ * The release the UI offered ("update to vX.Y.Z"): the tag of GitHub's latest
+ * release. update.sh fast-forwards to that tag's commit, so later unreleased
+ * commits on the branch are never installed under a release's name.
+ *
+ * @returns {Promise<string>}
+ */
+async function resolveReleaseTag(deps = { getRemoteVersion: () => internalRemoteVersion.get() }) {
+	let info;
+	try {
+		info = await deps.getRemoteVersion();
+	} catch (error) {
+		throw new errs.ValidationError("The latest release could not be determined; try again later.", error);
+	}
+	const tag = info?.latest;
+	if (typeof tag !== "string" || !RELEASE_TAG_RE.test(tag)) {
+		throw new errs.ValidationError("The latest release has no valid version tag.");
+	}
+	return tag;
+}
+
 // Serializes start() inside this process so two concurrent requests cannot
 // both pass the "already running" check.
 let startChain = Promise.resolve();
@@ -108,11 +135,13 @@ const internalAppUpdate = {
 			return { ...current, alreadyRunning: true };
 		}
 
+		const releaseTag = await resolveReleaseTag();
 		const startedAt = new Date().toISOString();
 		const queued = {
 			state: "queued",
 			step: "queued",
 			message: "Update queued. The service will restart after dependencies and the frontend build succeed.",
+			target: releaseTag,
 			startedAt,
 		};
 		await writeStatus(queued);
@@ -127,6 +156,7 @@ const internalAppUpdate = {
 					"--service-type=exec",
 					"/bin/bash",
 					updateScript,
+					releaseTag,
 				],
 				{ timeout: 5000 },
 			);
@@ -150,6 +180,6 @@ const internalAppUpdate = {
 	},
 };
 
-export const _testExports = { reconcileStale };
+export const _testExports = { reconcileStale, resolveReleaseTag };
 
 export default internalAppUpdate;

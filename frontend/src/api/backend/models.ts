@@ -263,6 +263,8 @@ export interface WireGuardLink {
 	txBytes: number;
 	active: boolean;
 	hasMetadata: boolean;
+	/** type comes from metadata (false = inferred from AllowedIPs) */
+	typeExplicit?: boolean;
 	returnPathMode: WireGuardReturnPathMode;
 	remoteManagementMode: WireGuardRemoteManagementMode;
 	platform?: "desktop" | "mobile" | null;
@@ -436,6 +438,16 @@ export interface WireGuardAgentSyncResult {
 	changed: boolean;
 	newAllowedIPs?: string[];
 	reason?: string;
+	/** set when this agent's resync threw (other agents unaffected) */
+	error?: string;
+}
+
+/** Result of carrying agent bindings along with renamed links. */
+export interface WireGuardRenameCascade {
+	renames: Array<{ oldName: string; newName: string }>;
+	errors: Array<{ from: string; to: string; error: string }>;
+	/** the temp-name phase of a swap failed and was rolled back to the old names */
+	rolledBack: boolean;
 }
 
 export interface WireGuardApplyMetadataResponse {
@@ -445,6 +457,7 @@ export interface WireGuardApplyMetadataResponse {
 	apply: WireGuardPlanPreviewResponse["apply"];
 	hubSync: WireGuardHubSyncResult | null;
 	agentSync: WireGuardAgentSyncResult[] | null;
+	renameCascade?: WireGuardRenameCascade;
 	metadata: {
 		interfaces: Record<string, WireGuardMetadataInterfacePatch>;
 		links: Record<string, WireGuardMetadataLinkPatch>;
@@ -479,6 +492,11 @@ export interface WireGuardRestoreMetadataResponse {
 	restoredFrom: string;
 	backupPath: string;
 	auditEntry: WireGuardApplyAuditEntry;
+	/** Per interface ({ wg0: {...} }), or { synced: false, reason } if the hub sync itself failed */
+	hubSync: Record<string, WireGuardHubSyncResult> | WireGuardHubSyncResult | null;
+	/** Per agent, or { error } if the fleet sync failed */
+	agentSync: WireGuardAgentSyncResult[] | { error: string } | null;
+	renameCascade?: WireGuardRenameCascade;
 	metadata: {
 		interfaces: Record<string, WireGuardMetadataInterfacePatch>;
 		links: Record<string, WireGuardMetadataLinkPatch>;
@@ -512,6 +530,12 @@ export interface Agent {
 	allowedSites: string[] | null;
 	/** Site gateways: exempt the local LAN from MASQUERADE so VPN clients keep their real source IP (needs a return route). Default true. */
 	preserveLanSourceIp: boolean;
+	/** Ingress filter for traffic arriving through the tunnel into the site LAN */
+	ingressMode?: AgentIngressMode;
+	/** config_hash the agent reports as actually applied (heartbeat) */
+	configAppliedHash?: string | null;
+	/** last config apply error reported by the agent */
+	configError?: string | null;
 }
 
 export interface AgentCreateData {
@@ -536,4 +560,219 @@ export interface AgentUpdateData {
 	allowedSites?: string[];
 	/** Site gateways: exempt the local LAN from MASQUERADE so VPN clients keep their real source IP (needs a return route). */
 	preserveLanSourceIp?: boolean;
+}
+
+// ── Agent ingress filter ("Freigaben") ────────────────────────────────────────
+
+export type AgentIngressMode = "open" | "restricted";
+
+export interface AgentIngressPort {
+	proto: "tcp" | "udp";
+	/** single port "443" or range "8000:8010" */
+	port: string;
+}
+
+export interface AgentIngressRule {
+	id: number;
+	agentId: number;
+	name: string;
+	/** source CIDRs (at least one) */
+	sources: string[];
+	/** target CIDRs — [] = any target */
+	destinations: string[];
+	/** [] = all ports */
+	ports: AgentIngressPort[];
+	enabled: boolean;
+	note: string | null;
+	hitPackets: number;
+	/** unix seconds, null = never hit */
+	lastHitAt: number | null;
+	createdOn: number | string;
+	modifiedOn: number | string;
+	/** unix seconds: last create / switch-on / target change (not rename or note edit) */
+	armedOn?: number | null;
+}
+
+export interface AgentIngressRuleData {
+	name: string;
+	sources: string[];
+	destinations: string[];
+	ports: AgentIngressPort[];
+	enabled: boolean;
+	note?: string;
+}
+
+/** What the agent reported as running vs. what the hub wants (heartbeat). */
+export interface AgentIngressApplied {
+	state: "applied" | "pending" | "offline" | "failed" | "unknown";
+	appliedHash: string | null;
+	desiredHash: string | null;
+	error: string | null;
+}
+
+export interface AgentIngressState {
+	agentId: number;
+	ingressMode: AgentIngressMode;
+	rules: AgentIngressRule[];
+	applied?: AgentIngressApplied;
+}
+
+export interface AgentIngressPreview {
+	agentId: number;
+	ingressMode: AgentIngressMode;
+	iface: string;
+	rulesText: string | null;
+	ruleCount: number;
+	hash: string | null;
+}
+
+export interface AgentIngressMissingUpstream {
+	kind: "proxy-host" | "stream" | "manual" | "hub-egress" | "vpn-client";
+	id: number | string;
+	label: string;
+	host: string;
+	port: number | null;
+	proto: "tcp" | "udp";
+	enabled: boolean;
+	/** null = upstream without a known port: no one-click rule (would open all ports). */
+	suggestion: Pick<AgentIngressRuleData, "name" | "sources" | "destinations" | "ports"> | null;
+}
+
+/** Hub-sourced rule broader than the proxy traffic needs (hub source also carries the Hetzner-LAN SNAT). */
+export interface AgentIngressBroadHubRule {
+	id: number;
+	name: string;
+	reason: "all-ports" | "unused-ports";
+	/** unused-ports: the port entries no upstream uses ("80/tcp", "8000:8100/tcp") */
+	ports: string[];
+}
+
+export interface AgentIngressCheck {
+	agentId: number;
+	agentName: string;
+	ingressMode: AgentIngressMode;
+	/** false = the bound WireGuard link does not exist, nothing was checked */
+	linkFound?: boolean;
+	/** linkFound=false: "typed-client" = the link exists but is typed client; else "not-found" */
+	linkHint?: "typed-client" | "not-found";
+	linkHintName?: string;
+	wgLinkName?: string;
+	hubSources: string[];
+	/** number of configured hub egress flows (/data/hub-egress-flows.json) */
+	hubEgressFlows?: number;
+	missing: AgentIngressMissingUpstream[];
+	/** Switched-off proxy hosts/streams a restricted agent would drop — info only. */
+	missingDisabled?: Omit<AgentIngressMissingUpstream, "suggestion">[];
+	/** Upstreams given by a DNS name that did not resolve — not checkable. */
+	unchecked?: Omit<AgentIngressMissingUpstream, "suggestion" | "enabled">[];
+	unusedHubRules: Array<{ id: number; name: string; unused: string[] }>;
+	broadHubRules?: AgentIngressBroadHubRule[];
+	applied?: AgentIngressApplied;
+}
+
+/** What a catalog entry stands for (sources: hub … tunnel; destinations: proxy-host … network). */
+export type AgentIngressCatalogKind =
+	| "hub"
+	| "hub-egress"
+	| "site"
+	| "site-net"
+	| "client"
+	| "tunnel"
+	| "proxy-host"
+	| "stream"
+	| "manual"
+	| "service"
+	| "network";
+
+/** One known source or destination of an agent (pickers, wizards, names for CIDRs). */
+export interface AgentIngressCatalogEntry {
+	/** stable id: "hub", "site:<link>", "site-net:<link>:<cidr>", "client:<link>", "host:<ip>", "net:<cidr>", … */
+	id: string;
+	kind: AgentIngressCatalogKind;
+	/** display name; "hub" for the hub, the CIDR for site-net / network / tunnel entries */
+	label: string;
+	/** host entries: every name (domains, stream labels, service names), first = main name */
+	names?: string[];
+	cidrs: string[];
+	/** host entries: the ports the upstreams/services use (display) */
+	ports?: AgentIngressPort[];
+	/**
+	 * upstream host entries: only the ports the hub's proxy hosts / streams use —
+	 * a proxy rule opens these, never the ports of services found on the host
+	 */
+	upstreamPorts?: AgentIngressPort[];
+	/** host entries: at least one upstream is enabled */
+	enabled?: boolean;
+	/** host entries: every upstream is already covered by an enabled rule */
+	covered?: boolean;
+	/** "no-port" (upstream without known port), "masquerade" (site hides LAN IPs), "snat-hub-lan" (hub) */
+	hint?: string;
+	online?: boolean;
+	/** site-net: id of its site entry */
+	parent?: string;
+}
+
+export interface AgentIngressPortPreset {
+	/** web, ssh, smb, ldap, rdp, dns, proxmox, pbs, all */
+	id: string;
+	/** [] = all ports */
+	ports: AgentIngressPort[];
+}
+
+/** Enabled rule without a new connection for 30 days that no upstream needs. */
+export interface AgentIngressPruneCandidate {
+	id: number;
+	name: string;
+	lastHitAt: number | null;
+	reason: "no-hits-30d";
+}
+
+export interface AgentIngressCatalog {
+	agentId: number;
+	agentName: string;
+	ingressMode: AgentIngressMode;
+	/** false = the bound WireGuard link does not exist: no site, no destinations behind it */
+	linkFound: boolean;
+	site: { linkId: string; name: string; networks: string[] } | null;
+	sources: AgentIngressCatalogEntry[];
+	destinations: AgentIngressCatalogEntry[];
+	portPresets: AgentIngressPortPreset[];
+	pruneCandidates: AgentIngressPruneCandidate[];
+}
+
+export interface AgentIngressTestRequest {
+	source: string;
+	destination: string;
+	port?: number | null;
+	proto?: "tcp" | "udp";
+}
+
+export interface AgentIngressRuleRef {
+	id: number;
+	name: string;
+}
+
+/** What the agent's filter does with one flow (read-only "Darf X auf Y?"). */
+export interface AgentIngressTestResult {
+	mode: AgentIngressMode;
+	/** null = the agent does not decide (not-via-agent / same-site / link-not-found) */
+	allowed: boolean | null;
+	filtered: boolean;
+	/** link-not-found: the agent's bound WireGuard link is missing/renamed — its networks are unknown */
+	reason: "rule" | "no-rule" | "open-mode" | "not-via-agent" | "same-site" | "link-not-found";
+	rule: AgentIngressRuleRef | null;
+	matchedRules: AgentIngressRuleRef[];
+	/** a disabled rule that would match */
+	disabledMatch: AgentIngressRuleRef | null;
+	/** no port given and only port-restricted rules would match */
+	portUnknown: boolean;
+	notes: Array<"established-return" | "forward-only" | "not-applied" | string>;
+	linkFound?: boolean;
+}
+
+export interface AgentIngressBulkResult {
+	created: AgentIngressRule[];
+	/** switched-off rules with the same targets, switched back on instead of a duplicate (older backends: absent) */
+	reenabled?: AgentIngressRule[];
+	skipped: Array<{ index: number; reason: "duplicate"; ruleId: number | null }>;
 }

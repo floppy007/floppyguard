@@ -1,5 +1,5 @@
 import EasyModal, { type InnerModalProps } from "ez-modal-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Modal from "react-bootstrap/Modal";
 import { getWireGuardLinkConfigQr } from "src/api/backend";
 import { Button } from "src/components";
@@ -8,15 +8,20 @@ import { T } from "src/locale";
 interface Props extends InnerModalProps {
 	linkId: string;
 	linkName: string;
+	/** Called once the QR (= a freshly rotated key pair) was generated. */
+	onGenerated?: () => void;
 }
 
-const showWireGuardQrModal = (linkId: string, linkName: string) => {
-	EasyModal.show(WireGuardQrModal, { linkId, linkName });
+const showWireGuardQrModal = (linkId: string, linkName: string, onGenerated?: () => void) => {
+	EasyModal.show(WireGuardQrModal, { linkId, linkName, onGenerated });
 };
 
-const WireGuardQrModal = EasyModal.create(({ linkId, linkName, visible, remove }: Props) => {
+const WireGuardQrModal = EasyModal.create(({ linkId, linkName, onGenerated, visible, remove }: Props) => {
 	const [qrUrl, setQrUrl] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	// Ref, not an effect dependency: re-running the effect would fetch (= rotate) again.
+	const onGeneratedRef = useRef(onGenerated);
+	onGeneratedRef.current = onGenerated;
 
 	useEffect(() => {
 		if (!visible) return;
@@ -25,6 +30,7 @@ const WireGuardQrModal = EasyModal.create(({ linkId, linkName, visible, remove }
 			.then((url) => {
 				objectUrl = url;
 				setQrUrl(url);
+				onGeneratedRef.current?.();
 			})
 			.catch((e) => setError(e.message ?? "Failed to load QR code"));
 		return () => {

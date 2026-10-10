@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import internalAgent, { _testExports } from "./agent.js";
 
@@ -21,7 +22,53 @@ const {
 	buildLoopScript,
 	sanitizeAclNetworks,
 	sanitizeAclSites,
+	AGENT_SCRIPT_VERSION,
+	AGENT_SCRIPT_SHA256,
 } = _testExports;
+
+// ─── agent script version pin ────────────────────────────────────────────────
+
+// Scripts already rolled out to the fleet: version → sha256 of buildLoopScript().
+// Append the previous version here whenever AGENT_SCRIPT_VERSION is bumped.
+const RELEASED_AGENT_SCRIPTS = {
+	"1.4.0": "874c6a8990545477856bbb187bd7ee94cffe32b78a5ca01b3e702ec1f3e1ea98",
+	"1.5.0": "7cce7bf35195fd5ee2fc459083352a064ce1d5eeeb4f13d0b72e8b3c990da81e",
+};
+
+test("a changed agent loop script always comes with a new AGENT_SCRIPT_VERSION", () => {
+	// Agents self-update ONLY on a version change: a script change under an old
+	// version never reaches the live fleet.
+	const hash = createHash("sha256").update(buildLoopScript()).digest("hex");
+	assert.equal(
+		hash,
+		AGENT_SCRIPT_SHA256,
+		`buildLoopScript() output changed: bump AGENT_SCRIPT_VERSION, set AGENT_SCRIPT_SHA256 = "${hash}" and add the previous version to RELEASED_AGENT_SCRIPTS`,
+	);
+	assert.ok(
+		!Object.hasOwn(RELEASED_AGENT_SCRIPTS, AGENT_SCRIPT_VERSION),
+		`version ${AGENT_SCRIPT_VERSION} was already released with another script — bump it`,
+	);
+	assert.ok(
+		!Object.values(RELEASED_AGENT_SCRIPTS).includes(hash),
+		"script identical to a released one — nothing to bump",
+	);
+	assert.ok(buildLoopScript().includes(`SCRIPT_VERSION="${AGENT_SCRIPT_VERSION}"`));
+});
+
+test("loop script installs a boot unit that restores the Freigaben before WireGuard", () => {
+	const script = buildLoopScript();
+	assert.ok(script.includes('if [ "$#" -gt 0 ] && [ "$1" = "--ingress-only" ]; then'));
+	// the --ingress-only exit sits after the cache restore and before any hub access
+	const restore = script.indexOf("Ingress filter restored from cache at start");
+	const exitAt = script.indexOf('[ "$1" = "--ingress-only" ]');
+	const firstPoll = script.indexOf("/api/agent/config");
+	assert.ok(restore > 0 && exitAt > restore && firstPoll > exitAt);
+	assert.match(script, /Before=network-pre\.target shutdown\.target\$before/);
+	assert.ok(script.includes('before=" wg-quick@$WG_INTERFACE.service"'));
+	assert.ok(script.includes("ExecStart=/usr/local/sbin/floppyguard-agent --ingress-only"));
+	assert.ok(script.includes("ConditionPathExists=/var/lib/floppyguard-agent/ingress.rules"));
+	assert.ok(script.includes("ensure_ingress_boot_unit || true"));
+});
 
 // ─── deriveTunnelSubnet ──────────────────────────────────────────────────────
 
@@ -433,6 +480,35 @@ test("_computeOtherSiteNets allowed_sites ignores client links", () => {
 	assert.deepEqual(viaSite.nets, ["192.168.11.0/24"]);
 });
 
+// A site net INSIDE the agent's own LAN must not reach its AllowedIPs/PostUp
+// routes — it would hijack part of its LAN. Supernets (summary exports) stay.
+test("_computeOtherSiteNets drops subnets of the agent's own nets, keeps supernets (site links)", () => {
+	const allSiteNets = new Set(["192.168.1.0/24", "192.168.1.128/25", "192.168.0.0/16", "10.4.0.0/16"]);
+	const ownNets = new Set(["192.168.1.0/24"]);
+	const args = { allowedNetworks: null, allowedSites: null, allSiteNets, ownNets, linksByName: new Map() };
+	const site = _computeOtherSiteNets({ ...args, dropOverlaps: true });
+	assert.deepEqual(site.nets.sort(), ["10.4.0.0/16", "192.168.0.0/16"]);
+	assert.deepEqual(site.overlaps, ["192.168.1.128/25"]);
+	assert.deepEqual(site.supernets, ["192.168.0.0/16"]);
+	// client links (reach list) keep the previous exact-match behaviour
+	const client = _computeOtherSiteNets({ ...args, dropOverlaps: false });
+	assert.deepEqual(client.nets.sort(), ["10.4.0.0/16", "192.168.0.0/16", "192.168.1.128/25"]);
+	assert.deepEqual(client.overlaps, []);
+	assert.deepEqual(client.supernets, []);
+});
+
+test("agent loop script: no secrets in /tmp, failed apply is retried, response parsed from file", () => {
+	const script = _testExports.buildLoopScript();
+	assert.ok(script.includes("umask 077"));
+	assert.ok(!/> \/tmp\/fg_/.test(script), "no fixed /tmp scratch files");
+	assert.ok(!/"\$RESPONSE" 2>\/dev\/null/.test(script), "hub response must not travel as argv (E2BIG)");
+	assert.ok(!script.includes('python3 - "$RESPONSE"'), "hub response must not travel as argv (E2BIG)");
+	assert.ok(script.includes('if apply_config "$CFG" "$IFACE"; then'));
+	assert.ok(script.includes("'ingress_hash': sys.argv[8]"));
+	// cache restore (ingress block) runs before the startup route sync
+	assert.ok(script.indexOf('INGRESS_CHAIN="FG_IN"') < script.indexOf('sync_routes "$WG_INTERFACE"'));
+});
+
 // ─── sanitizeAgentMode / sanitizeWgInterface (config.env injection guard) ─────
 
 // Regression: mode and wg_interface are interpolated into the same root-sourced
@@ -649,8 +725,8 @@ test("sanitizeHubUrl rejects shell/sed metacharacters (config.env injection guar
 test("buildLoopScript adopts server-advertised hub URLs", () => {
 	const script = buildLoopScript();
 	assert.match(script, /update_server_urls\(\)/);
-	assert.match(script, /get\('primary_url'\)/);
-	assert.match(script, /get\('fallback_url'\)/);
+	assert.match(script, /resp_get primary_url ""/);
+	assert.match(script, /resp_get fallback_url ""/);
 	assert.match(script, /update_server_urls "\$NEW_PRIMARY" "\$NEW_FALLBACK"/);
 	// Never overwrites a working URL with an empty one
 	assert.match(script, /\[ -n "\$new_primary" \] && \[ "\$new_primary" != "\$PRIMARY_URL" \]/);
@@ -765,4 +841,28 @@ test("register/getConfig reject non-string tokens before any DB lookup", async (
 	await assert.rejects(() => internalAgent.heartbeat(7, {}), /Invalid agent token/);
 	await assert.rejects(() => internalAgent.uploadConfig(3, {}), /Invalid agent token/);
 	await assert.rejects(() => internalAgent.getLoopScript(9), /Invalid agent token/);
+});
+
+// ─── apply_config hook ordering / hash trust after the 1.4.0 → 1.5.0 upgrade ─
+
+test("apply_config swaps PostDown/PostUp only after a successful syncconf and remembers it", () => {
+	const script = buildLoopScript();
+	const fn = script.slice(script.indexOf("apply_config() {"), script.indexOf("# Sync routes once at agent startup"));
+	const sync = fn.indexOf('if ! wg syncconf "$iface"');
+	const evalUp = fn.indexOf('eval "$(printf \'%s\' "$new_postup"');
+	assert.ok(sync > 0 && evalUp > 0 && sync < evalUp, "hooks run after syncconf");
+	assert.ok(fn.includes('printf \'%s\' "$new_postup" > "$POSTUP_APPLIED"'), "applied PostUp remembered");
+	assert.ok(fn.includes('[ "$applied_postup" = "$new_postup" ]'), "already-applied PostUp is not re-run");
+	assert.ok(
+		fn.includes('rm -f "$new_conf" "$POSTUP_APPLIED" "$POSTUP_APPLIED.down"'),
+		"marker cleared once the conf is in place",
+	);
+});
+
+test("first start of a checked hash writer drops a last_hash written by 1.4.0", () => {
+	const script = buildLoopScript();
+	const block = script.slice(script.indexOf('HASH_CHECKED="'), script.indexOf('POSTUP_APPLIED="'));
+	assert.match(block, /if \[ ! -f "\$HASH_CHECKED" \]; then\n {2}rm -f "\$HASH_FILE"\n/);
+	// before the loop reads it
+	assert.ok(script.indexOf('HASH_CHECKED="') < script.indexOf('CURRENT_HASH=$(cat "$HASH_FILE"'));
 });

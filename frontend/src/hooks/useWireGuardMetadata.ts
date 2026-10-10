@@ -51,6 +51,8 @@ const useRestoreWireGuardMetadata = () => {
 			queryClient.invalidateQueries({ queryKey: ["wireguard-metadata"] });
 			queryClient.invalidateQueries({ queryKey: ["wireguard-status"] });
 			queryClient.invalidateQueries({ queryKey: ["wireguard-apply-state"] });
+			// The restore resyncs every agent's config
+			queryClient.invalidateQueries({ queryKey: ["agents"] });
 		},
 	});
 };

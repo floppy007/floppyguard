@@ -1,5 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { wireguard as logger } from "../logger.js";
 import internalWireGuard, {
 	buildRouteAnalysis,
 	buildTopology,
@@ -9,6 +10,7 @@ import internalWireGuard, {
 	deriveGlobalWarnings,
 	enrichInterfaceStatus,
 	enrichLinkRecord,
+	findLinkNetworkConflicts,
 	getMetadataFile,
 	mergeMetadataEntry,
 	sanitizeInterfaceMetadataPatch,
@@ -275,21 +277,12 @@ function buildPlanPreview(status, patch = {}) {
 
 	// Validate AllowedIPs conflicts — two non-client peers claiming the same subnet
 	// causes WireGuard to silently assign it to only one peer, breaking routing.
+	// CIDR overlap, not string equality: a /16 over another site's /24 steals the
+	// overlapping part the same way (longest-prefix routing at the hub).
 	{
-		const subnetToPeers = new Map(); // subnet → [{id, name}]
-		for (const link of projectedLinksBase) {
-			if (link.type === "client") continue;
-			for (const net of link.importedNetworks || []) {
-				if (net.endsWith("/32") || net.endsWith("/128")) continue;
-				if (!subnetToPeers.has(net)) subnetToPeers.set(net, []);
-				subnetToPeers.get(net).push({ id: link.id, name: link.name });
-			}
-		}
-		for (const [subnet, claimants] of subnetToPeers) {
-			if (claimants.length > 1) {
-				const names = claimants.map((c) => c.name || c.id).join(", ");
-				errors.push(`Subnet ${subnet} claimed by multiple peers: ${names} — only one peer can route a subnet`);
-			}
+		const byId = Object.fromEntries(projectedLinksBase.map((l) => [l.id, l]));
+		for (const c of findLinkNetworkConflicts(byId)) {
+			errors.push(`Subnet conflict: ${c} — only one peer can route a subnet`);
 		}
 	}
 
@@ -340,6 +333,97 @@ function buildPlanPreview(status, patch = {}) {
 	};
 }
 
+/**
+ * Link renames between two metadata stores: [{oldName, newName}] for every link
+ * id whose EFFECTIVE name changed. `fallbackNames` ({linkId: name}, from the live
+ * status before the write) supplies the old name of a link whose name came only
+ * from the conf / was generated and never stood in the metadata store — agents
+ * bind to that name just the same. `afterNames` ({linkId: name}, from the live
+ * status AFTER the write) supplies the effective new name when the new store
+ * entry has no name of its own (the link falls back to its conf/generated name,
+ * and bindings must follow it there instead of being left on the old name).
+ */
+function diffLinkRenames(before, after, fallbackNames = {}, afterNames = {}) {
+	const renames = [];
+	for (const [id, next] of Object.entries(after?.links || {})) {
+		const oldName = before?.links?.[id]?.name || fallbackNames?.[id];
+		const newName = next?.name || afterNames?.[id];
+		if (oldName && newName && oldName !== newName) renames.push({ oldName, newName });
+	}
+	return renames;
+}
+
+/** {linkId: name} of the live status links (fallback names for diffLinkRenames). */
+function statusLinkNames(status) {
+	return Object.fromEntries((status?.links || []).filter((l) => l?.id && l?.name).map((l) => [l.id, l.name]));
+}
+
+/**
+ * Agents bind to a link by its MUTABLE name (wg_link_name, allowed_sites). Every
+ * write path that can rename a link must cascade, BEFORE the agent resync: else
+ * the bound agent gets "no-link-or-config" and freezes, and allowed_sites
+ * entries of other agents stop matching (their routes to that site vanish).
+ * Swaps (A↔B) go through a temporary name so the second step can't undo the first.
+ *
+ * Returns { renames, errors: [{from, to, error}], rolledBack } — the caller puts it
+ * into the apply/restore response so a failed cascade is VISIBLE (a bound agent
+ * left on the old or a temporary name freezes with "no-link-or-config").
+ * A failure in the temp phase rolls the already-moved bindings back to their old
+ * names and skips the second phase: continuing would merge two swapped groups
+ * onto one name. A failed final step is retried once, then reported.
+ */
+async function cascadeLinkRenames(renames, { rename } = {}) {
+	const result = { renames: renames.map((r) => ({ ...r })), errors: [], rolledBack: false };
+	if (!renames.length) return result;
+	let doRename = rename;
+	if (!doRename) {
+		const { default: internalAgent } = await import("./agent.js");
+		doRename = (from, to) => internalAgent.renameLinkBinding(from, to);
+	}
+	const run = async (from, to) => {
+		try {
+			await doRename(from, to);
+			return null;
+		} catch (err) {
+			logger.error(`Link rename cascade ${from}→${to} failed: ${err.message}`);
+			return err.message || String(err);
+		}
+	};
+	const oldNames = new Set(renames.map((r) => r.oldName));
+	const needsTemp = renames.some((r) => oldNames.has(r.newName));
+	if (!needsTemp) {
+		for (const r of renames) {
+			const error = await run(r.oldName, r.newName);
+			if (error) result.errors.push({ from: r.oldName, to: r.newName, error });
+		}
+		return result;
+	}
+	const stamp = Date.now();
+	const tmpNames = renames.map((_, i) => `__fg_rename_${stamp}_${i}__`);
+	const moved = [];
+	for (const [i, r] of renames.entries()) {
+		const error = await run(r.oldName, tmpNames[i]);
+		if (error) {
+			result.errors.push({ from: r.oldName, to: tmpNames[i], error });
+			break;
+		}
+		moved.push(i);
+	}
+	if (result.errors.length) {
+		for (const i of moved.reverse()) {
+			const error = await run(tmpNames[i], renames[i].oldName);
+			if (error) result.errors.push({ from: tmpNames[i], to: renames[i].oldName, error });
+		}
+		result.rolledBack = true;
+		return result;
+	}
+	for (const [i, r] of renames.entries()) {
+		const error = (await run(tmpNames[i], r.newName)) && (await run(tmpNames[i], r.newName));
+		if (error) result.errors.push({ from: tmpNames[i], to: r.newName, error });
+	}
+	return result;
+}
+
 async function previewPlan(patch = {}) {
 	const status = await internalWireGuard.getStatus();
 	return buildPlanPreview(status, patch);
@@ -360,12 +444,26 @@ async function applyMetadata(patch = {}) {
 		throw err;
 	}
 
-	const currentMetadata = (await internalWireGuard.getStatus()).metadata || { interfaces: {}, links: {} };
+	const statusBefore = await internalWireGuard.getStatus();
+	const currentMetadata = statusBefore.metadata || { interfaces: {}, links: {} };
 	const backupPath = await internalWireGuard.backupMetadataStore(currentMetadata);
-	const metadata = await internalWireGuard.applyMetadataPatch(preview.patch);
+	// previous = the store read under the same write lock as the patch (no window
+	// for a concurrent write between diff base and patch).
+	const { store: metadata, previous: storeBefore } = await internalWireGuard.applyMetadataPatch(preview.patch, {
+		withPrevious: true,
+	});
 	// The patch may have changed link AllowedIPs/DNS/full-tunnel; invalidate any cached
 	// peer configs so a prior Download/QR isn't re-served stale on the next download.
 	clearPeerConfigCache();
+	// A renamed link must carry its agent bindings along before the resync below.
+	const renameCascade = await cascadeLinkRenames(
+		diffLinkRenames(
+			storeBefore,
+			metadata,
+			statusLinkNames(statusBefore),
+			statusLinkNames(await internalWireGuard.getStatus()),
+		),
+	);
 
 	// Sync ALL WG interfaces' conf files from the new metadata.
 	// Also sync agent config_text so remote gateways pick up routing changes on next poll.
@@ -415,9 +513,66 @@ async function applyMetadata(patch = {}) {
 		apply: preview.apply,
 		hubSync,
 		agentSync,
+		renameCascade,
 		metadata,
 		status,
 	};
+}
+
+// Identity fields a link may have gained AFTER the backup was taken. When the
+// backup entry lacks one (or has an empty name), the current value is kept:
+// dropping a name would make the link fall back to its conf/generated name and
+// leave agents bound via wg_link_name / allowed_sites on "no-link-or-config";
+// dropping type/importedNetworks would silently reclassify the link or change
+// its routed nets. Every other field is restored from the backup as before.
+const RESTORE_KEEP_IF_MISSING = ["name", "type", "importedNetworks"];
+function mergeRestoredLink(current, backupEntry) {
+	const merged = { ...(backupEntry || {}) };
+	if (!current) return merged;
+	for (const key of RESTORE_KEEP_IF_MISSING) {
+		const missing = key === "name" ? !merged.name : !Object.hasOwn(merged, key);
+		if (missing && Object.hasOwn(current, key) && current[key] !== undefined && current[key] !== "") {
+			merged[key] = current[key];
+		}
+	}
+	return merged;
+}
+
+// Merge a metadata backup into the live store, but only for links/interfaces that
+// exist LIVE right now. A wholesale replace let an old backup resurrect ghost links
+// (deleted peers, other interfaces — counted as sites by the agent sync, shrinking
+// every agent's routes to their nets), wipe the metadata of links added since, and
+// cascade stale names into agent bindings. Live entries the backup lacks keep their
+// current metadata; backup entries with no live counterpart are skipped. Non-live
+// entries already in the current store are left untouched.
+function mergeBackupIntoLive(current, backup, liveLinkIds, liveInterfaceNames) {
+	const cur = current || {};
+	const bak = backup || {};
+	const store = {
+		interfaces: { ...(cur.interfaces || {}) },
+		links: { ...(cur.links || {}) },
+	};
+	const restoredLinks = [];
+	const keptLinks = [];
+	const skippedLinks = [];
+	const bakLinks = bak.links || {};
+	for (const id of liveLinkIds) {
+		if (Object.hasOwn(bakLinks, id)) {
+			store.links[id] = mergeRestoredLink(store.links[id], bakLinks[id]);
+			restoredLinks.push(id);
+		} else {
+			keptLinks.push(id);
+		}
+	}
+	for (const id of Object.keys(bakLinks)) {
+		if (!liveLinkIds.has(id)) skippedLinks.push(id);
+	}
+	const skippedInterfaces = [];
+	for (const [name, value] of Object.entries(bak.interfaces || {})) {
+		if (liveInterfaceNames.has(name)) store.interfaces[name] = value;
+		else skippedInterfaces.push(name);
+	}
+	return { store, restoredLinks, keptLinks, skippedLinks, skippedInterfaces };
 }
 
 async function restoreMetadataBackup(backupPath) {
@@ -431,19 +586,46 @@ async function restoreMetadataBackup(backupPath) {
 
 	const restoreSourceRaw = await fs.readFile(selectedBackup.path, "utf8");
 	const restoreSource = JSON.parse(restoreSourceRaw);
-	const currentMetadata = (await internalWireGuard.getStatus()).metadata || { interfaces: {}, links: {} };
+	const statusBefore = await internalWireGuard.getStatus();
+	if (!statusBefore.available) {
+		const err = new Error("WireGuard is not available — cannot match the backup against live peers");
+		err.code = "restore-unavailable";
+		throw err;
+	}
+	const liveLinkIds = new Set((statusBefore.links || []).map((l) => l.id));
+	const liveInterfaceNames = new Set((statusBefore.interfaces || []).map((i) => i.name));
+	const currentMetadata = statusBefore.metadata || { interfaces: {}, links: {} };
 	const preRestoreBackupPath = await internalWireGuard.backupMetadataStore(currentMetadata);
-	// Replace the store under the module write lock: a raw writeMetadataStore here
-	// could be silently overwritten by a concurrent locked read-modify-write that
-	// read the pre-restore store (the lost-update race mutateMetadataStore guards
-	// against), wiping the restore.
-	const restoredMetadata = await internalWireGuard.replaceMetadataStore({
-		interfaces: restoreSource.interfaces || {},
-		links: restoreSource.links || {},
-	});
+	// Merge (only live ids, see mergeBackupIntoLive) and write under the module
+	// write lock: a raw writeMetadataStore here could be silently overwritten by a
+	// concurrent locked read-modify-write that read the pre-restore store (the
+	// lost-update race mutateMetadataStore guards against), wiping the restore.
+	// previous = the store read under that lock.
+	let mergeInfo = null;
+	const { store: restoredMetadata, previous: storeBefore } = await internalWireGuard.replaceMetadataStore(
+		(current) => {
+			mergeInfo = mergeBackupIntoLive(current, restoreSource, liveLinkIds, liveInterfaceNames);
+			return mergeInfo.store;
+		},
+		{ withPrevious: true },
+	);
+	if (mergeInfo.skippedLinks.length || mergeInfo.keptLinks.length) {
+		logger.warn(
+			`Metadata restore from ${path.basename(selectedBackup.path)}: skipped ${mergeInfo.skippedLinks.length} non-live link(s), kept current metadata for ${mergeInfo.keptLinks.length} live link(s) missing from the backup`,
+		);
+	}
 	// Restoring rolls link AllowedIPs/DNS/full-tunnel back; invalidate any cached peer
 	// configs so a prior Download/QR isn't re-served stale on the next download.
 	clearPeerConfigCache();
+	// The backup may carry other link names — cascade them to the agent bindings.
+	const renameCascade = await cascadeLinkRenames(
+		diffLinkRenames(
+			storeBefore,
+			restoredMetadata,
+			statusLinkNames(statusBefore),
+			statusLinkNames(await internalWireGuard.getStatus()),
+		),
+	);
 
 	// Sync hub conf for every interface plus agent config_text from the restored
 	// metadata, mirroring applyMetadata's config-intent path. Without this, wg0.conf
@@ -481,8 +663,8 @@ async function restoreMetadataBackup(backupPath) {
 		changeScope: "metadata-with-config-intent",
 		changeCount: 0,
 		patchSummary: {
-			interfaceTargets: Object.keys(restoreSource.interfaces || {}),
-			linkTargets: Object.keys(restoreSource.links || {}),
+			interfaceTargets: Object.keys(restoreSource.interfaces || {}).filter((n) => liveInterfaceNames.has(n)),
+			linkTargets: mergeInfo.restoredLinks,
 		},
 		action: "restore-backup",
 		restoredFrom: selectedBackup.path,
@@ -496,6 +678,11 @@ async function restoreMetadataBackup(backupPath) {
 		auditEntry,
 		hubSync,
 		agentSync,
+		renameCascade,
+		restoredLinks: mergeInfo.restoredLinks,
+		keptLinks: mergeInfo.keptLinks,
+		skippedLinks: mergeInfo.skippedLinks,
+		skippedInterfaces: mergeInfo.skippedInterfaces,
 		metadata: status.metadata || { interfaces: {}, links: {} },
 		status,
 	};
@@ -511,7 +698,16 @@ async function getApplyState() {
 	};
 }
 
-export { buildApplyContract, buildPlanPreview, classifyChangeScope, normalizePatch };
+export {
+	buildApplyContract,
+	buildPlanPreview,
+	cascadeLinkRenames,
+	classifyChangeScope,
+	diffLinkRenames,
+	mergeBackupIntoLive,
+	normalizePatch,
+	statusLinkNames,
+};
 
 export default {
 	applyMetadata,

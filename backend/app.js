@@ -4,6 +4,7 @@ import express from "express";
 import { isDebugMode } from "./lib/config.js";
 import cors from "./lib/express/cors.js";
 import jwt from "./lib/express/jwt.js";
+import remoteGuard from "./lib/express/remote-guard.js";
 import { debug, express as logger } from "./logger.js";
 import mainRoutes from "./routes/main.js";
 
@@ -24,6 +25,8 @@ app.use(compression());
  */
 
 app.disable("x-powered-by");
+// Only the agent API is served to non-loopback clients (see remote-guard.js).
+app.use(remoteGuard());
 // Only the local nginx is a real proxy. NOTE: app.enable() ignores a value
 // argument and would set trust proxy = true, letting any client choose req.ip
 // (and therefore its rate-limit bucket) via X-Forwarded-For.

@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Gateway from "./index";
 
 const statusMock = vi.fn();
@@ -78,6 +78,8 @@ const buildStatus = () => ({
 });
 
 describe("Gateway page", () => {
+	afterEach(cleanup);
+
 	beforeEach(() => {
 		statusMock.mockReturnValue({
 			data: buildStatus(),
@@ -85,6 +87,18 @@ describe("Gateway page", () => {
 			isError: false,
 			error: null,
 		});
+	});
+
+	it("a failed background refetch keeps the last status and shows a banner", () => {
+		statusMock.mockReturnValue({
+			data: buildStatus(),
+			isLoading: false,
+			isError: true,
+			error: new Error("HTTP 502"),
+		});
+		render(<Gateway />);
+		expect(screen.getByText(/NAT likely needed/)).toBeTruthy();
+		expect(screen.getByText(/HTTP 502/)).toBeTruthy();
 	});
 
 	it("renders link warnings and next actions", () => {

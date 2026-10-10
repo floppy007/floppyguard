@@ -103,6 +103,10 @@ function AuthProvider({ children, tokenRefreshInterval = 5 * 60 * 1000 }: Props)
 
 		const intervalId = window.setInterval(() => {
 			refresh().catch(() => {
+				// A real 401 is handled in processResponse (clear + reload). Anything
+				// else here is transient (network, 502 during a restart): keep the
+				// still-valid token and retry on the next tick.
+				if (!AuthStore.isTopTokenExpired()) return;
 				AuthStore.clear();
 				setAuthenticated(false);
 				queryClient.clear();

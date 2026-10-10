@@ -1,6 +1,7 @@
 import express from "express";
 import errs from "../lib/error.js";
 import pjson from "../package.json" with { type: "json" };
+import internalCertificate from "../internal/certificate.js";
 import { isSetup } from "../setup.js";
 // FloppyGuard extension routes.
 import agentRoutes from "./agent.js";
@@ -42,6 +43,8 @@ router.get(["", "/"], async (_, res /*, next*/) => {
 	res.status(200).send({
 		status: "OK",
 		setup,
+		// a renewed certificate is on disk but nginx could not be reloaded yet
+		nginx_reload_pending: internalCertificate.reloadPending === true,
 		version: {
 			major: Number.parseInt(version.shift(), 10),
 			minor: Number.parseInt(version.shift(), 10),

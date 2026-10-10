@@ -1,5 +1,6 @@
 import express from "express";
 import internalWireGuard, { withWriteLock } from "../internal/wireguard.js";
+import { auditOnSuccess, describeWireGuardRequest } from "../internal/audit-route.js";
 import internalWireGuardPlan from "../internal/wireguard-plan.js";
 import error from "../lib/error.js";
 import jwtdecode from "../lib/express/jwt-decode.js";
@@ -7,6 +8,29 @@ import requireAdmin from "../lib/express/require-admin.js";
 import { debug, express as logger } from "../logger.js";
 
 const router = express.Router({ caseSensitive: true, strict: true, mergeParams: true });
+
+/**
+ * Bound-agent options of a link/interface delete (see internalWireGuard.deletePeer):
+ * JSON body fields, or query `deleteBoundAgents=1` / `forceAgentIds=1,2` for the
+ * REST DELETE routes. Anything not literally true is false.
+ */
+function deleteOptions(req) {
+	const b = req.body && typeof req.body === "object" ? req.body : {};
+	const q = req.query || {};
+	const flag = (v) => v === true || v === "1" || v === "true";
+	let ids = Array.isArray(b.forceAgentIds) ? b.forceAgentIds : String(q.forceAgentIds || "").split(",");
+	ids = ids.map((v) => Number.parseInt(v, 10)).filter((v) => Number.isInteger(v) && v > 0);
+	return {
+		deleteBoundAgents: flag(b.deleteBoundAgents) || flag(q.deleteBoundAgents),
+		forceAgentIds: ids,
+		dryRun: b.dryRun === true,
+	};
+}
+
+// Every successful WireGuard mutation and peer-config/QR download (key issuance)
+// leaves an audit entry: operation, link/interface id and changed field NAMES —
+// never key material. Only fires for authenticated (admin) requests.
+router.use(auditOnSuccess("wireguard", describeWireGuardRequest));
 
 router
 	.route("/status")
@@ -61,21 +85,11 @@ router
 					...internalWireGuard.sanitizeLinkMetadataPatch(patch),
 				};
 			}
-			const subnetToPeers = new Map();
-			for (const [id, meta] of Object.entries(projectedLinks)) {
-				if (meta.type === "client") continue;
-				for (const net of meta.importedNetworks || []) {
-					if (net.endsWith("/32") || net.endsWith("/128")) continue;
-					if (!subnetToPeers.has(net)) subnetToPeers.set(net, []);
-					subnetToPeers.get(net).push({ id, name: meta.name || id });
-				}
-			}
-			const conflicts = [];
-			for (const [subnet, claimants] of subnetToPeers) {
-				if (claimants.length > 1) {
-					conflicts.push(`${subnet} claimed by ${claimants.map((c) => c.name).join(", ")}`);
-				}
-			}
+			// CIDR overlap (not string equality): a /16 over another site's /24
+			// steals part of its traffic just like an identical net. Only pairs
+			// involving a patched link count, so an old overlap does not block an
+			// unrelated save.
+			const conflicts = internalWireGuard.findLinkNetworkConflicts(projectedLinks, Object.keys(links));
 			if (conflicts.length > 0) {
 				return next(new error.ValidationError(`AllowedIPs conflict: ${conflicts.join("; ")}`));
 			}
@@ -331,7 +345,7 @@ router
 				next(new error.ValidationError("name is required"));
 				return;
 			}
-			const result = await internalWireGuard.deleteInterface(name.trim());
+			const result = await internalWireGuard.deleteInterface(name.trim(), deleteOptions(req));
 			res.status(200).send(result);
 		} catch (err) {
 			if (err?.message?.includes("not found") || err?.message?.includes("Cannot delete")) {
@@ -357,7 +371,7 @@ router
 				next(new error.ValidationError("linkId is required"));
 				return;
 			}
-			const result = await internalWireGuard.deletePeer(linkId.trim());
+			const result = await internalWireGuard.deletePeer(linkId.trim(), deleteOptions(req));
 			res.status(200).send(result);
 		} catch (err) {
 			if (err?.message?.startsWith("Link not found") || err?.message?.startsWith("Interface")) {
@@ -474,7 +488,7 @@ router
 	.delete(async (req, res, next) => {
 		try {
 			const { linkId } = req.params;
-			const result = await internalWireGuard.deletePeer(linkId);
+			const result = await internalWireGuard.deletePeer(linkId, { ...deleteOptions(req), dryRun: false });
 			res.status(200).send(result);
 		} catch (err) {
 			if (err?.message?.startsWith("Link not found") || err?.message?.startsWith("Interface")) {
@@ -526,7 +540,10 @@ router
 	.all(requireAdmin())
 	.delete(async (req, res, next) => {
 		try {
-			const result = await internalWireGuard.deleteInterface(req.params.name);
+			const result = await internalWireGuard.deleteInterface(req.params.name, {
+				...deleteOptions(req),
+				dryRun: false,
+			});
 			res.status(200).send(result);
 		} catch (err) {
 			if (err?.message?.includes("not found") || err?.message?.includes("Cannot delete")) {

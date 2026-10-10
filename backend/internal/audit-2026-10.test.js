@@ -193,3 +193,30 @@ describe("bandwidth accounting", () => {
 		assert.equal(bandwidthBucketStart({ resolution: "1m", seconds: 60 }, 125_000), 120);
 	});
 });
+
+describe("updater release pinning", () => {
+	const { resolveReleaseTag } = appUpdateInternals;
+
+	it("returns the tag of the latest release", async () => {
+		const tag = await resolveReleaseTag({ getRemoteVersion: async () => ({ latest: "v2.3.1" }) });
+		assert.equal(tag, "v2.3.1");
+	});
+
+	it("refuses to start without a valid release tag", async () => {
+		for (const latest of [null, "", "master", "v2.3", "v2.3.1; rm -rf /", "--upload-pack=x"]) {
+			await assert.rejects(
+				() => resolveReleaseTag({ getRemoteVersion: async () => ({ latest }) }),
+				/no valid version tag/,
+			);
+		}
+		await assert.rejects(
+			() =>
+				resolveReleaseTag({
+					getRemoteVersion: async () => {
+						throw new Error("HTTP 403");
+					},
+				}),
+			/could not be determined/,
+		);
+	});
+});

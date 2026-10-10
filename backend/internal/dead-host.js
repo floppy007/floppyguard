@@ -26,6 +26,7 @@ const internalDeadHost = {
 		}
 
 		await access.can("dead_hosts:create", data);
+		internalNginx.assertSafeHostFields("dead_host", data);
 		await internalHost.assertCertificateAccess(access, data.certificate_id);
 
 		// Get a list of the domain names and check each of them against existing records
@@ -105,6 +106,7 @@ const internalDeadHost = {
 		}
 
 		await access.can("dead_hosts:update", data.id);
+		internalNginx.assertSafeHostFields("dead_host", data);
 
 		// Get a list of the domain names and check each of them against existing records
 		const domainNameCheckPromises = [];

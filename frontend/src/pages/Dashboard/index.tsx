@@ -13,12 +13,24 @@ import {
 	useCheckVersion,
 	useFail2BanStatus,
 	useHostReport,
+	useProxyHosts,
 	useUnbanIp,
+	useUser,
 	useWireGuardBandwidth,
 	useWireGuardStatus,
 } from "src/hooks";
 import { intl } from "src/locale/IntlProvider";
-import { ADMIN, DEAD_HOSTS, PROXY_HOSTS, REDIRECTION_HOSTS, STREAMS, VIEW } from "src/modules/Permissions";
+import { PEER_COLORS, peerColorMap, sortByVolume } from "src/pages/Traffic/bandwidth";
+import {
+	ADMIN,
+	DEAD_HOSTS,
+	hasPermission,
+	isAdmin,
+	PROXY_HOSTS,
+	REDIRECTION_HOSTS,
+	STREAMS,
+	VIEW,
+} from "src/modules/Permissions";
 
 const KNOWN_NEXT_ACTIONS = new Set([
 	"verify-return-path",
@@ -46,8 +58,6 @@ const byteFmt = (value?: number) => {
 	return `${current < 10 ? current.toFixed(2) : current < 100 ? current.toFixed(1) : Math.round(current)} ${units[idx]}`;
 };
 
-const PEER_COLORS = ["#4299e1", "#48bb78", "#ed8936", "#a78bfa", "#f687b3", "#38b2ac"];
-
 const rateFmt = (bps: number) => {
 	if (bps < 1024) return `${bps} B/s`;
 	if (bps < 1024 * 1024) return `${(bps / 1024).toFixed(1)} KB/s`;
@@ -57,12 +67,20 @@ const rateFmt = (bps: number) => {
 const timeAgo = (ts: number) => {
 	if (!ts) return "—";
 	const s = Math.floor(Date.now() / 1000) - ts;
-	if (s < 60) return `${s}s ago`;
-	if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-	return `${Math.floor(s / 3600)}h ago`;
+	if (s < 60) return intl.formatMessage({ id: "dashboard.ago-seconds" }, { count: s });
+	if (s < 3600) return intl.formatMessage({ id: "dashboard.ago-minutes" }, { count: Math.floor(s / 60) });
+	return intl.formatMessage({ id: "dashboard.ago-hours" }, { count: Math.floor(s / 3600) });
 };
 
-function MiniChart({ peers, mode }: { peers: PeerBandwidth[]; mode: "rx" | "tx" }) {
+function MiniChart({
+	peers,
+	colors,
+	mode,
+}: {
+	peers: PeerBandwidth[];
+	colors: Map<string, string>;
+	mode: "rx" | "tx";
+}) {
 	const W = 600;
 	const H = 140;
 	const N = 60;
@@ -99,8 +117,8 @@ function MiniChart({ peers, mode }: { peers: PeerBandwidth[]; mode: "rx" | "tx" 
 			<svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: H, display: "block" }}>
 				<title>bandwidth</title>
 				<defs>
-					{peers.map((_, idx) => {
-						const c = PEER_COLORS[idx % PEER_COLORS.length];
+					{peers.map((p, idx) => {
+						const c = colors.get(p.id) ?? PEER_COLORS[0];
 						return (
 							<linearGradient key={idx} id={`dg-${mode}-${idx}`} x1="0" y1="0" x2="0" y2="1">
 								<stop offset="0%" stopColor={c} stopOpacity="0.2" />
@@ -134,7 +152,7 @@ function MiniChart({ peers, mode }: { peers: PeerBandwidth[]; mode: "rx" | "tx" 
 					</g>
 				))}
 				{peers.map((p, idx) => {
-					const c = PEER_COLORS[idx % PEER_COLORS.length];
+					const c = colors.get(p.id) ?? PEER_COLORS[0];
 					const areaD = toD(p, true);
 					const lineD = toD(p, false);
 					if (!lineD) return null;
@@ -168,8 +186,8 @@ function MiniChart({ peers, mode }: { peers: PeerBandwidth[]; mode: "rx" | "tx" 
 				</text>
 			</svg>
 			<div className="d-flex flex-wrap gap-3" style={{ padding: "0.4rem 0 0" }}>
-				{peers.map((p, idx) => {
-					const c = PEER_COLORS[idx % PEER_COLORS.length];
+				{peers.map((p) => {
+					const c = colors.get(p.id) ?? PEER_COLORS[0];
 					const lastVal =
 						p.history.length > 0
 							? mode === "rx"
@@ -200,13 +218,25 @@ function UpdateNotice() {
 	return (
 		<div className="alert alert-success d-flex align-items-center justify-content-between gap-3 mb-4" role="alert">
 			<div>
-				<strong>FloppyGuard update available: {version.data.latest}</strong>
+				<strong>
+					{intl.formatMessage(
+						{ id: "dashboard.update-notice.title" },
+						{ version: version.data.latest ?? "" },
+					)}
+				</strong>
 				<div className="small">
-					Installed: {version.data.current}. The update starts only after your confirmation.
+					{intl.formatMessage(
+						{ id: "dashboard.update-notice.body" },
+						{ version: version.data.current ?? "" },
+					)}
 				</div>
 			</div>
-			<button type="button" className="btn btn-success btn-sm" onClick={() => navigate("/settings")}>
-				Update now
+			<button
+				type="button"
+				className="btn btn-success btn-sm"
+				onClick={() => navigate("/settings#application-update")}
+			>
+				{intl.formatMessage({ id: "dashboard.update-notice.action" })}
 			</button>
 		</div>
 	);
@@ -214,9 +244,12 @@ function UpdateNotice() {
 
 const Dashboard = () => {
 	const { data: hostReport } = useHostReport();
-	const { data: wireguard } = useWireGuardStatus();
-	const { data: bw = [] } = useWireGuardBandwidth();
-	const { data: fail2ban, isLoading: f2bLoading } = useFail2BanStatus();
+	// WireGuard, traffic and Fail2Ban APIs are admin-only (403 otherwise)
+	const { data: me } = useUser("me");
+	const admin = isAdmin(me?.roles);
+	const { data: wireguard } = useWireGuardStatus({ enabled: admin });
+	const { data: bw = [] } = useWireGuardBandwidth("live", { enabled: admin });
+	const { data: fail2ban, isLoading: f2bLoading } = useFail2BanStatus({ enabled: admin });
 	const unban = useUnbanIp();
 	const navigate = useNavigate();
 
@@ -225,11 +258,23 @@ const Dashboard = () => {
 	const hub = wireguard?.hub;
 	const nextActions = wireguard?.nextActions?.slice(0, 4) || [];
 	const links = wireguard?.links || [];
+	// Same stable per-peer colours as the Traffic page; rank the chart's top 4 by
+	// volume over the live window (the API orders by the newest sample only).
+	const chartPeers = sortByVolume(bw).slice(0, 4);
+	const peerColors = peerColorMap(
+		links.map((l) => l.id),
+		chartPeers.map((p) => p.id),
+	);
 	const missingReturnRoutes = wireguard?.routes.missingReturnRoutes || [];
 	const natCandidates = wireguard?.routes.natCandidates || [];
 
-	const proxyActive = hostReport?.proxy || 0;
-	const proxyTotal = proxyActive + (hostReport?.dead || 0);
+	// hostReport.proxy counts all proxy hosts (disabled included) and hostReport.dead
+	// is the 404-host count — the enabled/disabled split needs the host list itself.
+	const canViewProxy = hasPermission(PROXY_HOSTS, VIEW, me?.permissions, me?.roles);
+	const { data: proxyHosts } = useProxyHosts(undefined, { enabled: canViewProxy });
+	const proxyTotal = proxyHosts?.length ?? hostReport?.proxy ?? 0;
+	const proxyActive = proxyHosts ? proxyHosts.filter((h) => h.enabled).length : proxyTotal;
+	const proxyDisabled = proxyTotal - proxyActive;
 	const peersActive = wgSummary?.activePeers || 0;
 	const peersTotal = wgSummary?.totalPeers || 0;
 	const ifaceActive = wgSummary?.activeInterfaceCount || 0;
@@ -265,7 +310,7 @@ const Dashboard = () => {
 												letterSpacing: "0.04em",
 											}}
 										>
-											Proxy Hosts
+											{intl.formatMessage({ id: "proxy-hosts" })}
 										</div>
 										<div className="platform-stat-value">
 											{proxyActive}{" "}
@@ -277,7 +322,10 @@ const Dashboard = () => {
 											</span>
 										</div>
 										<div className="text-secondary" style={{ fontSize: "0.72rem" }}>
-											{proxyActive} active · {hostReport?.dead || 0} disabled
+											{intl.formatMessage(
+												{ id: "dashboard.proxy-active-disabled" },
+												{ active: proxyActive, disabled: proxyDisabled },
+											)}
 										</div>
 									</div>
 								</div>
@@ -285,337 +333,353 @@ const Dashboard = () => {
 						</a>
 					</div>
 				</HasPermission>
-				<div className="col-sm-6 col-xl-3">
-					<a
-						href="/wireguard"
-						className="card card-sm card-link card-link-pop platform-stat-card platform-card-link"
-						onClick={(e) => {
-							e.preventDefault();
-							navigate("/wireguard");
-						}}
-					>
-						<div className="card-body">
-							<div className="platform-stat-donut">
-								<DonutGauge
-									value={ifaceActive}
-									max={ifaceTotal || 1}
-									color="var(--tblr-primary)"
-									liveDot={ifaceActive > 0}
-								/>
-								<div>
-									<div
-										className="text-secondary"
-										style={{
-											fontSize: "0.72rem",
-											fontWeight: 600,
-											textTransform: "uppercase",
-											letterSpacing: "0.04em",
-										}}
-									>
-										WG Interfaces
-									</div>
-									<div className="platform-stat-value">
-										{ifaceActive}{" "}
-										<span
+				<HasPermission section={ADMIN} permission={VIEW} hideError>
+					<div className="col-sm-6 col-xl-3">
+						<a
+							href="/wireguard"
+							className="card card-sm card-link card-link-pop platform-stat-card platform-card-link"
+							onClick={(e) => {
+								e.preventDefault();
+								navigate("/wireguard");
+							}}
+						>
+							<div className="card-body">
+								<div className="platform-stat-donut">
+									<DonutGauge
+										value={ifaceActive}
+										max={ifaceTotal || 1}
+										color="var(--tblr-primary)"
+										liveDot={ifaceActive > 0}
+									/>
+									<div>
+										<div
 											className="text-secondary"
-											style={{ fontSize: "0.8rem", fontWeight: 400 }}
+											style={{
+												fontSize: "0.72rem",
+												fontWeight: 600,
+												textTransform: "uppercase",
+												letterSpacing: "0.04em",
+											}}
 										>
-											/ {ifaceTotal}
-										</span>
-									</div>
-									<div className="text-secondary" style={{ fontSize: "0.72rem" }}>
-										{hub?.name || "—"} active
+											{intl.formatMessage({ id: "dashboard.wg-interfaces" })}
+										</div>
+										<div className="platform-stat-value">
+											{ifaceActive}{" "}
+											<span
+												className="text-secondary"
+												style={{ fontSize: "0.8rem", fontWeight: 400 }}
+											>
+												/ {ifaceTotal}
+											</span>
+										</div>
+										<div className="text-secondary" style={{ fontSize: "0.72rem" }}>
+											{hub?.name || "—"} active
+										</div>
 									</div>
 								</div>
 							</div>
-						</div>
-					</a>
-				</div>
-				<div className="col-sm-6 col-xl-3">
-					<a
-						href="/wireguard"
-						className="card card-sm card-link card-link-pop platform-stat-card platform-card-link"
-						onClick={(e) => {
-							e.preventDefault();
-							navigate("/wireguard");
-						}}
-					>
-						<div className="card-body">
-							<div className="platform-stat-donut">
-								<DonutGauge value={peersActive} max={peersTotal || 1} color="var(--tblr-purple)" />
-								<div>
-									<div
-										className="text-secondary"
-										style={{
-											fontSize: "0.72rem",
-											fontWeight: 600,
-											textTransform: "uppercase",
-											letterSpacing: "0.04em",
-										}}
-									>
-										Active Peers
-									</div>
-									<div className="platform-stat-value">
-										{peersActive}{" "}
-										<span
+						</a>
+					</div>
+					<div className="col-sm-6 col-xl-3">
+						<a
+							href="/wireguard"
+							className="card card-sm card-link card-link-pop platform-stat-card platform-card-link"
+							onClick={(e) => {
+								e.preventDefault();
+								navigate("/wireguard");
+							}}
+						>
+							<div className="card-body">
+								<div className="platform-stat-donut">
+									<DonutGauge value={peersActive} max={peersTotal || 1} color="var(--tblr-purple)" />
+									<div>
+										<div
 											className="text-secondary"
-											style={{ fontSize: "0.8rem", fontWeight: 400 }}
+											style={{
+												fontSize: "0.72rem",
+												fontWeight: 600,
+												textTransform: "uppercase",
+												letterSpacing: "0.04em",
+											}}
 										>
-											/ {peersTotal}
-										</span>
-									</div>
-									<div className="text-secondary" style={{ fontSize: "0.72rem" }}>
-										{peersTotal - peersActive} peer idle
-									</div>
-								</div>
-							</div>
-						</div>
-					</a>
-				</div>
-				<div className="col-sm-6 col-xl-3">
-					<a
-						href="/wireguard"
-						className="card card-sm card-link card-link-pop platform-stat-card platform-card-link"
-						onClick={(e) => {
-							e.preventDefault();
-							navigate("/wireguard");
-						}}
-					>
-						<div className="card-body">
-							<div className="platform-stat-donut">
-								<DonutGauge
-									value={wgSummary?.linkCount || 0}
-									max={wgSummary?.linkCount || 1}
-									color="var(--tblr-green)"
-									liveDot={(wgSummary?.linkCount || 0) > 0}
-								/>
-								<div>
-									<div
-										className="text-secondary"
-										style={{
-											fontSize: "0.72rem",
-											fontWeight: 600,
-											textTransform: "uppercase",
-											letterSpacing: "0.04em",
-										}}
-									>
-										{intl.formatMessage({ id: "dashboard.stat.logical-links" })}
-									</div>
-									<div className="platform-stat-value">{wgSummary?.linkCount || 0}</div>
-									<div className="text-secondary" style={{ fontSize: "0.72rem" }}>
-										{wgSummary?.siteLinkCount || 0} site · {wgSummary?.clientLinkCount || 0} client
+											Active Peers
+										</div>
+										<div className="platform-stat-value">
+											{peersActive}{" "}
+											<span
+												className="text-secondary"
+												style={{ fontSize: "0.8rem", fontWeight: 400 }}
+											>
+												/ {peersTotal}
+											</span>
+										</div>
+										<div className="text-secondary" style={{ fontSize: "0.72rem" }}>
+											{intl.formatMessage(
+												{ id: "dashboard.peers-idle" },
+												{ count: peersTotal - peersActive },
+											)}
+										</div>
 									</div>
 								</div>
 							</div>
-						</div>
-					</a>
-				</div>
+						</a>
+					</div>
+					<div className="col-sm-6 col-xl-3">
+						<a
+							href="/wireguard"
+							className="card card-sm card-link card-link-pop platform-stat-card platform-card-link"
+							onClick={(e) => {
+								e.preventDefault();
+								navigate("/wireguard");
+							}}
+						>
+							<div className="card-body">
+								<div className="platform-stat-donut">
+									<DonutGauge
+										value={wgSummary?.linkCount || 0}
+										max={wgSummary?.linkCount || 1}
+										color="var(--tblr-green)"
+										liveDot={(wgSummary?.linkCount || 0) > 0}
+									/>
+									<div>
+										<div
+											className="text-secondary"
+											style={{
+												fontSize: "0.72rem",
+												fontWeight: 600,
+												textTransform: "uppercase",
+												letterSpacing: "0.04em",
+											}}
+										>
+											{intl.formatMessage({ id: "dashboard.stat.logical-links" })}
+										</div>
+										<div className="platform-stat-value">{wgSummary?.linkCount || 0}</div>
+										<div className="text-secondary" style={{ fontSize: "0.72rem" }}>
+											{wgSummary?.siteLinkCount || 0} site · {wgSummary?.clientLinkCount || 0}{" "}
+											client
+										</div>
+									</div>
+								</div>
+							</div>
+						</a>
+					</div>
+				</HasPermission>
 			</div>
 
 			{/* ═══ Gateway overview + Peer connections with sparklines ═══ */}
-			<div className="row row-cards">
-				<div className="col-lg-7">
-					<div className="card h-100 platform-elevated-card">
-						<div className="card-header">
-							<h3 className="card-title d-flex align-items-center gap-2">
-								<IconRoute size={18} /> {intl.formatMessage({ id: "dashboard.gateway-overview" })}
-							</h3>
-							<div className="card-options">
-								<a
-									href="/gateway"
-									className="btn btn-sm btn-ghost-secondary"
-									onClick={(e) => {
-										e.preventDefault();
-										navigate("/gateway");
-									}}
-								>
-									{intl.formatMessage({ id: "dashboard.view-routing" })} <IconArrowRight size={14} />
-								</a>
-							</div>
-						</div>
-						<div className="card-body">
-							<div className="row row-cards">
-								<div className="col-sm-6">
-									<div className="platform-inline-panel h-100">
-										<div className="text-secondary small mb-1">
-											{intl.formatMessage({ id: "dashboard.hub-interface" })}
-										</div>
-										<div className="fw-bold mb-1">{hub?.name || "—"}</div>
-										<div className="small text-secondary">
-											{hub?.addresses?.length
-												? hub.addresses.join(", ")
-												: intl.formatMessage({ id: "dashboard.no-addresses" })}
-										</div>
-									</div>
-								</div>
-								<div className="col-sm-6">
-									<div className="platform-inline-panel h-100">
-										<div className="text-secondary small mb-1">
-											{intl.formatMessage({ id: "dashboard.total-traffic" })}
-										</div>
-										<div className="fw-bold mb-1">
-											{byteFmt(wgSummary?.totalRxBytes)} / {byteFmt(wgSummary?.totalTxBytes)}
-										</div>
-										<div className="small text-secondary">
-											{wgSummary?.peerNetworkCount || 0} peer networks ·{" "}
-											{wgSummary?.privateRouteCount || 0} private routes
-										</div>
-									</div>
-								</div>
-								<div className="col-sm-6">
-									<div className="platform-inline-panel h-100">
-										<div className="text-secondary small mb-1">
-											{intl.formatMessage({ id: "dashboard.topology" })}
-										</div>
-										<div className="fw-bold mb-1">
-											{wgSummary?.siteLinkCount || 0} site · {wgSummary?.hubLinkCount || 0} hub ·{" "}
-											{wgSummary?.clientLinkCount || 0} client
-										</div>
-										<div className="small text-secondary">
-											{missingReturnRoutes.length > 0 && (
-												<span className="text-warning">
-													{intl.formatMessage(
-														{ id: "dashboard.missing-return-hint" },
-														{ count: missingReturnRoutes.length },
-													)}{" "}
-													·{" "}
-												</span>
-											)}
-											{natCandidates.length > 0 && (
-												<span className="text-warning">
-													{intl.formatMessage(
-														{ id: "dashboard.nat-candidate-hint" },
-														{ count: natCandidates.length },
-													)}{" "}
-													·{" "}
-												</span>
-											)}
-											{missingReturnRoutes.length === 0 && natCandidates.length === 0 && (
-												<span>{intl.formatMessage({ id: "dashboard.no-route-risks" })} · </span>
-											)}
-											<span>
-												{intl.formatMessage(
-													{ id: "dashboard.wg-routes" },
-													{ count: wgSummary?.wireguardRouteCount || 0 },
-												)}
-											</span>
-										</div>
-									</div>
-								</div>
-								<div className="col-sm-6">
-									<div className="platform-inline-panel h-100">
-										<div className="text-secondary small mb-1">
-											{intl.formatMessage({ id: "dashboard.next-steps" })}
-										</div>
-										<div className="small text-secondary d-flex flex-column gap-1">
-											{nextActions.length ? (
-												nextActions.map((a) => <span key={a}>• {fmtNextAction(a)}</span>)
-											) : (
-												<span>{intl.formatMessage({ id: "dashboard.no-hints" })}</span>
-											)}
-										</div>
-									</div>
+			<HasPermission section={ADMIN} permission={VIEW} hideError>
+				<div className="row row-cards">
+					<div className="col-lg-7">
+						<div className="card h-100 platform-elevated-card">
+							<div className="card-header">
+								<h3 className="card-title d-flex align-items-center gap-2">
+									<IconRoute size={18} /> {intl.formatMessage({ id: "dashboard.gateway-overview" })}
+								</h3>
+								<div className="card-options">
+									<a
+										href="/gateway"
+										className="btn btn-sm btn-ghost-secondary"
+										onClick={(e) => {
+											e.preventDefault();
+											navigate("/gateway");
+										}}
+									>
+										{intl.formatMessage({ id: "dashboard.view-routing" })}{" "}
+										<IconArrowRight size={14} />
+									</a>
 								</div>
 							</div>
-						</div>
-					</div>
-				</div>
-				<div className="col-lg-5">
-					<div className="card h-100 platform-table-card">
-						<div className="card-header">
-							<h3 className="card-title d-flex align-items-center gap-2">
-								<IconShieldHalfFilled size={16} />
-								{intl.formatMessage({ id: "dashboard.link-preview" })}
-								{links.some((l) => l.active) && (
-									<span
-										className="status-dot status-green status-dot-animated"
-										style={{ width: 5, height: 5 }}
-									/>
-								)}
-							</h3>
-							<div className="card-options">
-								<a
-									href="/traffic"
-									className="btn btn-sm btn-ghost-secondary"
-									onClick={(e) => {
-										e.preventDefault();
-										navigate("/traffic");
-									}}
-								>
-									{intl.formatMessage({ id: "dashboard.view-traffic" })} <IconArrowRight size={14} />
-								</a>
-							</div>
-						</div>
-						<div style={{ maxHeight: 280, overflowY: "auto" }}>
-							{(() => {
-								if (!links.length) {
-									return (
-										<div className="p-3 text-secondary small">
-											{intl.formatMessage({ id: "dashboard.no-links" })}
+							<div className="card-body">
+								<div className="row row-cards">
+									<div className="col-sm-6">
+										<div className="platform-inline-panel h-100">
+											<div className="text-secondary small mb-1">
+												{intl.formatMessage({ id: "dashboard.hub-interface" })}
+											</div>
+											<div className="fw-bold mb-1">{hub?.name || "—"}</div>
+											<div className="small text-secondary">
+												{hub?.addresses?.length
+													? hub.addresses.join(", ")
+													: intl.formatMessage({ id: "dashboard.no-addresses" })}
+											</div>
 										</div>
-									);
-								}
-
-								// Map bandwidth history to links
-								const bwMap = new Map(bw.map((p) => [p.id, p]));
-
-								return links.map((link) => {
-									const isActive =
-										link.active &&
-										link.latestHandshake > 0 &&
-										Date.now() / 1000 - link.latestHandshake < 180;
-									const peerBw = bwMap.get(link.id);
-									const sparkData = peerBw?.history.map((s) => s.rx + s.tx) || [];
-									const color = isActive
-										? PEER_COLORS[links.indexOf(link) % PEER_COLORS.length]
-										: "var(--tblr-secondary)";
-
-									return (
-										<div key={link.id} className="platform-peer-row">
-											<div className="d-flex align-items-center justify-content-between mb-1">
-												<div>
-													<span className="fw-medium" style={{ fontSize: "0.85rem" }}>
-														{link.name || link.id}
+									</div>
+									<div className="col-sm-6">
+										<div className="platform-inline-panel h-100">
+											<div className="text-secondary small mb-1">
+												{intl.formatMessage({ id: "dashboard.total-traffic" })}
+											</div>
+											<div className="fw-bold mb-1">
+												{byteFmt(wgSummary?.totalRxBytes)} / {byteFmt(wgSummary?.totalTxBytes)}
+											</div>
+											<div className="small text-secondary">
+												{wgSummary?.peerNetworkCount || 0} peer networks ·{" "}
+												{wgSummary?.privateRouteCount || 0} private routes
+											</div>
+										</div>
+									</div>
+									<div className="col-sm-6">
+										<div className="platform-inline-panel h-100">
+											<div className="text-secondary small mb-1">
+												{intl.formatMessage({ id: "dashboard.topology" })}
+											</div>
+											<div className="fw-bold mb-1">
+												{wgSummary?.siteLinkCount || 0} site · {wgSummary?.hubLinkCount || 0}{" "}
+												hub · {wgSummary?.clientLinkCount || 0} client
+											</div>
+											<div className="small text-secondary">
+												{missingReturnRoutes.length > 0 && (
+													<span className="text-warning">
+														{intl.formatMessage(
+															{ id: "dashboard.missing-return-hint" },
+															{ count: missingReturnRoutes.length },
+														)}{" "}
+														·{" "}
 													</span>
-													<div className="text-secondary" style={{ fontSize: "0.7rem" }}>
-														{link.type || "—"} · {link.interfaceName} · handshake{" "}
-														{timeAgo(link.latestHandshake)}
-													</div>
-												</div>
-												<span
-													className={`badge ${isActive ? "bg-success-lt text-success" : "bg-secondary-lt text-secondary"}`}
-													style={{ fontSize: "0.65rem" }}
-												>
-													{isActive ? "●" : "○"} {isActive ? "Active" : "Idle"}
+												)}
+												{natCandidates.length > 0 && (
+													<span className="text-warning">
+														{intl.formatMessage(
+															{ id: "dashboard.nat-candidate-hint" },
+															{ count: natCandidates.length },
+														)}{" "}
+														·{" "}
+													</span>
+												)}
+												{missingReturnRoutes.length === 0 && natCandidates.length === 0 && (
+													<span>
+														{intl.formatMessage({ id: "dashboard.no-route-risks" })} ·{" "}
+													</span>
+												)}
+												<span>
+													{intl.formatMessage(
+														{ id: "dashboard.wg-routes" },
+														{ count: wgSummary?.wireguardRouteCount || 0 },
+													)}
 												</span>
 											</div>
-											<div className="platform-peer-bottom">
-												<div className="platform-peer-spark">
-													<PeerSparkline data={sparkData} color={color} height={32} />
-												</div>
-												<div className="platform-peer-stats">
-													<div style={{ textAlign: "right" }}>
-														<div className="platform-peer-stat-dir text-success">↓ RX</div>
-														<div className="platform-peer-stat-val">
-															{byteFmt(link.rxBytes)}
+										</div>
+									</div>
+									<div className="col-sm-6">
+										<div className="platform-inline-panel h-100">
+											<div className="text-secondary small mb-1">
+												{intl.formatMessage({ id: "dashboard.next-steps" })}
+											</div>
+											<div className="small text-secondary d-flex flex-column gap-1">
+												{nextActions.length ? (
+													nextActions.map((a) => <span key={a}>• {fmtNextAction(a)}</span>)
+												) : (
+													<span>{intl.formatMessage({ id: "dashboard.no-hints" })}</span>
+												)}
+											</div>
+										</div>
+									</div>
+								</div>
+							</div>
+						</div>
+					</div>
+					<div className="col-lg-5">
+						<div className="card h-100 platform-table-card">
+							<div className="card-header">
+								<h3 className="card-title d-flex align-items-center gap-2">
+									<IconShieldHalfFilled size={16} />
+									{intl.formatMessage({ id: "dashboard.link-preview" })}
+									{links.some((l) => l.active) && (
+										<span
+											className="status-dot status-green status-dot-animated"
+											style={{ width: 5, height: 5 }}
+										/>
+									)}
+								</h3>
+								<div className="card-options">
+									<a
+										href="/traffic"
+										className="btn btn-sm btn-ghost-secondary"
+										onClick={(e) => {
+											e.preventDefault();
+											navigate("/traffic");
+										}}
+									>
+										{intl.formatMessage({ id: "dashboard.view-traffic" })}{" "}
+										<IconArrowRight size={14} />
+									</a>
+								</div>
+							</div>
+							<div style={{ maxHeight: 280, overflowY: "auto" }}>
+								{(() => {
+									if (!links.length) {
+										return (
+											<div className="p-3 text-secondary small">
+												{intl.formatMessage({ id: "dashboard.no-links" })}
+											</div>
+										);
+									}
+
+									// Map bandwidth history to links
+									const bwMap = new Map(bw.map((p) => [p.id, p]));
+
+									return links.map((link) => {
+										const isActive =
+											link.active &&
+											link.latestHandshake > 0 &&
+											Date.now() / 1000 - link.latestHandshake < 180;
+										const peerBw = bwMap.get(link.id);
+										const sparkData = peerBw?.history.map((s) => s.rx + s.tx) || [];
+										const color = isActive
+											? (peerColors.get(link.id) ?? PEER_COLORS[0])
+											: "var(--tblr-secondary)";
+
+										return (
+											<div key={link.id} className="platform-peer-row">
+												<div className="d-flex align-items-center justify-content-between mb-1">
+													<div>
+														<span className="fw-medium" style={{ fontSize: "0.85rem" }}>
+															{link.name || link.id}
+														</span>
+														<div className="text-secondary" style={{ fontSize: "0.7rem" }}>
+															{link.type || "—"} · {link.interfaceName} · handshake{" "}
+															{timeAgo(link.latestHandshake)}
 														</div>
 													</div>
-													<div style={{ textAlign: "right" }}>
-														<div className="platform-peer-stat-dir text-primary">↑ TX</div>
-														<div className="platform-peer-stat-val">
-															{byteFmt(link.txBytes)}
+													<span
+														className={`badge ${isActive ? "bg-success-lt text-success" : "bg-secondary-lt text-secondary"}`}
+														style={{ fontSize: "0.65rem" }}
+													>
+														{isActive ? "●" : "○"} {isActive ? "Active" : "Idle"}
+													</span>
+												</div>
+												<div className="platform-peer-bottom">
+													<div className="platform-peer-spark">
+														<PeerSparkline data={sparkData} color={color} height={32} />
+													</div>
+													<div className="platform-peer-stats">
+														<div style={{ textAlign: "right" }}>
+															<div className="platform-peer-stat-dir text-success">
+																↓ RX
+															</div>
+															<div className="platform-peer-stat-val">
+																{byteFmt(link.rxBytes)}
+															</div>
+														</div>
+														<div style={{ textAlign: "right" }}>
+															<div className="platform-peer-stat-dir text-primary">
+																↑ TX
+															</div>
+															<div className="platform-peer-stat-val">
+																{byteFmt(link.txBytes)}
+															</div>
 														</div>
 													</div>
 												</div>
 											</div>
-										</div>
-									);
-								});
-							})()}
+										);
+									});
+								})()}
+							</div>
 						</div>
 					</div>
 				</div>
-			</div>
+			</HasPermission>
 
 			{/* ═══ Live bandwidth charts ═══ */}
 			{hasHistory && (
@@ -639,7 +703,7 @@ const Dashboard = () => {
 								</div>
 							</div>
 							<div className="card-body pt-1 pb-2">
-								<MiniChart peers={bw.slice(0, 4)} mode="rx" />
+								<MiniChart peers={chartPeers} colors={peerColors} mode="rx" />
 							</div>
 						</div>
 					</div>
@@ -662,7 +726,7 @@ const Dashboard = () => {
 								</div>
 							</div>
 							<div className="card-body pt-1 pb-2">
-								<MiniChart peers={bw.slice(0, 4)} mode="tx" />
+								<MiniChart peers={chartPeers} colors={peerColors} mode="tx" />
 							</div>
 						</div>
 					</div>
@@ -786,7 +850,10 @@ const Dashboard = () => {
 											Dead Hosts
 										</div>
 										<div className="platform-stat-value" style={{ fontSize: "1.15rem" }}>
-											{hostReport?.dead || 0} blocked
+											{intl.formatMessage(
+												{ id: "dashboard.dead-blocked" },
+												{ count: hostReport?.dead || 0 },
+											)}
 										</div>
 										<div className="text-secondary" style={{ fontSize: "0.72rem" }}>
 											Serving 410 Gone
@@ -800,107 +867,122 @@ const Dashboard = () => {
 			</div>
 
 			{/* ═══ Fail2Ban ═══ */}
-			<div className="row row-cards">
-				<div className="col-12">
-					<div className="card platform-elevated-card">
-						<div className="card-header">
-							<h3 className="card-title d-flex align-items-center gap-2">
-								<IconShield size={18} /> Fail2Ban
-							</h3>
-							<div className="card-options">
-								{fail2ban?.available && (
-									<span className="badge bg-green-lt text-green">
-										{intl.formatMessage({ id: "f2b.active" })}
-									</span>
+			<HasPermission section={ADMIN} permission={VIEW} hideError>
+				<div className="row row-cards">
+					<div className="col-12">
+						<div className="card platform-elevated-card">
+							<div className="card-header">
+								<h3 className="card-title d-flex align-items-center gap-2">
+									<IconShield size={18} /> Fail2Ban
+								</h3>
+								<div className="card-options">
+									{fail2ban?.available && (
+										<span className="badge bg-green-lt text-green">
+											{intl.formatMessage({ id: "f2b.active" })}
+										</span>
+									)}
+								</div>
+							</div>
+							<div className="card-body p-0">
+								{f2bLoading && (
+									<div className="p-3 text-secondary small">
+										{intl.formatMessage({ id: "f2b.loading" })}
+									</div>
+								)}
+								{!f2bLoading && !fail2ban?.available && (
+									<div className="p-3 text-secondary small">
+										{intl.formatMessage({ id: "f2b.unavailable" })}
+									</div>
+								)}
+								{fail2ban?.available && fail2ban.jails.length === 0 && (
+									<div className="p-3 text-secondary small">
+										{intl.formatMessage({ id: "f2b.no-jails" })}
+									</div>
+								)}
+								{unban.isError && (
+									<div className="alert alert-danger m-3 mb-0 py-2 small">
+										{intl.formatMessage({ id: "f2b.unban" })}
+										{unban.variables ? ` ${unban.variables.ip} (${unban.variables.jail})` : ""}:{" "}
+										{unban.error?.message}
+									</div>
+								)}
+								{fail2ban?.available && fail2ban.jails.length > 0 && (
+									<table className="table table-vcenter card-table">
+										<thead>
+											<tr>
+												<th>{intl.formatMessage({ id: "f2b.col-jail" })}</th>
+												<th className="text-end">
+													{intl.formatMessage({ id: "f2b.col-failed" })}
+												</th>
+												<th className="text-end">
+													{intl.formatMessage({ id: "f2b.col-banned" })}
+												</th>
+												<th>{intl.formatMessage({ id: "f2b.col-banned-ips" })}</th>
+											</tr>
+										</thead>
+										<tbody>
+											{fail2ban.jails.map((jail) => (
+												<tr key={jail.name}>
+													<td className="fw-medium">{jail.name}</td>
+													<td className="text-end">
+														<span
+															className={
+																jail.currentlyFailed > 0
+																	? "text-warning"
+																	: "text-secondary"
+															}
+														>
+															{jail.currentlyFailed}
+														</span>
+														<span className="text-secondary"> / {jail.totalFailed}</span>
+													</td>
+													<td className="text-end">
+														<span
+															className={
+																jail.currentlyBanned > 0
+																	? "text-danger fw-bold"
+																	: "text-secondary"
+															}
+														>
+															{jail.currentlyBanned}
+														</span>
+														<span className="text-secondary"> / {jail.totalBanned}</span>
+													</td>
+													<td>
+														<div className="d-flex flex-wrap gap-1">
+															{jail.bannedIps.length === 0 && (
+																<span className="text-secondary small">—</span>
+															)}
+															{jail.bannedIps.map((ip) => (
+																<span
+																	key={ip}
+																	className="badge bg-red-lt text-red d-flex align-items-center gap-1"
+																>
+																	{ip}
+																	<button
+																		type="button"
+																		className="btn-close btn-close-sm ms-1"
+																		style={{ fontSize: "0.6rem" }}
+																		title={intl.formatMessage({ id: "f2b.unban" })}
+																		disabled={unban.isPending}
+																		onClick={() =>
+																			unban.mutate({ jail: jail.name, ip })
+																		}
+																	/>
+																</span>
+															))}
+														</div>
+													</td>
+												</tr>
+											))}
+										</tbody>
+									</table>
 								)}
 							</div>
 						</div>
-						<div className="card-body p-0">
-							{f2bLoading && (
-								<div className="p-3 text-secondary small">
-									{intl.formatMessage({ id: "f2b.loading" })}
-								</div>
-							)}
-							{!f2bLoading && !fail2ban?.available && (
-								<div className="p-3 text-secondary small">
-									{intl.formatMessage({ id: "f2b.unavailable" })}
-								</div>
-							)}
-							{fail2ban?.available && fail2ban.jails.length === 0 && (
-								<div className="p-3 text-secondary small">
-									{intl.formatMessage({ id: "f2b.no-jails" })}
-								</div>
-							)}
-							{fail2ban?.available && fail2ban.jails.length > 0 && (
-								<table className="table table-vcenter card-table">
-									<thead>
-										<tr>
-											<th>{intl.formatMessage({ id: "f2b.col-jail" })}</th>
-											<th className="text-end">{intl.formatMessage({ id: "f2b.col-failed" })}</th>
-											<th className="text-end">{intl.formatMessage({ id: "f2b.col-banned" })}</th>
-											<th>{intl.formatMessage({ id: "f2b.col-banned-ips" })}</th>
-										</tr>
-									</thead>
-									<tbody>
-										{fail2ban.jails.map((jail) => (
-											<tr key={jail.name}>
-												<td className="fw-medium">{jail.name}</td>
-												<td className="text-end">
-													<span
-														className={
-															jail.currentlyFailed > 0 ? "text-warning" : "text-secondary"
-														}
-													>
-														{jail.currentlyFailed}
-													</span>
-													<span className="text-secondary"> / {jail.totalFailed}</span>
-												</td>
-												<td className="text-end">
-													<span
-														className={
-															jail.currentlyBanned > 0
-																? "text-danger fw-bold"
-																: "text-secondary"
-														}
-													>
-														{jail.currentlyBanned}
-													</span>
-													<span className="text-secondary"> / {jail.totalBanned}</span>
-												</td>
-												<td>
-													<div className="d-flex flex-wrap gap-1">
-														{jail.bannedIps.length === 0 && (
-															<span className="text-secondary small">—</span>
-														)}
-														{jail.bannedIps.map((ip) => (
-															<span
-																key={ip}
-																className="badge bg-red-lt text-red d-flex align-items-center gap-1"
-															>
-																{ip}
-																<button
-																	type="button"
-																	className="btn-close btn-close-sm ms-1"
-																	style={{ fontSize: "0.6rem" }}
-																	title={intl.formatMessage({ id: "f2b.unban" })}
-																	disabled={unban.isPending}
-																	onClick={() =>
-																		unban.mutate({ jail: jail.name, ip })
-																	}
-																/>
-															</span>
-														))}
-													</div>
-												</td>
-											</tr>
-										))}
-									</tbody>
-								</table>
-							)}
-						</div>
 					</div>
 				</div>
-			</div>
+			</HasPermission>
 		</div>
 	);
 };

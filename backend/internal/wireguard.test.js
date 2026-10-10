@@ -5,6 +5,8 @@ import path from "node:path";
 import test from "node:test";
 import {
 	_buildPeerUpdates,
+	_isGeneratedMasq,
+	_rewriteHubConf,
 	buildLinkRecord,
 	canonicalizeIpv4Network,
 	configuredHubHost,
@@ -545,4 +547,206 @@ fi
 	} finally {
 		await rm(tempRoot, { recursive: true, force: true });
 	}
+});
+
+// ─── _rewriteHubConf PostUp/PostDown MASQUERADE ownership ───────────────────
+
+test("_rewriteHubConf keeps operator MASQUERADE rules and never deletes a rule twice in PostDown", () => {
+	const lines = [
+		"[Interface]",
+		"Address = 10.10.0.1/24",
+		"# floppyguard-masq: eth1=10.10.0.0/24, eth1=192.168.0.0/16",
+		"PostUp = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -s 15.0.0.0/24 -o wg0 -j MASQUERADE; iptables -t nat -A POSTROUTING -o eth1 -s 10.10.0.0/24 -j MASQUERADE",
+		"PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o eth1 -s 10.10.0.0/24 -j MASQUERADE 2>/dev/null || true; iptables -t nat -D POSTROUTING -o eth1 -s 192.168.0.0/16 -j MASQUERADE 2>/dev/null || true; iptables -t nat -D POSTROUTING -s 15.0.0.0/24 -o wg0 -j MASQUERADE; iptables -t nat -D POSTROUTING -o eth1 -s 10.10.0.0/24 -j MASQUERADE",
+		"[Peer]",
+		"PublicKey = abc",
+		"AllowedIPs = 10.10.0.2/32",
+	];
+	const nics = [
+		{ name: "eth1", cidr: "10.10.10.106/24" },
+		{ name: "eth1", cidr: "10.10.0.0/24" },
+	];
+	const text = _rewriteHubConf(lines, "wg0", new Map(), new Set(["192.168.11.0/24"]), nics);
+	const up = text
+		.split("\n")
+		.find((l) => l.startsWith("PostUp"))
+		.slice("PostUp = ".length)
+		.split("; ");
+	const down = text
+		.split("\n")
+		.find((l) => l.startsWith("PostDown"))
+		.slice("PostDown = ".length)
+		.split("; ");
+	assert.ok(
+		up.includes("iptables -t nat -A POSTROUTING -s 15.0.0.0/24 -o wg0 -j MASQUERADE"),
+		"operator rule kept in PostUp",
+	);
+	assert.ok(
+		down.includes("iptables -t nat -D POSTROUTING -s 15.0.0.0/24 -o wg0 -j MASQUERADE"),
+		"operator rule kept in PostDown",
+	);
+	assert.equal(up.filter((c) => c.includes("-s 10.10.0.0/24 -j MASQUERADE")).length, 1);
+	const tunnelDel = down.filter((c) => c.includes("-o eth1 -s 10.10.0.0/24 -j MASQUERADE"));
+	assert.deepEqual(tunnelDel, [
+		"iptables -t nat -D POSTROUTING -o eth1 -s 10.10.0.0/24 -j MASQUERADE 2>/dev/null || true",
+	]);
+	assert.ok(!down.some((c) => c.includes("192.168.0.0/16")), "previously generated (marker) delete dropped");
+	assert.ok(
+		text.split("\n").includes("# floppyguard-masq: eth1=10.10.0.0/24, eth1=10.10.10.106/24"),
+		"marker records exactly the set written now",
+	);
+	for (const c of down.filter((c) => c.includes("-j MASQUERADE") && c.includes("-o eth1"))) {
+		assert.ok(c.endsWith("2>/dev/null || true"), `PostDown delete must be tolerant: ${c}`);
+	}
+	// Idempotent: a second rewrite yields the same text.
+	assert.equal(_rewriteHubConf(text.split("\n"), "wg0", new Map(), new Set(["192.168.11.0/24"]), nics), text);
+});
+
+// ─── deletePeer: a failed conf rewrite must leave everything in place ────────
+
+test("deletePeer aborts before the live removal when the conf rewrite fails, so the link stays retryable", async () => {
+	const tempRoot = await mkdtemp(path.join(os.tmpdir(), "wg-delete-fail-"));
+	const confDir = path.join(tempRoot, "conf");
+	const binDir = path.join(tempRoot, "bin");
+	const metadataFile = path.join(tempRoot, "meta", "metadata.json");
+	const wgLog = path.join(tempRoot, "wg-calls.log");
+	await mkdir(confDir, { recursive: true });
+	await mkdir(binDir, { recursive: true });
+	await mkdir(path.dirname(metadataFile), { recursive: true });
+
+	const confText =
+		"[Interface]\nAddress = 10.10.0.1/24\nListenPort = 51820\nPrivateKey = hub-priv\n\n[Peer]\nPublicKey = site-pk\nAllowedIPs = 10.10.0.5/32, 192.168.77.0/24\n";
+	const confPath = path.join(confDir, "wg0.conf");
+	await writeFile(confPath, confText, "utf8");
+	// writeConfAtomic opens `${confPath}.tmp-${pid}` for writing — a directory at
+	// that path makes the open fail (EISDIR) even when running as root.
+	await mkdir(`${confPath}.tmp-${process.pid}`);
+	await writeFile(
+		metadataFile,
+		`${JSON.stringify({ interfaces: {}, links: { "wg0:site-pk": { name: "site-x", type: "site-to-site" } } })}\n`,
+		"utf8",
+	);
+
+	const wgBin = path.join(binDir, "wg-test");
+	await writeFile(
+		wgBin,
+		`#!/usr/bin/env bash
+echo "$*" >> '${wgLog}'
+if [ "$1" = "show" ]; then
+	printf 'wg0\\thub-priv\\thub-pub\\t51820\\toff\\n'
+	printf 'wg0\\tsite-pk\\t(none)\\t1.2.3.4:51820\\t10.10.0.5/32,192.168.77.0/24\\t4102444800\\t10\\t20\\t0\\n'
+fi
+`,
+		"utf8",
+	);
+	await chmod(wgBin, 0o755);
+	const ipBin = path.join(binDir, "ip-test");
+	await writeFile(ipBin, "#!/usr/bin/env bash\nexit 0\n", "utf8");
+	await chmod(ipBin, 0o755);
+
+	try {
+		await withWireGuardEnv(
+			{ WG_CONF_DIR: confDir, WG_BIN: wgBin, IP_BIN: ipBin, WG_METADATA_FILE: metadataFile },
+			`delete-fail-${Date.now()}`,
+			async (imported) => {
+				imported._setBoundAgentCascadeDepsForTests({ loadAgents: async () => [] });
+				await assert.rejects(imported.default.deletePeer("wg0:site-pk"), /could not be rewritten/);
+				const { readFile } = await import("node:fs/promises");
+				const calls = await readFile(wgLog, "utf8");
+				assert.ok(!/\bset wg0 peer site-pk remove\b/.test(calls), "live peer must not be removed");
+				assert.equal(await readFile(confPath, "utf8"), confText, "conf untouched");
+				const meta = JSON.parse(await readFile(metadataFile, "utf8"));
+				assert.ok(meta.links["wg0:site-pk"], "metadata link kept");
+				const status = await imported.default.getStatus();
+				assert.ok(
+					status.links.some((l) => l.id === "wg0:site-pk"),
+					"link still in status → retry possible",
+				);
+			},
+		);
+	} finally {
+		await rm(tempRoot, { recursive: true, force: true });
+	}
+});
+
+// ─── _isGeneratedMasq: ownership by set membership, both argument orders ─────
+
+test("_isGeneratedMasq: only the generator form with an owned (nic, cidr) is generated", () => {
+	const owned = new Set(["eth1=10.10.0.0/24"]);
+	// Generator form, owned → generated (with and without the PostDown suffix).
+	assert.equal(
+		_isGeneratedMasq("iptables -t nat -A POSTROUTING -o eth1 -s 10.10.0.0/24 -j MASQUERADE", "wg0", owned),
+		true,
+	);
+	assert.equal(
+		_isGeneratedMasq(
+			"iptables -t nat -D POSTROUTING -o eth1 -s 10.10.0.0/24 -j MASQUERADE 2>/dev/null || true",
+			"wg0",
+			owned,
+		),
+		true,
+	);
+	// Operator rule in the natural `-o eth1 -s X` order for a net we never owned → kept.
+	assert.equal(
+		_isGeneratedMasq("iptables -t nat -A POSTROUTING -o eth1 -s 172.16.5.0/24 -j MASQUERADE", "wg0", owned),
+		false,
+	);
+	// `-s X -o <if>` order is never generator output — kept even for an owned pair.
+	assert.equal(
+		_isGeneratedMasq("iptables -t nat -A POSTROUTING -s 10.10.0.0/24 -o eth1 -j MASQUERADE", "wg0", owned),
+		false,
+	);
+	assert.equal(
+		_isGeneratedMasq("iptables -t nat -A POSTROUTING -s 15.0.0.0/24 -o wg0 -j MASQUERADE", "wg0", owned),
+		false,
+	);
+	// Never the WireGuard interface itself.
+	assert.equal(
+		_isGeneratedMasq(
+			"iptables -t nat -A POSTROUTING -o wg0 -s 10.10.0.0/24 -j MASQUERADE",
+			"wg0",
+			new Set(["wg0=10.10.0.0/24"]),
+		),
+		false,
+	);
+	// No owned set → nothing is generated.
+	assert.equal(
+		_isGeneratedMasq("iptables -t nat -A POSTROUTING -o eth1 -s 10.10.0.0/24 -j MASQUERADE", "wg0"),
+		false,
+	);
+});
+
+test("_rewriteHubConf keeps an operator `-o eth1 -s X` rule in both orders across rewrites", () => {
+	const lines = [
+		"[Interface]",
+		"Address = 10.10.0.1/24",
+		"PostUp = iptables -t nat -A POSTROUTING -o eth1 -s 172.16.5.0/24 -j MASQUERADE; iptables -t nat -A POSTROUTING -s 172.16.6.0/24 -o eth1 -j MASQUERADE",
+		"PostDown = iptables -t nat -D POSTROUTING -o eth1 -s 172.16.5.0/24 -j MASQUERADE; iptables -t nat -D POSTROUTING -s 172.16.6.0/24 -o eth1 -j MASQUERADE",
+		"",
+		"# Site A",
+		"[Peer]",
+		"PublicKey = abc",
+		"AllowedIPs = 10.10.0.2/32",
+	];
+	const nics = [{ name: "eth1", cidr: "10.10.0.0/24" }];
+	const once = _rewriteHubConf(lines, "wg0", new Map(), new Set(), nics);
+	const twice = _rewriteHubConf(once.split("\n"), "wg0", new Map(), new Set(), nics);
+	assert.equal(twice, once, "idempotent");
+	for (const rule of [
+		"iptables -t nat -A POSTROUTING -o eth1 -s 172.16.5.0/24 -j MASQUERADE",
+		"iptables -t nat -A POSTROUTING -s 172.16.6.0/24 -o eth1 -j MASQUERADE",
+		"iptables -t nat -D POSTROUTING -o eth1 -s 172.16.5.0/24 -j MASQUERADE",
+		"iptables -t nat -D POSTROUTING -s 172.16.6.0/24 -o eth1 -j MASQUERADE",
+	]) {
+		assert.ok(twice.includes(rule), `operator rule kept: ${rule}`);
+	}
+	// A NIC that disappears: its previously generated rule (recorded in the marker)
+	// is dropped, the operator rules stay.
+	const third = _rewriteHubConf(twice.split("\n"), "wg0", new Map(), new Set(), []);
+	assert.ok(!third.includes("-o eth1 -s 10.10.0.0/24"), "stale generated rule removed via marker");
+	assert.ok(third.includes("-o eth1 -s 172.16.5.0/24 -j MASQUERADE"), "operator rule still kept");
+	assert.ok(third.includes("# floppyguard-masq: -"));
+	// The marker sits above PostUp, never directly before a [Peer] block.
+	const ls = twice.split("\n");
+	assert.match(ls[ls.findIndex((l) => l.startsWith("# floppyguard-masq:")) + 1], /^PostUp = /);
 });

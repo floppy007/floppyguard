@@ -27,6 +27,7 @@ const internalStream = {
 
 		return access
 			.can("streams:create", data)
+			.then(() => internalNginx.assertSafeHostFields("stream", data))
 			.then((/*access_data*/) => {
 				// TODO: At this point the existing ports should have been checked
 				data.owner_user_id = access.token.getUserId(1);
@@ -102,6 +103,7 @@ const internalStream = {
 
 		return access
 			.can("streams:update", thisData.id)
+			.then(() => internalNginx.assertSafeHostFields("stream", thisData))
 			.then((/*access_data*/) => {
 				// TODO: at this point the existing streams should have been checked
 				return internalStream.get(access, { id: thisData.id });

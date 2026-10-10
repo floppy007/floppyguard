@@ -5,6 +5,7 @@ import type { BandwidthRange, PeerBandwidth } from "src/api/backend";
 import { DonutGauge, PeerSparkline } from "src/components";
 import { useWireGuardBandwidth, useWireGuardStatus } from "src/hooks";
 import { intl } from "src/locale/IntlProvider";
+import { currentRates, PEER_COLORS, peerColorMap, sortByVolume } from "./bandwidth";
 
 // ─── Formatters ────────────────────────────────────────────────────────────
 
@@ -36,21 +37,11 @@ const timeAgo = (ts: number) => {
 	return `${Math.floor(s / 86400)}d`;
 };
 
-// ─── Color palette (6 peers max visually distinct) ─────────────────────────
-
-const PEER_COLORS = [
-	"#4299e1", // blue
-	"#48bb78", // green
-	"#ed8936", // orange
-	"#a78bfa", // purple
-	"#f687b3", // pink
-	"#38b2ac", // teal
-];
-
 // ─── XY Line Chart ─────────────────────────────────────────────────────────
 
 interface ChartProps {
 	peers: PeerBandwidth[];
+	colors: Map<string, string>;
 	mode: "rx" | "tx";
 	range: BandwidthRange;
 	height?: number;
@@ -65,8 +56,8 @@ const RANGE_DURATION_MS: Record<BandwidthRange, number> = {
 
 function formatTimeTick(timestamp: number, range: BandwidthRange, position: number) {
 	if (range === "live") {
-		if (position === 1) return "Now";
-		return `${Math.round((1 - position) * 10)} min`;
+		if (position === 1) return intl.formatMessage({ id: "traffic.tick-now" });
+		return intl.formatMessage({ id: "traffic.tick-minutes" }, { count: Math.round((1 - position) * 10) });
 	}
 
 	const options: Intl.DateTimeFormatOptions =
@@ -78,7 +69,7 @@ function formatTimeTick(timestamp: number, range: BandwidthRange, position: numb
 	return new Intl.DateTimeFormat(undefined, options).format(new Date(timestamp));
 }
 
-function LineChart({ peers, mode, range, height = 180 }: ChartProps) {
+function LineChart({ peers, colors, mode, range, height = 180 }: ChartProps) {
 	const W = 600;
 	const H = height;
 	const PAD = { top: 8, right: 12, bottom: 24, left: 52 };
@@ -154,11 +145,11 @@ function LineChart({ peers, mode, range, height = 180 }: ChartProps) {
 				</text>
 			))}
 
-			{peers.map((peer, idx) => {
+			{peers.map((peer) => {
 				const points = plotPoints(peer);
 				const d = toPath(points);
 				if (!d) return null;
-				const color = PEER_COLORS[idx % PEER_COLORS.length];
+				const color = colors.get(peer.id) ?? PEER_COLORS[0];
 				const first = points[0];
 				const last = points[points.length - 1];
 				return (
@@ -195,13 +186,13 @@ function LineChart({ peers, mode, range, height = 180 }: ChartProps) {
 
 // ─── Legend ────────────────────────────────────────────────────────────────
 
-function Legend({ peers }: { peers: PeerBandwidth[] }) {
+function Legend({ peers, colors }: { peers: PeerBandwidth[]; colors: Map<string, string> }) {
 	return (
 		<div className="d-flex flex-wrap gap-3 mb-2">
-			{peers.map((peer, idx) => (
+			{peers.map((peer) => (
 				<div key={peer.id} className="d-flex align-items-center gap-1">
 					<svg width={20} height={3} style={{ flexShrink: 0 }}>
-						<rect width={20} height={3} rx={1.5} fill={PEER_COLORS[idx % PEER_COLORS.length]} />
+						<rect width={20} height={3} rx={1.5} fill={colors.get(peer.id) ?? PEER_COLORS[0]} />
 					</svg>
 					<span style={{ fontSize: "0.78rem" }}>{peer.name}</span>
 					{peer.history.length > 0 && (
@@ -222,6 +213,9 @@ const Traffic = () => {
 	const navigate = useNavigate();
 	const [range, setRange] = useState<BandwidthRange>("live");
 	const { data: bw = [], isLoading: bwLoading, dataUpdatedAt } = useWireGuardBandwidth(range);
+	// "Current" rates always come from the live series (same query as range=live).
+	// The last history bucket is an average (12m: today's) and includes peers long gone.
+	const { data: liveBw = [] } = useWireGuardBandwidth("live");
 	const { data: wg } = useWireGuardStatus();
 
 	const links = wg?.links ?? [];
@@ -231,10 +225,15 @@ const Traffic = () => {
 		(l) => l.active && l.latestHandshake > 0 && Date.now() / 1000 - l.latestHandshake < 180,
 	).length;
 
-	const currentRxRate = bw.reduce((s, p) => s + (p.history[p.history.length - 1]?.rx ?? 0), 0);
-	const currentTxRate = bw.reduce((s, p) => s + (p.history[p.history.length - 1]?.tx ?? 0), 0);
+	const { rx: currentRxRate, tx: currentTxRate } = currentRates(liveBw);
 
-	const chartPeers = bw.slice(0, 6);
+	// Rank by volume over the whole window in every range: the live API orders by
+	// the newest sample only, which reshuffled the top 6 on every 10 s poll.
+	const chartPeers = sortByVolume(bw).slice(0, 6);
+	const peerColors = peerColorMap(
+		links.map((l) => l.id),
+		chartPeers.map((p) => p.id),
+	);
 	const hasHistory = chartPeers.some((p) => p.history.length > 0);
 
 	// Map bandwidth history to link IDs for sparklines
@@ -243,7 +242,7 @@ const Traffic = () => {
 	return (
 		<div className="platform-page">
 			<div className="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-				<h2 className="mb-0">Traffic</h2>
+				<h2 className="mb-0">{intl.formatMessage({ id: "traffic" })}</h2>
 				<div className="btn-group" role="group" aria-label="Traffic history range">
 					{(["live", "24h", "30d", "12m"] as BandwidthRange[]).map((value) => (
 						<button
@@ -396,14 +395,7 @@ const Traffic = () => {
 									{intl.formatMessage({ id: "traffic.chart-rx" })}
 								</h3>
 								<div className="text-secondary" style={{ fontSize: "0.72rem" }}>
-									{
-										{
-											live: "Last 10 minutes",
-											"24h": "Hourly view",
-											"30d": "15-minute averages",
-											"12m": "Daily averages",
-										}[range]
-									}
+									{intl.formatMessage({ id: `traffic.range-subtitle.${range}` })}
 								</div>
 							</div>
 							{dataUpdatedAt > 0 && (
@@ -425,8 +417,8 @@ const Traffic = () => {
 							)}
 							{!bwLoading && hasHistory && (
 								<>
-									<Legend peers={chartPeers} />
-									<LineChart peers={chartPeers} mode="rx" range={range} />
+									<Legend peers={chartPeers} colors={peerColors} />
+									<LineChart peers={chartPeers} colors={peerColors} mode="rx" range={range} />
 								</>
 							)}
 						</div>
@@ -442,14 +434,7 @@ const Traffic = () => {
 									{intl.formatMessage({ id: "traffic.chart-tx" })}
 								</h3>
 								<div className="text-secondary" style={{ fontSize: "0.72rem" }}>
-									{
-										{
-											live: "Last 10 minutes",
-											"24h": "Hourly view",
-											"30d": "15-minute averages",
-											"12m": "Daily averages",
-										}[range]
-									}
+									{intl.formatMessage({ id: `traffic.range-subtitle.${range}` })}
 								</div>
 							</div>
 							{dataUpdatedAt > 0 && (
@@ -471,8 +456,8 @@ const Traffic = () => {
 							)}
 							{!bwLoading && hasHistory && (
 								<>
-									<Legend peers={chartPeers} />
-									<LineChart peers={chartPeers} mode="tx" range={range} />
+									<Legend peers={chartPeers} colors={peerColors} />
+									<LineChart peers={chartPeers} colors={peerColors} mode="tx" range={range} />
 								</>
 							)}
 						</div>
@@ -501,7 +486,7 @@ const Traffic = () => {
 							<tr>
 								<th>{intl.formatMessage({ id: "traffic.col-peer" })}</th>
 								<th>{intl.formatMessage({ id: "traffic.col-type" })}</th>
-								<th style={{ minWidth: 120 }}>Activity</th>
+								<th style={{ minWidth: 120 }}>{intl.formatMessage({ id: "traffic.col-activity" })}</th>
 								<th className="text-end">
 									<IconArrowDown size={11} className="text-success me-1" />
 									{intl.formatMessage({ id: "traffic.col-rx" })}
@@ -524,7 +509,7 @@ const Traffic = () => {
 							)}
 							{[...links]
 								.sort((a, b) => b.rxBytes + b.txBytes - (a.rxBytes + a.txBytes))
-								.map((link, idx) => {
+								.map((link) => {
 									const isActive =
 										link.active &&
 										link.latestHandshake > 0 &&
@@ -532,7 +517,7 @@ const Traffic = () => {
 									const peerBw = bwMap.get(link.id);
 									const sparkData = peerBw?.history.map((s) => s.rx + s.tx) || [];
 									const color = isActive
-										? PEER_COLORS[idx % PEER_COLORS.length]
+										? (peerColors.get(link.id) ?? PEER_COLORS[0])
 										: "var(--tblr-secondary)";
 
 									return (

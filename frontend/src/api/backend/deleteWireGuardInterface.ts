@@ -1,12 +1,15 @@
 import * as api from "./base";
+import type { BoundAgentCheck, BoundAgentDeleteOptions, BoundAgentDeleteResult } from "./deleteWireGuardPeer";
 
-export interface DeleteWireGuardInterfaceRequest {
+export interface DeleteWireGuardInterfaceRequest extends BoundAgentDeleteOptions {
 	name: string;
 }
 
 export interface DeleteWireGuardInterfaceResponse {
-	deleted: boolean;
+	deleted?: boolean;
+	dryRun?: boolean;
 	name: string;
+	agents?: BoundAgentCheck[] | BoundAgentDeleteResult;
 }
 
 export async function deleteWireGuardInterface(

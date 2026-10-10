@@ -1,11 +1,13 @@
 import { execFile, execFileSync } from "node:child_process";
 import { promises as fs } from "node:fs";
+import { isIP } from "node:net";
 import { hostname, networkInterfaces } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import db from "../db.js";
 import error from "../lib/error.js";
 import { wireguard as logger } from "../logger.js";
+import { cidrContains } from "./agent-ingress-rules.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -166,6 +168,27 @@ async function writeMetadataStore(store) {
 	await fs.rename(tmpFile, metadataFile);
 }
 
+// Atomic replace for /etc/wireguard/wgN.conf: write a 0600 temp file in the same
+// directory, fsync, rename. A plain fs.writeFile truncates first, so a crash or
+// ENOSPC mid-write would leave the hub conf (PrivateKey + every site peer) empty
+// and the next wg-quick restart would take all sites offline.
+async function writeConfAtomic(confPath, text) {
+	const tmp = `${confPath}.tmp-${process.pid}`;
+	let fh = null;
+	try {
+		fh = await fs.open(tmp, "w", 0o600);
+		await fh.writeFile(text, "utf8");
+		await fh.sync();
+		await fh.close();
+		fh = null;
+		await fs.rename(tmp, confPath);
+	} catch (err) {
+		if (fh) await fh.close().catch(() => {});
+		await fs.unlink(tmp).catch(() => {});
+		throw err;
+	}
+}
+
 function mergeMetadataEntry(current = {}, patch = {}) {
 	const merged = { ...current, ...patch };
 	for (const [key, value] of Object.entries(merged)) {
@@ -204,12 +227,15 @@ async function backupMetadataStore(store = null) {
 	return backupPath;
 }
 
-async function applyMetadataPatch(patch = {}) {
+// withPrevious: also return the store as it was right before the write, read
+// under the same lock (callers diff it, e.g. for the link-rename cascade).
+async function applyMetadataPatch(patch = {}, { withPrevious = false } = {}) {
 	return withWriteLock(async () => {
 		const store = await readMetadataStore();
+		const previous = withPrevious ? structuredClone(store) : null;
 		const nextStore = mergeMetadataStorePatch(store, patch);
 		await writeMetadataStore(nextStore);
-		return nextStore;
+		return withPrevious ? { store: nextStore, previous } : nextStore;
 	});
 }
 
@@ -218,20 +244,50 @@ async function applyMetadataPatch(patch = {}) {
 // mutateMetadataStore comment describes — a concurrent locked read-modify-write
 // that read the pre-restore store writes its copy back afterwards, silently
 // wiping the restore. Returns the freshly-written store snapshot.
-async function replaceMetadataStore(store = {}) {
+// `store` may also be a function (current) => nextStore, evaluated under the lock
+// against the freshly-read store (restore merges a backup into the live store).
+async function replaceMetadataStore(store = {}, { withPrevious = false } = {}) {
 	return withWriteLock(async () => {
+		const current = withPrevious || typeof store === "function" ? await readMetadataStore() : null;
+		const previous = withPrevious ? structuredClone(current) : null;
+		const source = typeof store === "function" ? (await store(current)) || {} : store;
 		const nextStore = {
-			interfaces: store.interfaces || {},
-			links: store.links || {},
+			interfaces: source.interfaces || {},
+			links: source.links || {},
 		};
 		await writeMetadataStore(nextStore);
-		return nextStore;
+		return withPrevious ? { store: nextStore, previous } : nextStore;
 	});
 }
 
 function sanitizeStringArray(value) {
 	if (!Array.isArray(value)) return [];
 	return Array.from(new Set(value.map((item) => String(item || "").trim()).filter(Boolean)));
+}
+
+// DNS entries are written verbatim into generated client configs as
+// `DNS = a, b`. A newline inside a value would add its own line, e.g. a PostUp
+// that wg-quick runs as root on the client. Only IP addresses and plain host /
+// search-domain names are allowed.
+const DNS_NAME_RE = /^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,62})(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,62}))*\.?$/;
+
+function isValidDnsEntry(value) {
+	const s = String(value ?? "").trim();
+	return isIP(s) !== 0 || DNS_NAME_RE.test(s);
+}
+
+/** Validate a DNS list from an API payload. null/undefined = []; anything else must be an array of valid entries. */
+function sanitizeDnsArray(value) {
+	if (value === null || typeof value === "undefined") return [];
+	if (!Array.isArray(value)) throw new error.ValidationError("dns must be an array of IP addresses or host names");
+	const out = [];
+	for (const item of value) {
+		const s = String(item ?? "").trim();
+		if (!s) continue;
+		if (!isValidDnsEntry(s)) throw new error.ValidationError(`Invalid DNS entry: ${JSON.stringify(s)}`);
+		if (!out.includes(s)) out.push(s);
+	}
+	return out;
 }
 
 // Network values (importedNetworks / exportedNetworks / routeTargets) flow into
@@ -316,11 +372,31 @@ function canonicalizeIpv4Network(value) {
 	return `${(net >>> 24) & 0xff}.${(net >>> 16) & 0xff}.${(net >>> 8) & 0xff}.${net & 0xff}/${p}`;
 }
 
+// Shortest prefix any network list in the WireGuard metadata may carry. A /0
+// site network would reach every other agent as AllowedIPs 0.0.0.0/0, a default
+// route via wg0 and `MASQUERADE -s 0.0.0.0/0` (same reason sanitizeAclNetworks
+// rejects it) — and 0.0.0.0/1 + 128.0.0.0/1 (or any /1…/7 set) does the same
+// in pieces. Applies to EVERY metadata network list (link/interface exported +
+// imported networks, route targets) and to client reach lists: none of them has
+// a legitimate use for more than a /8. Full tunnel is the client fullTunnel flag.
+const MIN_NETWORK_PREFIX = 8;
+
+/** true for a canonical IPv4 CIDR whose prefix is at least MIN_NETWORK_PREFIX. Pure. */
+function isAcceptableNetworkPrefix(cidr) {
+	const m = /\/(\d{1,2})$/.exec(String(cidr || "").trim());
+	return Boolean(m) && Number(m[1]) >= MIN_NETWORK_PREFIX;
+}
+
 function sanitizeNetworkArray(value) {
 	if (!Array.isArray(value)) return [];
 	const out = [];
 	for (const item of value) {
 		const canon = canonicalizeIpv4Network(item);
+		if (canon && !isAcceptableNetworkPrefix(canon)) {
+			throw new error.ValidationError(
+				`Netz ${String(item).trim()} ist nicht erlaubt (kürzer als /${MIN_NETWORK_PREFIX}, deckt die Default-Route ganz oder teilweise ab) — für Full-Tunnel die Client-Option nutzen`,
+			);
+		}
 		if (canon) out.push(canon);
 	}
 	return Array.from(new Set(out));
@@ -353,7 +429,7 @@ function sanitizeInterfaceMetadataPatch(input = {}) {
 		sanitized.importedNetworks = sanitizeNetworkArray(input.importedNetworks);
 	if (Object.hasOwn(input, "routeTargets")) sanitized.routeTargets = sanitizeNetworkArray(input.routeTargets);
 	if (Object.hasOwn(input, "notes")) sanitized.notes = sanitizeStringArray(input.notes);
-	if (Object.hasOwn(input, "dns")) sanitized.dns = sanitizeStringArray(input.dns);
+	if (Object.hasOwn(input, "dns")) sanitized.dns = sanitizeDnsArray(input.dns);
 	return sanitized;
 }
 
@@ -397,7 +473,7 @@ function sanitizeLinkMetadataPatch(input = {}) {
 	if (Object.hasOwn(input, "planIntent"))
 		sanitized.planIntent = input.planIntent ? String(input.planIntent) : undefined;
 	if (Object.hasOwn(input, "planState")) sanitized.planState = input.planState ? String(input.planState) : undefined;
-	if (Object.hasOwn(input, "dns")) sanitized.dns = sanitizeStringArray(input.dns);
+	if (Object.hasOwn(input, "dns")) sanitized.dns = sanitizeDnsArray(input.dns);
 	if (Object.hasOwn(input, "fullTunnel")) sanitized.fullTunnel = Boolean(input.fullTunnel);
 	if (Object.hasOwn(input, "platform"))
 		sanitized.platform = ["desktop", "mobile"].includes(input.platform) ? input.platform : undefined;
@@ -613,6 +689,9 @@ function buildLinkRecord(ifaceName, peer, index, metadata = {}) {
 		id: `${ifaceName}:${peer.publicKey || index}`,
 		interfaceName: ifaceName,
 		type,
+		// true when the type comes from metadata, false when inferred by
+		// classifyLinkType — the Download/QR gating needs to tell them apart.
+		typeExplicit: Boolean(normalizeLinkType(metadata.type)),
 		name: metadata.name || (peer.publicKey ? `${type}-${peer.publicKey.slice(0, 8)}` : `${type}-${index + 1}`),
 		peerPublicKey: peer.publicKey || null,
 		remoteEndpoint: peer.endpoint || null,
@@ -926,6 +1005,56 @@ function buildCapabilities() {
 	};
 }
 
+/**
+ * Pure conf rewrite for a peer key rotation: swap the old PublicKey for the new one
+ * in the matching [Peer] block and drop that block's PresharedKey. The rotated peer
+ * is re-added live WITHOUT a PSK and the generated client config never carries one,
+ * so a PSK left in the conf would pair the old PSK with the new key on the next
+ * wg-quick up / reboot and break every handshake of the re-provisioned client.
+ * Other [Peer] blocks (and their PSKs) are copied unchanged.
+ *
+ * @returns {{ text: string, swapped: boolean }}
+ */
+function _rewriteRotatedPeer(confText, oldPubKey, newPubKey) {
+	const lines = String(confText).split(/\r?\n/);
+	// Group into sections first: PresharedKey may precede PublicKey in the block.
+	const sections = [];
+	let cur = { isPeer: false, lines: [] };
+	for (const rawLine of lines) {
+		const t = rawLine.trim();
+		if (t.startsWith("[")) {
+			sections.push(cur);
+			cur = { isPeer: t === "[Peer]", lines: [] };
+		}
+		cur.lines.push(rawLine);
+	}
+	sections.push(cur);
+
+	const keyOf = (line) => line.trim().split("=")[0].trim().toLowerCase();
+	const valOf = (line) => line.slice(line.indexOf("=") + 1).trim();
+	let swapped = false;
+	const out = [];
+	for (const sec of sections) {
+		const isTarget =
+			!swapped && sec.isPeer && sec.lines.some((l) => keyOf(l) === "publickey" && valOf(l) === oldPubKey);
+		if (!isTarget) {
+			out.push(...sec.lines);
+			continue;
+		}
+		swapped = true;
+		for (const rawLine of sec.lines) {
+			const k = keyOf(rawLine);
+			if (k === "presharedkey") continue;
+			if (k === "publickey" && valOf(rawLine) === oldPubKey) {
+				out.push(`PublicKey = ${newPubKey}`);
+				continue;
+			}
+			out.push(rawLine);
+		}
+	}
+	return { text: out.join("\n"), swapped };
+}
+
 // NOTE: this performs a conf read-modify-write and live `wg set` and MUST run under
 // the module write lock (withWriteLock) so it can't interleave with createPeer's
 // locked appendFile and silently drop a freshly-added [Peer] block. The sole caller
@@ -939,37 +1068,10 @@ async function _rotatePeerPublicKey(ifaceName, oldPubKey, newPubKey, peerAllowed
 		return false;
 	}
 
-	// Rewrite conf: swap old PublicKey for new one in the matching [Peer] block
-	const lines = confText.split(/\r?\n/);
-	let inPeer = false;
-	let swapped = false;
-	const out = [];
-	for (const rawLine of lines) {
-		const t = rawLine.trim();
-		if (t === "[Peer]") {
-			inPeer = true;
-			out.push(rawLine);
-			continue;
-		}
-		if (t.startsWith("[")) {
-			inPeer = false;
-			out.push(rawLine);
-			continue;
-		}
-		if (inPeer && !swapped && t.startsWith("PublicKey")) {
-			const currentKey = t.slice(t.indexOf("=") + 1).trim();
-			if (currentKey === oldPubKey) {
-				out.push(`PublicKey = ${newPubKey}`);
-				swapped = true;
-				continue;
-			}
-		}
-		out.push(rawLine);
-	}
-
+	const { text: newConfText, swapped } = _rewriteRotatedPeer(confText, oldPubKey, newPubKey);
 	if (!swapped) return false;
 
-	await fs.writeFile(confPath, out.join("\n"), "utf8");
+	await writeConfAtomic(confPath, newConfText);
 	const wgBin = getWireGuardBin();
 	try {
 		await execFileAsync(wgBin, ["set", ifaceName, "peer", oldPubKey, "remove"]);
@@ -1043,6 +1145,148 @@ async function generatePeerConfig(linkId) {
 	}
 }
 
+/**
+ * Generating a config rotates the hub-side key (see above). That is only valid
+ * for a road-warrior client the admin is (re-)provisioning. A site/hub link keeps
+ * its own PrivateKey on the gateway (the agent never receives a new one), so a
+ * rotation there cuts the site off at once. Allowed: effective link type
+ * "client" — the same value getStatus() shows and the frontend gates the
+ * Download/QR buttons on (metadata type, else inferred from the AllowedIPs, so an
+ * untyped /32 road-warrior on wg0 counts) — not agent-managed and not bound by
+ * any agent.
+ */
+async function _agentsBoundToLink(name) {
+	return db()("agent").where("is_deleted", 0).where("wg_link_name", name).select("id", "wg_link_name");
+}
+
+async function assertPeerConfigAllowed(link, linkMeta, { boundAgents = _agentsBoundToLink } = {}) {
+	const fail = (reason) => {
+		const err = new error.ValidationError(
+			`Config/QR für „${link.name || link.id}“ nicht möglich: ${reason}. Das würde den Schlüssel am Hub tauschen und die Gegenstelle sofort trennen.`,
+		);
+		err.status = 409;
+		throw err;
+	};
+	const effectiveType =
+		link.type || normalizeLinkType(linkMeta?.type) || classifyLinkType(link.allowedIps || [], link.interfaceName);
+	if (effectiveType !== "client") {
+		fail("nur für Client-Verbindungen (Typ „client“)");
+	}
+	// The ≤1-route wg0 heuristic of classifyLinkType also calls an untyped
+	// single-LAN SITE "client" (_buildPeerUpdates/_collectSiteNetworks treat
+	// untyped links as sites). Without an explicit metadata type "client" only a
+	// pure host-route peer (/32, /128 — a road-warrior) may be rotated; an untyped
+	// peer carrying a LAN would lose its gateway key and take the site offline.
+	if (normalizeLinkType(linkMeta?.type) !== "client" && (link.allowedIps || []).some((c) => !isHostRoute(c))) {
+		fail("Verbindung ohne ausdrücklichen Typ „client“ trägt ein Netz (vermutlich ein Standort)");
+	}
+	if (linkMeta?.remoteManagementMode === "agent") fail("die Verbindung wird von einem Agent verwaltet");
+	if (link.name) {
+		const bound = await boundAgents(link.name);
+		if (bound.some((a) => a.wg_link_name === link.name)) fail("ein Agent ist an diese Verbindung gebunden");
+	}
+}
+
+// ── Bound-agent cascade for link/interface deletes ─────────────────────────
+// An agent is bound to a link by its effective name (agent.wg_link_name). If the
+// link is deleted while the agent lives on, the agent keeps a valid token and a
+// later link with the same name silently inherits it. deletePeer/deleteInterface
+// therefore refuse while agents are bound, unless the caller asks for the cascade
+// (deleteBoundAgents) — then EVERY bound agent is checked first (nothing is
+// removed if one of them refuses, e.g. Freigaben filter still active), the peer /
+// interface is removed, and only after that succeeded the agents are deleted.
+
+async function _boundAgentRows(names) {
+	const list = [...new Set((names || []).filter(Boolean))];
+	if (!list.length) return [];
+	return db()("agent").where("is_deleted", 0).whereIn("wg_link_name", list).select("*");
+}
+
+// Tests replace the DB lookup / agent module (no DB connection in unit tests).
+const _cascadeDeps = { loadAgents: _boundAgentRows, agentApi: null };
+function _setBoundAgentCascadeDepsForTests(deps = {}) {
+	_cascadeDeps.loadAgents = deps.loadAgents || _boundAgentRows;
+	_cascadeDeps.agentApi = deps.agentApi || null;
+}
+
+/**
+ * Check every agent bound to one of `names` without deleting anything.
+ * @returns {Promise<Array<{ id: number, name: string, linkName: string, force: boolean, blocker: null | { reason: string, forceable: boolean } }>>}
+ */
+async function _planBoundAgentCascade(
+	names,
+	forceAgentIds = [],
+	{ loadAgents = _cascadeDeps.loadAgents, agentApi = _cascadeDeps.agentApi } = {},
+) {
+	const rows = await loadAgents(names);
+	if (!rows.length) return [];
+	const internalAgent = agentApi || (await import("./agent.js")).default;
+	const forceSet = new Set((Array.isArray(forceAgentIds) ? forceAgentIds : []).map(Number));
+	const plan = [];
+	for (const row of rows) {
+		const force = forceSet.has(Number(row.id));
+		plan.push({
+			id: row.id,
+			name: row.name,
+			linkName: row.wg_link_name,
+			force,
+			blocker: await internalAgent.deleteBlocker(row, { force }),
+		});
+	}
+	return plan;
+}
+
+/** Throw (409, nothing changed) unless the cascade may run as planned. Pure. */
+function _assertBoundAgentCascade(plan, deleteBoundAgents) {
+	if (!plan.length) return;
+	const fail = (msg) => {
+		const err = new error.ValidationError(msg);
+		err.status = 409;
+		throw err;
+	};
+	if (!deleteBoundAgents) {
+		fail(
+			`Gebundene Agents: ${plan.map((p) => `„${p.name}“`).join(", ")} – zuerst die Agents löschen oder mit deleteBoundAgents gemeinsam löschen`,
+		);
+	}
+	const blocked = plan.filter((p) => p.blocker);
+	if (blocked.length) {
+		fail(`Nichts gelöscht – Agent ${blocked.map((p) => `„${p.name}“: ${p.blocker.reason}`).join("; ")}`);
+	}
+}
+
+/** Delete the planned agents after the peer/interface is gone. Never throws. */
+async function _deleteBoundAgents(plan, { agentApi = _cascadeDeps.agentApi } = {}) {
+	if (!plan.length) return { deleted: [], errors: [] };
+	const internalAgent = agentApi || (await import("./agent.js")).default;
+	const deleted = [];
+	const errors = [];
+	for (const p of plan) {
+		try {
+			await internalAgent.delete(p.id, { force: p.force });
+			deleted.push(p.id);
+		} catch (err) {
+			if (/^Not Found/.test(err?.message || "")) {
+				deleted.push(p.id);
+				continue;
+			}
+			logger.error(`Bound agent ${p.id} (${p.name}) not deleted after its link was removed: ${err.message}`);
+			errors.push({ id: p.id, name: p.name, error: err.message });
+		}
+	}
+	return { deleted, errors };
+}
+
+function _cascadeView(plan) {
+	return plan.map((p) => ({
+		id: p.id,
+		name: p.name,
+		linkName: p.linkName,
+		blocked: p.blocker ? p.blocker.reason : null,
+		forceable: p.blocker ? p.blocker.forceable : false,
+	}));
+}
+
 async function _generatePeerConfigUncached(linkId) {
 	const status = await getStatus();
 	if (!status.available) {
@@ -1053,6 +1297,7 @@ async function _generatePeerConfigUncached(linkId) {
 	if (!link) {
 		throw new Error(`Link not found: ${linkId}`);
 	}
+	await assertPeerConfigAllowed(link, (await readMetadataStore()).links[linkId]);
 
 	const iface = status.interfaces.find((i) => i.name === link.interfaceName);
 	const hubPublicKey = iface?.publicKey ?? null;
@@ -1125,13 +1370,16 @@ async function _generatePeerConfigUncached(linkId) {
 	const store = await readMetadataStore();
 	const ifaceMeta = store.interfaces[link.interfaceName] || {};
 	const linkMeta = store.links[effectiveLinkId] || store.links[linkId] || {};
-	const dnsServers = linkMeta.dns?.length
-		? linkMeta.dns
-		: ifaceMeta.dns?.length
-			? ifaceMeta.dns
-			: process.env.WG_DNS
-				? process.env.WG_DNS.split(",").map((s) => s.trim())
-				: [];
+	// Sink guard: stored/env values predating DNS validation never reach the file
+	const dnsServers = (
+		linkMeta.dns?.length
+			? linkMeta.dns
+			: ifaceMeta.dns?.length
+				? ifaceMeta.dns
+				: process.env.WG_DNS
+					? process.env.WG_DNS.split(",").map((s) => s.trim())
+					: []
+	).filter(isValidDnsEntry);
 	if (dnsServers.length > 0) {
 		lines.push(`DNS = ${dnsServers.join(", ")}`);
 	}
@@ -1336,6 +1584,23 @@ function _getPrivatePhysicalInterfaces() {
 	return result;
 }
 
+/**
+ * Drop every route net that lies inside (or equals) a directly connected NIC
+ * network. nic.cidr comes from os.networkInterfaces() in HOST form
+ * ("10.10.10.106/24"), so it must be compared by containment, not by string —
+ * the old exact match never fired and kept `ip route add 10.10.10.0/24 dev wg0`
+ * in PostUp, which wins over eth1 whenever wg0 comes up first. Supernets stay
+ * (the longer connected prefix keeps the LAN local). Mutates and returns the Set.
+ */
+function _excludeConnectedNets(routeNets, nics) {
+	for (const nic of nics || []) {
+		for (const net of [...routeNets]) {
+			if (cidrContains(nic.cidr, net)) routeNets.delete(net);
+		}
+	}
+	return routeNets;
+}
+
 function _parsePeersFromConf(lines) {
 	const peers = new Map(); // pubkey → current AllowedIPs string[]
 	let inPeer = false;
@@ -1402,7 +1667,12 @@ function _buildPeerUpdates(peerMap, linksMeta, ifaceName) {
 			continue;
 		}
 
-		const imported = (meta.importedNetworks || []).filter((c) => !c.endsWith("/32") && !c.endsWith("/128"));
+		// Sink guard (mirrors _collectSiteNetworks in agent.js): a stored network
+		// shorter than /8 (legacy or hand-edited metadata — writes reject it) never
+		// lands on the hub peer's AllowedIPs, where it would pull the default route.
+		const imported = (meta.importedNetworks || []).filter(
+			(c) => !c.endsWith("/32") && !c.endsWith("/128") && isAcceptableNetworkPrefix(c),
+		);
 		// Hub authoritative on full removal: only fall back to the conf's current
 		// non-host CIDRs when the metadata has NO importedNetworks key at all
 		// (legacy / hand-maintained peer). An explicit empty array means "all site
@@ -1419,12 +1689,75 @@ function _buildPeerUpdates(peerMap, linksMeta, ifaceName) {
 	return updates;
 }
 
+// MASQUERADE ownership goes by SET MEMBERSHIP, not by syntax. The generator
+// writes `iptables -t nat -[AD] POSTROUTING -o <nic> -s <cidr> -j MASQUERADE`
+// (PostDown with `2>/dev/null || true`), and records the (nic, cidr) pairs it
+// wrote in a marker comment right above PostUp:
+//   # floppyguard-masq: eth1=10.10.0.0/24, eth1=10.10.10.106/24
+// A command counts as generated only when it has the generator's exact form AND
+// its (nic, cidr) is in the set being written now or in the previously generated
+// set from the marker. Everything else — an operator's `-o eth1 -s X` for a net
+// the generator never owned, or any `-s X -o <if>` rule — is kept verbatim.
+const GENERATED_MASQ_RE =
+	/^iptables -t nat -[AD] POSTROUTING -o (\S+) -s (\S+) -j MASQUERADE(?: 2>\/dev\/null \|\| true)?$/;
+const MASQ_MARKER_RE = /^#\s*floppyguard-masq:(.*)$/i;
+const MASQ_MARKER_PREFIX = "# floppyguard-masq:";
+
+function _masqKey(nic, cidr) {
+	return `${nic}=${cidr}`;
+}
+
+function _parseMasqMarker(lines) {
+	const set = new Set();
+	for (const l of lines) {
+		const m = MASQ_MARKER_RE.exec(l.trim());
+		if (!m) continue;
+		for (const part of m[1].split(",")) {
+			const k = part.trim();
+			if (/^\S+=\S+$/.test(k)) set.add(k);
+		}
+	}
+	return set;
+}
+
+function _masqMarkerLine(masqueradeIfaces) {
+	const keys = [...new Set(masqueradeIfaces.map((n) => _masqKey(n.name, n.cidr)))].sort();
+	return `${MASQ_MARKER_PREFIX} ${keys.length ? keys.join(", ") : "-"}`;
+}
+
+function _isGeneratedMasq(cmd, ifaceName, ownedKeys = new Set()) {
+	const m = GENERATED_MASQ_RE.exec(cmd);
+	if (!m || m[1] === ifaceName) return false;
+	return ownedKeys.has(_masqKey(m[1], m[2]));
+}
+
+// Drop repeated hook commands, treating `cmd` and `cmd 2>/dev/null || true` as the
+// same command (the first occurrence wins). A doubled `iptables -D` would fail the
+// second time and abort wg-quick's PostDown under `set -e`.
+function _dedupeHookCmds(cmds) {
+	const seen = new Set();
+	const out = [];
+	for (const c of cmds) {
+		const norm = c.replace(/\s+2>\/dev\/null \|\| true$/, "").trim();
+		if (seen.has(norm)) continue;
+		seen.add(norm);
+		out.push(c);
+	}
+	return out;
+}
+
 function _rewriteHubConf(lines, ifaceName, peerUpdates, allRouteNets, masqueradeIfaces = []) {
 	let inPeer = false;
 	let currentPubKey = null;
 	const out = [];
+	// Owned = what we write now ∪ what the previous rewrite recorded as generated.
+	const ownedMasq = new Set([...masqueradeIfaces.map((n) => _masqKey(n.name, n.cidr)), ..._parseMasqMarker(lines)]);
+	const markerLine = _masqMarkerLine(masqueradeIfaces);
+	let markerWritten = false;
 	for (const rawLine of lines) {
 		const t = rawLine.trim();
+		// Old marker lines are dropped and re-emitted above PostUp (below).
+		if (!inPeer && MASQ_MARKER_RE.test(t)) continue;
 		if (t === "[Peer]") {
 			inPeer = true;
 			currentPubKey = null;
@@ -1453,21 +1786,29 @@ function _rewriteHubConf(lines, ifaceName, peerUpdates, allRouteNets, masquerade
 			const iptVerb = isUp ? "-A" : "-D";
 			const value = rawLine.slice(rawLine.indexOf("=") + 1).trim();
 			const routeRe = new RegExp(`^ip route (?:add|del) \\S+ dev ${ifaceName}`);
-			const masqRe = /^iptables -t nat -[AD] POSTROUTING (?:-[os] \S+ ){2}-j MASQUERADE$/;
 			const nonRoute = value
 				.split(";")
 				.map((s) => s.trim())
-				.filter((p) => p && !routeRe.test(p) && !masqRe.test(p));
+				.filter((p) => p && !routeRe.test(p) && !_isGeneratedMasq(p, ifaceName, ownedMasq));
 			const routeCmds = [...allRouteNets]
 				.sort()
 				.map((net) => `ip route ${verb} ${net} dev ${ifaceName} 2>/dev/null || true`);
 			// Auto-MASQUERADE: for each physical interface with a private IP,
 			// ensure wg-sourced traffic going out that interface gets NATed.
+			// PostDown deletes carry `|| true`: wg-quick evals the hook under
+			// `set -e`, so a delete of an already-missing rule must never abort it.
 			const masqCmds = [];
 			for (const nic of masqueradeIfaces) {
-				masqCmds.push(`iptables -t nat ${iptVerb} POSTROUTING -o ${nic.name} -s ${nic.cidr} -j MASQUERADE`);
+				const cmd = `iptables -t nat ${iptVerb} POSTROUTING -o ${nic.name} -s ${nic.cidr} -j MASQUERADE`;
+				masqCmds.push(isUp ? cmd : `${cmd} 2>/dev/null || true`);
 			}
-			out.push(`${key} = ${[...nonRoute, ...routeCmds, ...masqCmds].join("; ")}`);
+			// Marker sits directly above PostUp (never adjacent to a [Peer] block, so
+			// _removePeerFromConf's "drop the peer's preceding comment" can't eat it).
+			if (isUp && !markerWritten) {
+				out.push(markerLine);
+				markerWritten = true;
+			}
+			out.push(`${key} = ${_dedupeHookCmds([...nonRoute, ...routeCmds, ...masqCmds]).join("; ")}`);
 			continue;
 		}
 		out.push(rawLine);
@@ -1494,7 +1835,7 @@ function _rewriteHubConf(lines, ifaceName, peerUpdates, allRouteNets, masquerade
 		const peerIdx = out.findIndex((l) => l.trim() === "[Peer]");
 		const insertAt = peerIdx > 0 ? peerIdx : out.length;
 		const newLines = [];
-		if (postUp) newLines.push(`PostUp = ${postUp}`);
+		if (postUp) newLines.push(markerLine, `PostUp = ${postUp}`);
 		if (postDown) newLines.push(`PostDown = ${postDown}`);
 		out.splice(insertAt, 0, ...newLines);
 	}
@@ -1572,9 +1913,15 @@ function _removePeerFromConf(confText, targetPubKey) {
 
 /**
  * Delete a WireGuard peer from the live interface, config file, and metadata.
+ * Refused (409) while non-deleted agents are bound to the link, unless
+ * `deleteBoundAgents` — then all bound agents are checked first and deleted only
+ * after the peer is gone (see _planBoundAgentCascade). `dryRun` only reports the
+ * bound agents and whether each one can be deleted (`forceAgentIds`: agents the
+ * caller confirmed to force-delete because they are offline for good).
  * @param {string} linkId - Format: "ifaceName:publicKey"
+ * @param {{ deleteBoundAgents?: boolean, forceAgentIds?: number[], dryRun?: boolean }} [opts]
  */
-async function deletePeer(linkId) {
+async function deletePeer(linkId, { deleteBoundAgents = false, forceAgentIds = [], dryRun = false } = {}) {
 	if (!linkId?.includes(":")) {
 		throw new Error("Invalid linkId format — expected ifaceName:publicKey");
 	}
@@ -1596,10 +1943,63 @@ async function deletePeer(linkId) {
 	const link = status.links.find((l) => l.id === linkId);
 	if (!link) throw new Error(`Link not found: ${linkId}`);
 
+	// Agents bind by the effective link name; a name another link also carries
+	// (should not happen — names are unique) keeps its agents.
+	const boundNames =
+		link.name && !status.links.some((l) => l.id !== linkId && l.name === link.name) ? [link.name] : [];
+	let plan = await _planBoundAgentCascade(boundNames, forceAgentIds);
+	if (dryRun) return { dryRun: true, linkId, agents: _cascadeView(plan) };
+	_assertBoundAgentCascade(plan, deleteBoundAgents);
+
 	// ── Backup metadata before any changes ──
 	await backupMetadataStore();
 
-	// ── Remove from live interface ──
+	// ── Remove from config file FIRST (locked RMW — serialize with createPeer's
+	// locked appendFile so a concurrent create can't have its [Peer] block read out
+	// here and clobbered by this writeFile). The conf is rewritten BEFORE the live
+	// removal: getStatus builds links from the live `wg show dump`, so removing the
+	// peer live first and then failing the conf rewrite would make the link vanish
+	// from status/UI ("Link not found" on retry) while the [Peer] block stays in the
+	// conf and wg-quick resurrects the revoked key on the next restart. ──
+	const confPath = path.join(getWireGuardConfDir(), `${ifaceName}.conf`);
+	try {
+		await withWriteLock(async () => {
+			// Re-check the bound agents under the lock, right before the first
+			// change: an agent bound since the check above must not be orphaned.
+			plan = await _planBoundAgentCascade(boundNames, forceAgentIds);
+			_assertBoundAgentCascade(plan, deleteBoundAgents);
+			let confText;
+			try {
+				confText = await fs.readFile(confPath, "utf8");
+			} catch (readErr) {
+				readErr.confStage = true;
+				throw readErr;
+			}
+			const newConf = _removePeerFromConf(confText, publicKey);
+			try {
+				await writeConfAtomic(confPath, newConf);
+			} catch (writeErr) {
+				writeErr.confStage = true;
+				throw writeErr;
+			}
+		});
+	} catch (err) {
+		if (!err.confStage) throw err;
+		// A missing conf has nothing to resurrect the peer from — carry on. Any
+		// other failure is fatal for the delete: the [Peer] block would stay in the
+		// conf and wg-quick would re-add the revoked key on the next restart, while
+		// the metadata link (and so the UI entry) was already gone. Abort BEFORE the live
+		// removal and the metadata delete so the link stays visible and the admin can retry.
+		if (err.code !== "ENOENT") {
+			logger.error(`Could not update conf for ${ifaceName} during peer deletion: ${err.message}`);
+			throw new Error(
+				`${ifaceName}.conf could not be rewritten (${err.message}) — nothing was removed (live peer, conf and link kept); fix the conf and delete again`,
+			);
+		}
+		logger.warn(`No conf for ${ifaceName} during peer deletion: ${err.message}`);
+	}
+
+	// ── Remove from live interface (only after the conf no longer carries it) ──
 	const wgBin = getWireGuardBin();
 	try {
 		await execFileAsync(wgBin, ["set", ifaceName, "peer", publicKey, "remove"]);
@@ -1607,20 +2007,6 @@ async function deletePeer(linkId) {
 		logger.debug(
 			`Peer ${publicKey.slice(0, 8)}… not active on ${ifaceName}, skipping live removal: ${err.message}`,
 		);
-	}
-
-	// ── Remove from config file (locked RMW — serialize with createPeer's locked
-	// appendFile so a concurrent create can't have its [Peer] block read out here
-	// and clobbered by this writeFile). ──
-	const confPath = path.join(getWireGuardConfDir(), `${ifaceName}.conf`);
-	try {
-		await withWriteLock(async () => {
-			const confText = await fs.readFile(confPath, "utf8");
-			const newConf = _removePeerFromConf(confText, publicKey);
-			await fs.writeFile(confPath, newConf, "utf8");
-		});
-	} catch (err) {
-		logger.warn(`Could not update conf for ${ifaceName} during peer deletion: ${err.message}`);
 	}
 
 	// ── Remove exclusive routes ──
@@ -1654,6 +2040,10 @@ async function deletePeer(linkId) {
 	// Drop any cached peer config for the removed link so it can't be re-served.
 	_peerConfigCache.clear();
 
+	// ── Bound agents only now that the peer is gone (conf, live, metadata), and
+	// before the agent resync below so it no longer builds configs for them. ──
+	const agents = await _deleteBoundAgents(plan);
+
 	// ── Rebuild the hub conf so the deleted net's PostUp `ip route add <net> dev wg0`
 	// line is removed. Without this it survives in wg0.conf and a later wg-quick
 	// restart/reboot re-creates the route to a net no peer serves (blackhole). ──
@@ -1685,7 +2075,7 @@ async function deletePeer(linkId) {
 		agentSync = { error: err.message };
 	}
 
-	return { deleted: true, linkId, hubSync, agentSync };
+	return { deleted: true, linkId, hubSync, agentSync, agents };
 }
 
 /**
@@ -1719,10 +2109,16 @@ async function updatePeer(linkId, changes = {}) {
 	// ── AllowedIPs conflict check for importedNetworks changes ──
 	// Skip for client links: importedNetworks is a reach list, not hub-side routing, so
 	// it cannot conflict (mirrors createPeer and the /metadata + plan-preview checks).
-	if (changes.importedNetworks !== undefined) {
-		const effectiveType = changes.type ?? link.type;
+	// Also runs on a TYPE-only change: retyping a client keeps its stored reach list,
+	// which syncHubConf would then put on the hub peer's AllowedIPs (stealing other
+	// sites' subnets). "Client" here = explicit metadata type after the patch — the
+	// same rule _buildPeerUpdates uses to reduce a peer to host routes.
+	if (changes.importedNetworks !== undefined || changes.type !== undefined) {
+		const storedMeta = (await readMetadataStore()).links[linkId] || {};
+		const effectiveType =
+			changes.type !== undefined ? normalizeLinkType(changes.type) : normalizeLinkType(storedMeta.type);
 		if (effectiveType !== "client") {
-			const newNets = sanitizeNetworkArray(changes.importedNetworks);
+			const newNets = sanitizeNetworkArray(changes.importedNetworks ?? link.importedNetworks ?? []);
 			const otherLinks = status.links.filter((l) => l.id !== linkId);
 			const conflicts = checkAllowedIPsConflicts(newNets, otherLinks);
 			if (conflicts.length > 0) {
@@ -1747,7 +2143,7 @@ async function updatePeer(linkId, changes = {}) {
 		metadataPatch.type = normalizeLinkType(changes.type);
 	}
 	if (changes.dns !== undefined) {
-		metadataPatch.dns = sanitizeStringArray(changes.dns);
+		metadataPatch.dns = sanitizeDnsArray(changes.dns);
 	}
 	if (changes.fullTunnel !== undefined) {
 		metadataPatch.fullTunnel = Boolean(changes.fullTunnel);
@@ -1806,8 +2202,13 @@ async function updatePeer(linkId, changes = {}) {
 // write lock so it can't interleave with createPeer's locked appendFile (which would
 // otherwise lose a freshly-added [Peer] block from the conf — see mutex note above).
 // createPeer already holds the lock, so it calls _syncHubConfCore directly instead.
-async function syncHubConf(metadata, ifaceName = "wg0") {
-	return withWriteLock(() => _syncHubConfCore(metadata, ifaceName));
+// The store is re-read INSIDE the lock: callers used to pass a snapshot taken
+// before queueing (applyMetadata awaits cascadeLinkRenames + getStatus first), so
+// a concurrent mutation that synced in between got reverted on the hub while the
+// agents (which read fresh under the lock) kept the newer state. The first
+// argument is kept for call-site compatibility and ignored.
+async function syncHubConf(_metadataSnapshot, ifaceName = "wg0") {
+	return withWriteLock(async () => _syncHubConfCore(await readMetadataStore(), ifaceName));
 }
 
 async function _syncHubConfCore(metadata, ifaceName = "wg0") {
@@ -1866,12 +2267,7 @@ async function _syncHubConfCore(metadata, ifaceName = "wg0") {
 
 	// Exclude networks already directly connected on physical interfaces —
 	// adding a wg0 route for these would override the local LAN route.
-	const physNetsForExclusion = _getPrivatePhysicalInterfaces();
-	for (const nic of physNetsForExclusion) {
-		if (allRouteNets.has(nic.cidr)) {
-			allRouteNets.delete(nic.cidr);
-		}
-	}
+	_excludeConnectedNets(allRouteNets, _getPrivatePhysicalInterfaces());
 
 	// Discover physical interfaces with private IPs for auto-MASQUERADE.
 	// wg0 peers that route traffic to subnets reachable via eth1/ens* etc.
@@ -1919,7 +2315,7 @@ async function _syncHubConfCore(metadata, ifaceName = "wg0") {
 	const normalizedOriginal = lines.join("\n");
 	const newText = _rewriteHubConf(lines, ifaceName, peerUpdates, allRouteNets, masqueradeIfaces);
 	if (newText !== normalizedOriginal) {
-		await fs.writeFile(confPath, newText, "utf8");
+		await writeConfAtomic(confPath, newText);
 	}
 
 	// Live `wg set` is still gated on an actual AllowedIPs change — only peers whose
@@ -2204,6 +2600,18 @@ async function getBandwidth(range = "live") {
  * Check if any of the proposed subnets conflict with existing links' AllowedIPs.
  * Returns an array of { subnet, peer } for each conflict found.
  */
+/**
+ * Two networks overlap when one contains the other (IPv4, CIDR-aware). WireGuard
+ * routes the overlapping part to only one peer (longest prefix), so a link whose
+ * networks overlap another site's would silently steal (part of) its traffic —
+ * an exact-string comparison missed 192.168.0.0/16 vs 192.168.20.0/24. Non-IPv4
+ * values fall back to string equality. Pure.
+ */
+function networksOverlap(a, b) {
+	if (a === b) return true;
+	return cidrContains(a, b) || cidrContains(b, a);
+}
+
 function checkAllowedIPsConflicts(proposedNets, existingLinks) {
 	if (!proposedNets?.length) return [];
 	const conflicts = [];
@@ -2211,16 +2619,68 @@ function checkAllowedIPsConflicts(proposedNets, existingLinks) {
 		if (isHostRoute(net)) continue;
 		for (const link of existingLinks) {
 			const linkNets = (link.allowedIps || []).filter((ip) => !isHostRoute(ip));
-			if (linkNets.includes(net)) {
-				conflicts.push({ subnet: net, peer: link.name || link.id });
+			const hit = linkNets.find((other) => networksOverlap(net, other));
+			if (hit) {
+				conflicts.push({ subnet: hit === net ? net : `${net} ↔ ${hit}`, peer: link.name || link.id });
 			}
 		}
 	}
 	return conflicts;
 }
 
+/**
+ * Overlapping site networks between different non-client links of a (projected)
+ * metadata links map. Only pairs that involve one of `changedIds` are reported
+ * (null = all), so an old overlap does not block an unrelated save. Pure.
+ * @returns {string[]} human-readable conflicts
+ */
+function findLinkNetworkConflicts(links, changedIds = null) {
+	const entries = [];
+	for (const [id, meta] of Object.entries(links || {})) {
+		if (!meta || meta.type === "client") continue;
+		for (const net of meta.importedNetworks || []) {
+			if (isHostRoute(net)) continue;
+			entries.push({ id, name: meta.name || id, net });
+		}
+	}
+	const changed = changedIds ? new Set(changedIds) : null;
+	const out = [];
+	for (let i = 0; i < entries.length; i++) {
+		for (let j = i + 1; j < entries.length; j++) {
+			const a = entries[i];
+			const b = entries[j];
+			if (a.id === b.id) continue;
+			if (changed && !changed.has(a.id) && !changed.has(b.id)) continue;
+			if (!networksOverlap(a.net, b.net)) continue;
+			out.push(
+				a.net === b.net
+					? `${a.net} claimed by ${a.name}, ${b.name}`
+					: `${a.net} (${a.name}) overlaps ${b.net} (${b.name})`,
+			);
+		}
+	}
+	return out;
+}
+
 export {
 	_buildPeerUpdates,
+	_rewriteRotatedPeer,
+	_isGeneratedMasq,
+	_rewriteHubConf,
+	assertPeerConfigAllowed,
+	isAcceptableNetworkPrefix,
+	sanitizeNetworkArray,
+	checkAllowedIPsConflicts,
+	findLinkNetworkConflicts,
+	networksOverlap,
+	_assertBoundAgentCascade,
+	_deleteBoundAgents,
+	_planBoundAgentCascade,
+	_setBoundAgentCascadeDepsForTests,
+	_excludeConnectedNets,
+	isValidDnsEntry,
+	sanitizeDnsArray,
+	writeConfAtomic,
 	bandwidthBucketStart,
 	counterDelta,
 	canonicalizeIpv4Network,
@@ -2341,7 +2801,7 @@ async function createInterface({ name, address, listenPort, role } = {}) {
 			`PostDown = iptables -D FORWARD -i ${name} -j ACCEPT; iptables -D FORWARD -o ${name} -j ACCEPT`,
 			"",
 		];
-		await fs.writeFile(confPath, confLines.join("\n"), "utf8");
+		await writeConfAtomic(confPath, confLines.join("\n"));
 
 		// ── Bring interface up ──
 		try {
@@ -2378,10 +2838,34 @@ async function createInterface({ name, address, listenPort, role } = {}) {
 }
 
 /**
- * Delete a WireGuard interface: bring it down, remove config, clean metadata.
- * @param {string} name - Interface name (e.g. "wg1")
+ * Effective names of the links on `name` that no link on another interface also
+ * carries (agents bind by name only; agent.wg_interface is the gateway side).
  */
-async function deleteInterface(rawName) {
+async function _interfaceBoundNames(name) {
+	const own = new Set();
+	const other = new Set();
+	try {
+		const st = await getStatus();
+		for (const l of st?.available ? st.links || [] : []) {
+			if (l?.name) (l.interfaceName === name ? own : other).add(l.name);
+		}
+	} catch (err) {
+		logger.debug(`deleteInterface(${name}): status unavailable for the bound-agent check: ${err.message}`);
+	}
+	const meta = await readMetadataStore();
+	for (const [id, l] of Object.entries(meta.links || {})) {
+		if (l?.name) (id.startsWith(`${name}:`) ? own : other).add(l.name);
+	}
+	return [...own].filter((n) => !other.has(n));
+}
+
+/**
+ * Delete a WireGuard interface: bring it down, remove config, clean metadata.
+ * Bound agents of its links: same rules as deletePeer (refuse / dryRun / cascade).
+ * @param {string} name - Interface name (e.g. "wg1")
+ * @param {{ deleteBoundAgents?: boolean, forceAgentIds?: number[], dryRun?: boolean }} [opts]
+ */
+async function deleteInterface(rawName, { deleteBoundAgents = false, forceAgentIds = [], dryRun = false } = {}) {
 	if (!rawName?.trim()) throw new Error("Interface name is required");
 	const name = rawName.trim();
 
@@ -2396,6 +2880,17 @@ async function deleteInterface(rawName) {
 	if (!(await pathExists(confPath))) {
 		throw new Error(`Interface ${name} not found — no config file at ${confPath}`);
 	}
+
+	const boundNames = await _interfaceBoundNames(name);
+	let plan = await _planBoundAgentCascade(boundNames, forceAgentIds);
+	if (dryRun) return { dryRun: true, name, agents: _cascadeView(plan) };
+	_assertBoundAgentCascade(plan, deleteBoundAgents);
+	// Re-check under the write lock right before the first change.
+	plan = await withWriteLock(async () => {
+		const fresh = await _planBoundAgentCascade(boundNames, forceAgentIds);
+		_assertBoundAgentCascade(fresh, deleteBoundAgents);
+		return fresh;
+	});
 
 	// ── Backup metadata ──
 	await backupMetadataStore();
@@ -2430,6 +2925,9 @@ async function deleteInterface(rawName) {
 	// Drop any cached peer configs for the removed interface's links.
 	_peerConfigCache.clear();
 
+	// ── Bound agents only now that the interface and its links are gone ──
+	const agents = await _deleteBoundAgents(plan);
+
 	// ── Resync agents: a deleted interface's site networks feed allSiteNets
 	// cross-interface, so every mesh agent (including those on OTHER interfaces)
 	// must recompute or it keeps routing the now-dead LANs (AllowedIPs + route +
@@ -2448,7 +2946,7 @@ async function deleteInterface(rawName) {
 		agentSync = { error: err.message };
 	}
 
-	return { deleted: true, name, agentSync };
+	return { deleted: true, name, agentSync, agents };
 }
 
 /**
@@ -2463,6 +2961,9 @@ async function createPeer({ name, type, dns, fullTunnel, platform, importedNetwo
 	if (name != null && !isSafeLinkName(name)) {
 		throw new Error("Invalid name — control characters (including newlines) are not allowed");
 	}
+	// Validate DNS before any side effect too (a non-array used to throw only after
+	// the peer was already in the conf + live interface, orphaning it).
+	const dnsList = sanitizeDnsArray(dns);
 	return withWriteLock(async () => {
 		const status = await getStatus();
 		if (!status.available) throw new Error("WireGuard is not available");
@@ -2576,7 +3077,7 @@ async function createPeer({ name, type, dns, fullTunnel, platform, importedNetwo
 			// Rollback: remove the peer block we just appended
 			const conf = await fs.readFile(confPath, "utf8");
 			const cleaned = conf.replace(peerBlock, "");
-			await fs.writeFile(confPath, cleaned, "utf8");
+			await writeConfAtomic(confPath, cleaned);
 			throw new Error(`Failed to add peer to live interface: ${err.message}`);
 		}
 
@@ -2588,7 +3089,7 @@ async function createPeer({ name, type, dns, fullTunnel, platform, importedNetwo
 			name: name || undefined,
 			type: type || "client",
 			importedNetworks: importedNets,
-			dns: (dns || []).filter(Boolean),
+			dns: dnsList,
 			fullTunnel: Boolean(fullTunnel),
 			platform: platform || undefined,
 		});
@@ -2623,13 +3124,15 @@ async function createPeer({ name, type, dns, fullTunnel, platform, importedNetwo
 		const hubHost = resolveHubHost();
 
 		// DNS: link > interface > env
-		const dnsServers = (dns || []).length
-			? dns
-			: ifaceMeta.dns?.length
-				? ifaceMeta.dns
-				: process.env.WG_DNS
-					? process.env.WG_DNS.split(",").map((s) => s.trim())
-					: [];
+		const dnsServers = (
+			dnsList.length
+				? dnsList
+				: ifaceMeta.dns?.length
+					? ifaceMeta.dns
+					: process.env.WG_DNS
+						? process.env.WG_DNS.split(",").map((s) => s.trim())
+						: []
+		).filter(isValidDnsEntry);
 
 		const isFullTunnel = Boolean(fullTunnel);
 		const isMobilePlatform = platform === "mobile";
@@ -2690,6 +3193,10 @@ export default {
 	readMetadataStore,
 	replaceMetadataStore,
 	resolveHubHost,
+	// used by PUT /api/wireguard/metadata (was missing from the default export:
+	// that route threw "is not a function" for every links patch)
+	sanitizeLinkMetadataPatch,
+	findLinkNetworkConflicts,
 	syncHubConf,
 	updateInterfaceMetadata,
 	updateLinkMetadata,

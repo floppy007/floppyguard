@@ -68,6 +68,7 @@ router
 			if (!result.alreadyRunning) {
 				await internalAuditLog.add(res.locals.access, {
 					action: "floppyguard.update",
+					object_type: "floppyguard",
 					meta: { source: "admin-ui" },
 				});
 			}

@@ -48,16 +48,25 @@ const getToken = async (host, actor) => {
 	return tokenFromCertificate(certificate);
 };
 
+// A hanging Cloudflare API call must not hold a proxy-host save open forever.
+const API_TIMEOUT_MS = 15 * 1000;
+
 const api = async (token, path, options = {}) => {
 	const response = await fetch(`${API_ROOT}${path}`, {
 		...options,
+		signal: options.signal ?? AbortSignal.timeout(API_TIMEOUT_MS),
 		headers: {
 			Authorization: `Bearer ${token}`,
 			"Content-Type": "application/json",
 			...options.headers,
 		},
 	});
-	const payload = await response.json();
+	let payload;
+	try {
+		payload = await response.json();
+	} catch {
+		throw new Error(`Cloudflare API request failed (HTTP ${response.status}, no JSON response)`);
+	}
 	if (!response.ok || !payload.success) {
 		throw new Error(payload.errors?.map((error) => error.message).join("; ") || "Cloudflare API request failed");
 	}
@@ -162,6 +171,7 @@ const cloudflareDns = {
 
 	/** @internal for tests */
 	_getToken: getToken,
+	_api: api,
 
 	/**
 	 * @param {Object} host

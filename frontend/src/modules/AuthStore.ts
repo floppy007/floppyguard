@@ -39,6 +39,13 @@ export class AuthStore {
 		return null;
 	}
 
+	// Whether the current (top) token has expired. Read-only, unlike hasActiveToken()
+	isTopTokenExpired(now = Date.now()) {
+		const t = this.token;
+		const ts = t?.expires ? parseISO(t.expires).getTime() : Number.NaN;
+		return Number.isNaN(ts) || ts <= now;
+	}
+
 	// Filter out invalid tokens and return true if we find one that is valid
 	// hasActiveToken() {
 	// 	const t = this.tokens;

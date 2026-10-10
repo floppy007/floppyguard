@@ -115,8 +115,11 @@ const internalIpRanges = {
 						return true;
 					});
 
-					return internalIpRanges.generateConfig(clean_ip_ranges).then(() => {
-						if (internalIpRanges.iteration_count) {
+					return internalIpRanges.generateConfig(clean_ip_ranges).then((changed) => {
+						// Only reload when the ranges actually changed: every reload
+						// leaves the old workers running until their long-lived
+						// (websocket) connections close.
+						if (changed && internalIpRanges.iteration_count) {
 							// Reload nginx
 							return internalNginx.reload();
 						}
@@ -135,7 +138,7 @@ const internalIpRanges = {
 
 	/**
 	 * @param   {Array}  ip_ranges
-	 * @returns {Promise}
+	 * @returns {Promise<boolean>}  true when the file was (re)written, false when unchanged
 	 */
 	generateConfig: (ip_ranges) => {
 		const renderEngine = utils.getRenderEngine();
@@ -152,6 +155,16 @@ const internalIpRanges = {
 			renderEngine
 				.parseAndRender(template, { ip_ranges: ip_ranges })
 				.then((config_text) => {
+					let current = null;
+					try {
+						current = fs.readFileSync(filename, { encoding: "utf8" });
+					} catch {
+						// missing file: write it
+					}
+					if (current === config_text) {
+						resolve(false);
+						return;
+					}
 					fs.writeFileSync(filename, config_text, { encoding: "utf8" });
 					resolve(true);
 				})

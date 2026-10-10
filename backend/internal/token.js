@@ -159,7 +159,8 @@ export default {
 					throw new errs.AuthError("SSO session expired, please sign in again");
 				}
 				token_attrs.sso_exp = ssoUntil;
-				if (expiry.getTime() > ssoUntilMs) {
+				// parseDatePeriod returns a moment (no getTime()); valueOf() is ms.
+				if (expiry.valueOf() > ssoUntilMs) {
 					expiry = new Date(ssoUntilMs);
 					expiresIn = Math.max(1, Math.floor((ssoUntilMs - Date.now()) / 1000));
 				}

@@ -1,5 +1,6 @@
 export * from "./BrandLogo";
 export * from "./Button";
+export * from "./ChunkErrorBoundary";
 export * from "./DonutGauge";
 export * from "./EmptyData";
 export * from "./ErrorNotFound";

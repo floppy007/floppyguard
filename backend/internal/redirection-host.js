@@ -28,6 +28,7 @@ const internalRedirectionHost = {
 
 		return access
 			.can("redirection_hosts:create", thisData)
+			.then(() => internalNginx.assertSafeHostFields("redirection_host", thisData))
 			.then(() => internalHost.assertCertificateAccess(access, thisData.certificate_id))
 			.then((/*access_data*/) => {
 				// Get a list of the domain names and check each of them against existing records
@@ -123,6 +124,7 @@ const internalRedirectionHost = {
 
 		return access
 			.can("redirection_hosts:update", thisData.id)
+			.then(() => internalNginx.assertSafeHostFields("redirection_host", thisData))
 			.then((/*access_data*/) => {
 				// Get a list of the domain names and check each of them against existing records
 				const domain_name_check_promises = [];

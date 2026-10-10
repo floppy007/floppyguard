@@ -1,4 +1,15 @@
-import { IconArrowsCross, IconBolt, IconBoltOff, IconDisc, IconLock, IconShield, IconUser } from "@tabler/icons-react";
+import {
+	IconArrowsCross,
+	IconBolt,
+	IconBoltOff,
+	IconDisc,
+	IconKey,
+	IconLock,
+	IconRefresh,
+	IconShield,
+	IconShieldLock,
+	IconUser,
+} from "@tabler/icons-react";
 import cn from "classnames";
 import type { AuditLog } from "src/api/backend";
 import { useLocaleState } from "src/context";
@@ -15,10 +26,17 @@ const getEventValue = (event: AuditLog) => {
 			return event.meta?.domainNames?.join(", ") || "N/A";
 		case "stream":
 			return event.meta?.incomingPort || "N/A";
+		case "agent-ingress":
+			return event.meta?.name || event.meta?.agent || "N/A";
 		case "certificate":
 			return event.meta?.domainNames?.join(", ") || event.meta?.niceName || "N/A";
+		case "oidc-settings":
+			// Only field names are logged, never values (client secret)
+			return (Array.isArray(event.meta?.changed) ? event.meta.changed.join(", ") : "") || "SSO";
+		case "floppyguard":
+			return "FloppyGuard";
 		default:
-			return `UNKNOWN EVENT TYPE: ${event.objectType}`;
+			return event.meta?.name || event.objectType;
 	}
 };
 
@@ -32,6 +50,16 @@ const getColorForAction = (action: string) => {
 			return "text-blue";
 	}
 };
+
+/**
+ * Older app-update rows were written without an object_type ("") — treat them as
+ * "floppyguard" so they render like the new ones instead of an empty object.
+ */
+const normalize = (row: AuditLog): AuditLog =>
+	!row.objectType && row.action === "floppyguard.update" ? { ...row, objectType: "floppyguard" } : row;
+
+/** Actions whose message has no {object} placeholder (nothing to translate). */
+const NO_OBJECT_ACTIONS = new Set(["floppyguard.update", "sso-login", "sso-refused"]);
 
 const getIcon = (row: AuditLog) => {
 	const c = cn(getColorForAction(row.action), "me-1");
@@ -58,6 +86,15 @@ const getIcon = (row: AuditLog) => {
 		case "certificate":
 			ico = <IconShield size={16} className={c} />;
 			break;
+		case "agent-ingress":
+			ico = <IconShieldLock size={16} className={c} />;
+			break;
+		case "oidc-settings":
+			ico = <IconKey size={16} className={c} />;
+			break;
+		case "floppyguard":
+			ico = <IconRefresh size={16} className={c} />;
+			break;
 	}
 
 	return ico;
@@ -66,13 +103,16 @@ const getIcon = (row: AuditLog) => {
 interface Props {
 	row: AuditLog;
 }
-export function EventFormatter({ row }: Props) {
+export function EventFormatter({ row: rawRow }: Props) {
 	const { locale } = useLocaleState();
+	const row = normalize(rawRow);
+	// T skips empty tData values (an empty message id throws); {object} stays filled
+	const tData = NO_OBJECT_ACTIONS.has(row.action) ? undefined : { object: row.objectType };
 	return (
 		<div className="flex-fill">
 			<div className="font-weight-medium">
 				{getIcon(row)}
-				<T id={`object.event.${row.action}`} tData={{ object: row.objectType }} />
+				<T id={`object.event.${row.action}`} tData={tData} />
 				&nbsp; &mdash; <span className="badge">{getEventValue(row)}</span>
 			</div>
 			<div className="text-secondary mt-1">{formatDateTime(row.createdOn, locale)}</div>

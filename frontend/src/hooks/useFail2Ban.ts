@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getFail2BanStatus, unbanIp } from "src/api/backend";
 
-export const useFail2BanStatus = () =>
+export const useFail2BanStatus = (options: { enabled?: boolean } = {}) =>
 	useQuery({
 		queryKey: ["fail2ban"],
 		queryFn: getFail2BanStatus,
 		refetchInterval: 30_000,
+		...options,
 	});
 
 export const useUnbanIp = () => {

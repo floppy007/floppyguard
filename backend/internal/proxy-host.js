@@ -33,6 +33,7 @@ const internalProxyHost = {
 
 		return access
 			.can("proxy_hosts:create", thisData)
+			.then(() => internalNginx.assertSafeHostFields("proxy_host", thisData))
 			.then(() => internalHost.assertCertificateAccess(access, thisData.certificate_id))
 			.then(() => {
 				// Get a list of the domain names and check each of them against existing records
@@ -129,6 +130,7 @@ const internalProxyHost = {
 
 		return access
 			.can("proxy_hosts:update", thisData.id)
+			.then(() => internalNginx.assertSafeHostFields("proxy_host", thisData))
 			.then((/*access_data*/) => {
 				// Get a list of the domain names and check each of them against existing records
 				const domain_name_check_promises = [];

@@ -214,6 +214,8 @@ WG_CONF_DIR=/etc/wireguard
 WG_HUB_HOST=${DOMAIN:-$(hostname -f)}
 # WG_DNS=10.10.0.1,1.1.1.1
 EOF
+    # Holds the DB password once MySQL/Postgres is configured: root-only.
+    chmod 600 "${env_file}"
     ok ".env written"
 }
 
@@ -310,12 +312,37 @@ server {
     root ${INSTALL_DIR}/frontend/dist;
     index index.html;
 
+    # The SPA bundles are large text assets: compress them (the stock Debian
+    # nginx.conf only enables gzip for text/html).
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_types text/css application/javascript text/javascript application/json image/svg+xml;
+
+    # Clickjacking: the admin UI must never be framed. Set per location (not on
+    # the server) so /api/ keeps only the backend's own headers; repeated in
+    # every location that has its own add_header (nginx does not inherit then).
     location = /index.html {
         add_header Cache-Control "no-store, no-cache, must-revalidate";
+        add_header X-Frame-Options DENY always;
+        add_header Content-Security-Policy "frame-ancestors 'none'" always;
         expires 0;
     }
 
+    # Vite bundles are content-hashed: cache them for good instead of
+    # revalidating ~1.7 MB on every load. No index.html fallback here, so a
+    # chunk from an old build is a plain 404 (never cached: no "always").
+    location /assets/ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        add_header X-Frame-Options DENY always;
+        add_header Content-Security-Policy "frame-ancestors 'none'" always;
+        try_files \$uri =404;
+    }
+
     location / {
+        add_header X-Frame-Options DENY always;
+        add_header Content-Security-Policy "frame-ancestors 'none'" always;
         try_files \$uri \$uri/ /index.html;
     }
 
@@ -345,6 +372,16 @@ EOF
     fi
 
     ln -sf "${site_file}" "/etc/nginx/sites-enabled/${NGINX_SITE}"
+
+    # Every reload (host save, certificate renewal) leaves the old workers
+    # running until their last connection ends — behind long-lived websockets
+    # that is hours. Bound it (main context, so nginx.conf itself).
+    if ! grep -qE '^\s*worker_shutdown_timeout' /etc/nginx/nginx.conf; then
+        sed -i '0,/^\s*worker_processes[^;]*;/s//&\nworker_shutdown_timeout 30s;/' /etc/nginx/nginx.conf
+        grep -qE '^\s*worker_shutdown_timeout' /etc/nginx/nginx.conf || \
+            warn "worker_shutdown_timeout not set — add 'worker_shutdown_timeout 30s;' to /etc/nginx/nginx.conf"
+    fi
+
     nginx -t && nginx -s reload
     ok "nginx configured"
 

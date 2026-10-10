@@ -8,6 +8,7 @@ import {
 	IconLock,
 	IconSettings,
 	IconShield,
+	IconShieldLock,
 	IconUser,
 	IconVectorBezier2,
 } from "@tabler/icons-react";
@@ -88,6 +89,8 @@ const menuItems: MenuItem[] = [
 		to: "/traffic",
 		icon: IconChartBar,
 		label: "traffic",
+		// /api/wireguard/* is admin-only
+		permissionSection: ADMIN,
 	},
 	{
 		iconElement: <NpmLogoIcon />,
@@ -123,6 +126,13 @@ const menuItems: MenuItem[] = [
 		to: "/wireguard",
 		iconElement: <WireGuardIcon />,
 		label: "wireguard",
+		permissionSection: ADMIN,
+	},
+	{
+		to: "/ingress",
+		icon: IconShieldLock,
+		label: "ingress",
+		permissionSection: ADMIN,
 	},
 	{
 		icon: IconSettings,
