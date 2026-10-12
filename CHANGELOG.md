@@ -31,6 +31,7 @@ Audit follow-up. Agent script 1.5.0 (fleet-wide self-update).
 #### Fixed
 
 - Deleting a WireGuard peer rewrites `wg0.conf` before removing the peer live: a failed rewrite leaves the link fully intact and retryable.
+- **Site LANs reach hosts on the hub LAN again.** Agents with `preserve_lan_source_ip` forward their LAN un-NATed; a host on the hub LAN (e.g. `10.10.10.108`) answered via its own default gateway instead of the hub, so the reply never reached the tunnel (on the Hetzner PVE it was even masqueraded to the public IP on the bridge). The hub auto-MASQUERADE now covers every net routed into the tunnel (`-o eth1 -s <site LAN>`), so hosts on the hub LAN see the hub address (`10.10.10.106`). The generated rules are reconciled live on every hub sync (`-C` before `-A`, previously owned keys removed) instead of only on `wg-quick up`; with a custom `WG_CONF_DIR` and no `IPTABLES_BIN` nothing is touched.
 - Hub MASQUERADE rules are owned by set membership (marker comment `# floppyguard-masq:` above PostUp), so an operator rule written as `-o eth1 -s X` is no longer dropped on rewrite.
 - Restoring a metadata backup keeps a link's current name, type and imported networks when the backup has none, so bound agents keep their link; renames follow the effective name.
 - Saving a proxy host/redirection/stream/404 host whose new config fails `nginx -t` keeps the previous config live (new one kept as `.err`, error in `nginx_err`).
@@ -66,6 +67,7 @@ Audit follow-up. Agent script 1.5.0 (fleet-wide self-update).
 #### Behoben
 
 - Beim Löschen eines WireGuard-Peers wird zuerst `wg0.conf` umgeschrieben und erst dann der Peer live entfernt: Schlägt das Umschreiben fehl, bleibt die Verbindung vollständig erhalten und das Löschen kann wiederholt werden.
+- **Standort-LANs erreichen Hosts im Hub-LAN wieder.** Agents mit `preserve_lan_source_ip` leiten ihr LAN ungenattet weiter; ein Host im Hub-LAN (z. B. `10.10.10.108`) antwortete über sein eigenes Default-Gateway statt über den Hub, die Antwort fand den Tunnel nie (am Hetzner-PVE wurde sie auf der Bridge sogar auf die öffentliche IP maskiert). Die Auto-MASQUERADE des Hubs umfasst jetzt jedes in den Tunnel geroutete Netz (`-o eth1 -s <Standort-LAN>`), Hosts im Hub-LAN sehen die Hub-Adresse (`10.10.10.106`). Die erzeugten Regeln werden bei jedem Hub-Sync live abgeglichen (`-C` vor `-A`, früher eigene Schlüssel entfernt) statt nur bei `wg-quick up`; mit eigenem `WG_CONF_DIR` ohne `IPTABLES_BIN` wird nichts angefasst.
 - MASQUERADE-Regeln des Hubs gehören FloppyGuard nur noch per Mengenzugehörigkeit (Markierung `# floppyguard-masq:` über PostUp); eine eigene Regel der Form `-o eth1 -s X` wird beim Umschreiben nicht mehr entfernt.
 - Beim Wiederherstellen einer Metadaten-Sicherung bleiben Name, Typ und importierte Netze einer Verbindung erhalten, wenn die Sicherung keine enthält; gebundene Agents behalten ihre Verbindung.
 - Speichern eines Hosts, dessen neue Konfiguration `nginx -t` nicht besteht, lässt die bisherige Konfiguration aktiv (die neue bleibt als `.err`, Fehler in `nginx_err`).
