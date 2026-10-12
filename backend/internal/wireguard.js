@@ -2211,6 +2211,50 @@ async function syncHubConf(_metadataSnapshot, ifaceName = "wg0") {
 	return withWriteLock(async () => _syncHubConfCore(await readMetadataStore(), ifaceName));
 }
 
+// Live counterpart of the generated PostUp/PostDown MASQUERADE: add what the
+// current set needs (-C before -A, so nothing doubles) and drop what the previous
+// marker owned but the current set no longer contains. Operator rules are never
+// in either set, so they are never touched.
+async function _reconcileMasqLive(ifaceName, masqueradeIfaces, previousOwned, changes) {
+	// A custom WG_CONF_DIR (tests, staging) without an explicit IPTABLES_BIN must
+	// never touch the real NAT table of the host it runs on.
+	const iptBin = process.env.IPTABLES_BIN || (process.env.WG_CONF_DIR ? null : "iptables");
+	if (!iptBin) return;
+	const want = new Map();
+	for (const n of masqueradeIfaces) {
+		if (n.name === ifaceName || !isValidNetwork(n.cidr)) continue;
+		want.set(_masqKey(n.name, n.cidr), [n.name, n.cidr]);
+	}
+	const rule = (nic, cidr) => ["-t", "nat", "POSTROUTING", "-o", nic, "-s", cidr, "-j", "MASQUERADE"];
+	const ipt = (verb, nic, cidr) => {
+		const r = rule(nic, cidr);
+		return execFileAsync(iptBin, [r[0], r[1], verb, ...r.slice(2)]);
+	};
+	for (const [key, [nic, cidr]] of want) {
+		try {
+			await ipt("-C", nic, cidr);
+		} catch {
+			try {
+				await ipt("-A", nic, cidr);
+				changes.push({ masqAdded: key });
+			} catch (err) {
+				logger.warn(`MASQUERADE add ${key}: ${err.message}`);
+			}
+		}
+	}
+	for (const key of previousOwned) {
+		if (want.has(key)) continue;
+		const m = /^(\S+)=(\S+)$/.exec(key);
+		if (!m || m[1] === ifaceName || !isValidNetwork(m[2])) continue;
+		try {
+			await ipt("-D", m[1], m[2]);
+			changes.push({ masqRemoved: key });
+		} catch {
+			// already gone
+		}
+	}
+}
+
 async function _syncHubConfCore(metadata, ifaceName = "wg0") {
 	const confPath = path.join(getWireGuardConfDir(), `${ifaceName}.conf`);
 	let confText;
@@ -2300,6 +2344,17 @@ async function _syncHubConfCore(metadata, ifaceName = "wg0") {
 			seenMasq.add(key2);
 			masqueradeIfaces.push({ name: nic.name, address: nic.address, cidr: tunnelSubnet });
 		}
+		//   3. -s <site LAN> -o <nic.name> for every net routed into the tunnel.
+		// Agents with preserve_lan_source_ip forward their LAN un-NATed, so e.g.
+		// 10.3.20.130 reached 10.10.10.108 with its real IP; .108 answered via its
+		// default gateway (not the hub) and the reply never found the tunnel.
+		for (const net of [...allRouteNets].sort()) {
+			if (net.includes(":")) continue; // iptables (v4) only
+			const key3 = `${nic.name}:${net}`;
+			if (seenMasq.has(key3)) continue;
+			seenMasq.add(key3);
+			masqueradeIfaces.push({ name: nic.name, address: nic.address, cidr: net });
+		}
 	}
 
 	const wgBin = getWireGuardBin();
@@ -2317,6 +2372,9 @@ async function _syncHubConfCore(metadata, ifaceName = "wg0") {
 	if (newText !== normalizedOriginal) {
 		await writeConfAtomic(confPath, newText);
 	}
+	// PostUp only runs on wg-quick up; a restart would drop every site tunnel.
+	// Reconcile the generated MASQUERADE rules live instead.
+	await _reconcileMasqLive(ifaceName, masqueradeIfaces, _parseMasqMarker(lines), changes);
 
 	// Live `wg set` is still gated on an actual AllowedIPs change — only peers whose
 	// cryptokey routing changed need re-applying.
