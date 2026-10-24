@@ -1,18 +1,19 @@
 import { IconShieldLock } from "@tabler/icons-react";
 import type { Agent } from "src/api/backend";
 import { ingressUnusedCount, ingressWarningCount, ti as t } from "src/components/AgentIngress";
-import { useAgentIngress, useAgentIngressCheck } from "src/hooks";
+import { useAgentIngressActiveRules, useAgentIngressCheck } from "src/hooks";
 import { showAgentIngressModal } from "src/modals";
 
 /** Compact "Freigaben" line in the agent panel; details live in AgentIngressModal. */
 export function AgentIngressSummary({ agent }: { agent: Agent }) {
-	const ingress = useAgentIngress(agent.id);
+	// One shared check for every agent panel instead of a full ingress fetch each (N+1)
 	const check = useAgentIngressCheck();
-
-	const mode = ingress.data?.ingressMode ?? agent.ingressMode ?? "open";
-	const restricted = mode === "restricted";
-	const activeRules = ingress.data ? ingress.data.rules.filter((r) => r.enabled).length : null;
 	const entry = check.data?.find((c) => c.agentId === agent.id);
+
+	const mode = entry?.ingressMode ?? agent.ingressMode ?? "open";
+	const restricted = mode === "restricted";
+	// unbound agents are not in the check: their count comes from their own rules
+	const activeRules = useAgentIngressActiveRules(agent.id, entry?.activeRuleCount ?? null, check.isSuccess);
 	const warnings = entry ? ingressWarningCount(entry) : null;
 	const unused = entry ? ingressUnusedCount(entry) : 0;
 	// Missing upstreams only break traffic while the filter is active

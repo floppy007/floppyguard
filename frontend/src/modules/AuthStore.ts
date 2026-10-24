@@ -1,12 +1,13 @@
 import { getUnixTime, parseISO } from "date-fns";
 import type { TokenResponse } from "src/api/backend";
+import { safeLocal } from "src/modules/safeStorage";
 
 export const TOKEN_KEY = "authentications";
 
 export class AuthStore {
 	// Get all tokens from stack
 	get tokens() {
-		const t = localStorage.getItem(TOKEN_KEY);
+		const t = safeLocal.get(TOKEN_KEY);
 		let tokens = [];
 		if (t !== null) {
 			try {
@@ -27,18 +28,6 @@ export class AuthStore {
 		return null;
 	}
 
-	// Get expires from last token
-	get expires() {
-		const t = this.token;
-		if (t && typeof t.expires !== "undefined") {
-			const expires = Number(t.expires);
-			if (expires && !Number.isNaN(expires)) {
-				return expires;
-			}
-		}
-		return null;
-	}
-
 	// Whether the current (top) token has expired. Read-only, unlike hasActiveToken()
 	isTopTokenExpired(now = Date.now()) {
 		const t = this.token;
@@ -52,28 +41,25 @@ export class AuthStore {
 	// 	return t.length > 0;
 	// }
 	// Start from the END of the stack and work backwards
+	// Expired tokens are stripped from the top down until the first valid one; storage
+	// is read once and written at most once.
 	hasActiveToken() {
 		const t = this.tokens;
-		if (!t.length) {
-			return false;
-		}
-
 		const now = Math.round(Date.now() / 1000);
 		const oneMinuteBuffer = 60;
-		for (let i = t.length - 1; i >= 0; i--) {
-			const dte = getUnixTime(parseISO(t[i].expires));
-			const valid = dte - oneMinuteBuffer > now;
-			if (valid) {
-				return true;
-			}
-			this.drop();
+		let keep = t.length;
+		while (keep > 0 && !(getUnixTime(parseISO(t[keep - 1].expires)) - oneMinuteBuffer > now)) {
+			keep--;
 		}
-		return false;
+		if (keep !== t.length) {
+			safeLocal.set(TOKEN_KEY, JSON.stringify(t.slice(0, keep)));
+		}
+		return keep > 0;
 	}
 
 	// Set a single token on the stack
 	set({ token, expires }: TokenResponse) {
-		localStorage.setItem(TOKEN_KEY, JSON.stringify([{ token, expires }]));
+		safeLocal.set(TOKEN_KEY, JSON.stringify([{ token, expires }]));
 	}
 
 	// Replace the token at the END of the stack, preserving any tokens below it.
@@ -85,25 +71,25 @@ export class AuthStore {
 			return;
 		}
 		t[t.length - 1] = { token, expires };
-		localStorage.setItem(TOKEN_KEY, JSON.stringify(t));
+		safeLocal.set(TOKEN_KEY, JSON.stringify(t));
 	}
 
 	// Add a token to the END of the stack
 	add({ token, expires }: TokenResponse) {
 		const t = this.tokens;
 		t.push({ token, expires });
-		localStorage.setItem(TOKEN_KEY, JSON.stringify(t));
+		safeLocal.set(TOKEN_KEY, JSON.stringify(t));
 	}
 
 	// Drop a token from the END of the stack
 	drop() {
 		const t = this.tokens;
 		t.splice(-1, 1);
-		localStorage.setItem(TOKEN_KEY, JSON.stringify(t));
+		safeLocal.set(TOKEN_KEY, JSON.stringify(t));
 	}
 
 	clear() {
-		localStorage.removeItem(TOKEN_KEY);
+		safeLocal.remove(TOKEN_KEY);
 	}
 
 	count() {

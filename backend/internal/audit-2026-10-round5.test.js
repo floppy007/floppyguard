@@ -368,7 +368,7 @@ describe("site network conflicts by CIDR overlap", () => {
 			async ({ mod, confDir, metadataFile }) => {
 				await assert.rejects(
 					mod.default.updatePeer("wg0:phone-pk", { type: "site-to-site" }),
-					/AllowedIPs conflict/,
+					(e) => e.public === true && e.status === 409 && /AllowedIPs conflict/.test(e.message),
 				);
 				// a site whose new networks overlap another site's subnet throws too
 				await assert.rejects(
@@ -383,13 +383,38 @@ describe("site network conflicts by CIDR overlap", () => {
 			},
 		);
 	});
+	it("updatePeer rejects an invalid type/platform instead of silently clearing the stored one", async () => {
+		await withFakeWg(
+			{ conf: { wg0: HUB_CONF }, metadata: META(), dump: HUB_DUMP },
+			async ({ mod, metadataFile }) => {
+				await assert.rejects(
+					mod.default.updatePeer("wg0:phone-pk", { type: "clients" }),
+					(e) => e.public === true && e.status === 400 && /Invalid type/.test(e.message),
+				);
+				await assert.rejects(
+					mod.default.updatePeer("wg0:phone-pk", { platform: "tablet" }),
+					(e) => e.public === true && e.status === 400 && /Invalid platform/.test(e.message),
+				);
+				const stored = JSON.parse(await readFile(metadataFile, "utf8"));
+				assert.equal(stored.links["wg0:phone-pk"].type, "client");
+			},
+		);
+	});
 	it("createPeer: a new site overlapping an existing site's subnet throws", async () => {
 		await withFakeWg({ conf: { wg0: HUB_CONF }, metadata: META(), dump: HUB_DUMP }, async ({ mod, confDir }) => {
 			await assert.rejects(
 				mod.default.createPeer({ name: "s2", type: "site-to-site", importedNetworks: ["192.168.0.0/16"] }),
-				/AllowedIPs conflict/,
+				(e) => e.public === true && e.status === 409 && /AllowedIPs conflict/.test(e.message),
 			);
 			assert.equal(await readFile(path.join(confDir, "wg0.conf"), "utf8"), HUB_CONF);
+		});
+	});
+	it("createInterface: an invalid address is a public 400, not an Internal Error", async () => {
+		await withFakeWg({ conf: { wg0: HUB_CONF }, metadata: META(), dump: HUB_DUMP }, async ({ mod }) => {
+			await assert.rejects(
+				mod.default.createInterface({ address: "10.20.0.1" }),
+				(e) => e.public === true && e.status === 400 && /Invalid address/.test(e.message),
+			);
 		});
 	});
 });
@@ -429,6 +454,12 @@ describe("Freigaben check: hub-source rules", () => {
 			{ id: 1, name: "r1", reason: "all-ports", ports: [] },
 			{ id: 3, name: "r3", reason: "unused-ports", ports: ["22/tcp"] },
 		]);
+	});
+	it("no one-click suggestion without a known hub source (unreadable wg conf)", () => {
+		assert.equal(
+			upstreamSuggestion({ kind: "proxy-host", label: "x", host: "10.3.10.5", port: 443, proto: "tcp" }, []),
+			null,
+		);
 	});
 	it("no one-click suggestion for an upstream without a known port", () => {
 		assert.equal(
@@ -532,51 +563,106 @@ describe("nginx conf lock coverage", () => {
 	});
 });
 
-// ─── import sets armed_on ────────────────────────────────────────────────────
+// ─── create() checks the caps under the agent row lock ───────────────────────
 
-describe("VPN_MGR import", () => {
-	it("sets armed_on on every imported rule", async () => {
+describe("ingress create", () => {
+	it("locks the agent row before re-reading rules and inserting (armed_on set)", async () => {
 		const { default: AgentIngressRule } = await import("../models/agent_ingress_rule.js");
 		const { default: Agent } = await import("../models/agent.js");
+		const calls = [];
 		const inserted = [];
 		const origRule = { query: AgentIngressRule.query, transaction: AgentIngressRule.transaction };
 		const origAgent = Agent.query;
-		const chain = (result) => {
+		const TRX = { trx: true };
+		const agentRow = { id: 3, name: "gw", ingress_mode: "open", is_deleted: 0 };
+		const chain = (kind, trx) => {
 			const q = {
 				where: () => q,
-				// loadRules awaits .where().orderBy(): no existing rules
-				orderBy: async () => [],
-				first: async () => result,
-				delete: async () => 0,
+				forUpdate: () => {
+					calls.push(`${kind}.forUpdate:${trx === TRX}`);
+					return q;
+				},
+				orderBy: async () => {
+					calls.push(`${kind}.loadRules:${trx === TRX}`);
+					return [];
+				},
+				first: async () => agentRow,
 				insertAndFetch: async (row) => {
+					calls.push(`${kind}.insert:${trx === TRX}`);
 					inserted.push(row);
 					return { id: inserted.length, ...row };
 				},
-				insert: async (row) => row,
 			};
 			return q;
 		};
-		Agent.query = () => chain({ id: 3, name: "gw", ingress_mode: "open", is_deleted: 0 });
-		AgentIngressRule.query = () => chain(null);
-		AgentIngressRule.transaction = async (fn) => fn({});
+		Agent.query = (trx) => chain("agent", trx);
+		AgentIngressRule.query = (trx) => chain("rule", trx);
+		AgentIngressRule.transaction = async (fn) => fn(TRX);
 		try {
 			const before = Math.floor(Date.now() / 1000);
 			// access null = internal caller (no audit-log write)
-			await ingress.default.importVpnNetworks(null, 3, [
-				{
-					name: "Psono",
-					destinations: ["10.10.0.1"],
-					incoming: { mode: "restricted", allowed: ["10.3.10.26"] },
-				},
-			]);
-			assert.ok(inserted.length >= 1, "rules inserted");
-			for (const row of inserted) {
-				assert.ok(Number.isInteger(row.armed_on) && row.armed_on >= before, "armed_on set");
-			}
+			const rule = await ingress.default.create(null, 3, {
+				name: "Psono",
+				sources: ["10.10.0.1"],
+				destinations: ["10.3.10.26"],
+			});
+			assert.equal(rule.name, "Psono");
+			assert.deepEqual(calls, ["agent.forUpdate:true", "rule.loadRules:true", "rule.insert:true"]);
+			assert.ok(Number.isInteger(inserted[0].armed_on) && inserted[0].armed_on >= before, "armed_on set");
 		} finally {
 			AgentIngressRule.query = origRule.query;
 			AgentIngressRule.transaction = origRule.transaction;
 			Agent.query = origAgent;
+		}
+	});
+});
+
+// ─── testFlow without a site link keeps the isolation notes ──────────────────
+
+describe("ingress testFlow (link not found)", () => {
+	it("reports site-isolation-partial / -unknown like the bound branch", async () => {
+		const { default: AgentIngressRule } = await import("../models/agent_ingress_rule.js");
+		const { default: Agent } = await import("../models/agent.js");
+		const { default: siteIsolation } = await import("./site-isolation.js");
+		const { default: wgInternal } = await import("./wireguard.js");
+		const orig = {
+			agent: Agent.query,
+			rule: AgentIngressRule.query,
+			verdict: siteIsolation.verdict,
+			meta: wgInternal.readMetadataStore,
+			status: wgInternal.getStatus,
+		};
+		const chain = (result) => {
+			const q = { where: () => q, orderBy: async () => [], first: async () => result };
+			return q;
+		};
+		Agent.query = () =>
+			chain({ id: 3, name: "gw", ingress_mode: "open", is_deleted: 0, wg_link_name: "renamed", last_seen: null });
+		AgentIngressRule.query = () => chain(null);
+		wgInternal.readMetadataStore = async () => ({ links: {} });
+		wgInternal.getStatus = async () => {
+			throw new Error("wg down");
+		};
+		const body = { source: "10.4.0.5", destination: "10.3.10.5", port: 443, proto: "tcp" };
+		try {
+			siteIsolation.verdict = async () => ({ blocked: false, partial: true });
+			const partial = await ingress.default.testFlow(3, body);
+			assert.equal(partial.reason, "link-not-found");
+			assert.ok(partial.notes.includes("site-isolation-partial"));
+			assert.ok(!partial.notes.includes("site-isolation-unknown"));
+
+			siteIsolation.verdict = async () => {
+				throw new Error("db down");
+			};
+			const unknown = await ingress.default.testFlow(3, body);
+			assert.equal(unknown.reason, "link-not-found");
+			assert.ok(unknown.notes.includes("site-isolation-unknown"));
+		} finally {
+			Agent.query = orig.agent;
+			AgentIngressRule.query = orig.rule;
+			siteIsolation.verdict = orig.verdict;
+			wgInternal.readMetadataStore = orig.meta;
+			wgInternal.getStatus = orig.status;
 		}
 	});
 });

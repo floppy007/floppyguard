@@ -66,11 +66,11 @@ export default () => {
 							{ ignoreExpiration: false, algorithms: [ALGO] },
 							(err, result) => {
 								if (err) {
-									if (err.name === "TokenExpiredError") {
-										reject(new errs.AuthError("Token has expired", err));
-									} else {
-										reject(err);
-									}
+									// AuthError signature is (message, messageI18n, previous): pass err as `previous`,
+									// not as messageI18n, otherwise the JWT error object ends up in message_i18n.
+									const message =
+										err.name === "TokenExpiredError" ? "Token has expired" : "Invalid token";
+									reject(new errs.AuthError(message, undefined, err));
 								} else {
 									tokenData = result;
 

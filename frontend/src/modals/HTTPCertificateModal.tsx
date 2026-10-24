@@ -7,8 +7,16 @@ import { Alert } from "react-bootstrap";
 import Modal from "react-bootstrap/Modal";
 import { createCertificate, testHttpCertificate } from "src/api/backend";
 import { Button, DomainNamesField } from "src/components";
-import { T } from "src/locale";
+import { intl, T } from "src/locale";
 import { showObjectSuccess } from "src/notifications";
+
+const STATUS_MESSAGE: Record<string, string> = {
+	ok: "certificates.http.reachability-ok",
+	"no-host": "certificates.http.reachability-not-resolved",
+	failed: "certificates.http.reachability-failed-to-check",
+	"404": "certificates.http.reachability-404",
+	"wrong-data": "certificates.http.reachability-wrong-data",
+};
 
 const showHTTPCertificateModal = () => {
 	EasyModal.show(HTTPCertificateModal);
@@ -52,61 +60,20 @@ const HTTPCertificateModal = EasyModal.create(({ visible, remove }: InnerModalPr
 		setIsTesting(false);
 	};
 
-	const parseTestResults = () => {
-		const elms = [];
-		for (const domain in testResults) {
-			const status = testResults[domain];
-			if (status === "ok") {
-				elms.push(
-					<p>
-						<strong>{domain}:</strong> <T id="certificates.http.reachability-ok" />
-					</p>,
-				);
-			} else {
-				if (status === "no-host") {
-					elms.push(
-						<p>
-							<strong>{domain}:</strong> <T id="certificates.http.reachability-not-resolved" />
-						</p>,
-					);
-				} else if (status === "failed") {
-					elms.push(
-						<p>
-							<strong>{domain}:</strong> <T id="certificates.http.reachability-failed-to-check" />
-						</p>,
-					);
-				} else if (status === "404") {
-					elms.push(
-						<p>
-							<strong>{domain}:</strong> <T id="certificates.http.reachability-404" />
-						</p>,
-					);
-				} else if (status === "wrong-data") {
-					elms.push(
-						<p>
-							<strong>{domain}:</strong> <T id="certificates.http.reachability-wrong-data" />
-						</p>,
-					);
-				} else if (status.startsWith("other:")) {
-					const code = status.substring(6);
-					elms.push(
-						<p>
-							<strong>{domain}:</strong> <T id="certificates.http.reachability-other" data={{ code }} />
-						</p>,
-					);
-				} else {
-					// This should never happen
-					elms.push(
-						<p>
-							<strong>{domain}:</strong> ?
-						</p>,
-					);
-				}
+	const parseTestResults = () =>
+		Object.entries(testResults ?? {}).map(([domain, status]) => {
+			let msg: ReactNode = "?"; // unknown status, should never happen
+			if (STATUS_MESSAGE[status]) {
+				msg = <T id={STATUS_MESSAGE[status]} />;
+			} else if (status.startsWith("other:")) {
+				msg = <T id="certificates.http.reachability-other" data={{ code: status.substring(6) }} />;
 			}
-		}
-
-		return <>{elms}</>;
-	};
+			return (
+				<p key={domain}>
+					<strong>{domain}:</strong> {msg}
+				</p>
+			);
+		});
 
 	return (
 		<Modal show={visible} onHide={remove}>
@@ -153,10 +120,10 @@ const HTTPCertificateModal = EasyModal.create(({ visible, remove }: InnerModalPr
 												</label>
 												<select id="keyType" className="form-select" {...field}>
 													<option value="rsa">
-														<T id="certificates.key-type-rsa" />
+														{intl.formatMessage({ id: "certificates.key-type-rsa" })}
 													</option>
 													<option value="ecdsa">
-														<T id="certificates.key-type-ecdsa" />
+														{intl.formatMessage({ id: "certificates.key-type-ecdsa" })}
 													</option>
 												</select>
 												<small className="form-text text-muted">
@@ -177,7 +144,7 @@ const HTTPCertificateModal = EasyModal.create(({ visible, remove }: InnerModalPr
 							</div>
 						</Modal.Body>
 						<Modal.Footer>
-							<Button data-bs-dismiss="modal" onClick={remove} disabled={isSubmitting || isTesting}>
+							<Button onClick={remove} disabled={isSubmitting || isTesting}>
 								<T id="cancel" />
 							</Button>
 							<div className="ms-auto">
@@ -185,7 +152,6 @@ const HTTPCertificateModal = EasyModal.create(({ visible, remove }: InnerModalPr
 									type="button"
 									actionType="secondary"
 									className="me-3"
-									data-bs-dismiss="modal"
 									isLoading={isTesting}
 									disabled={isSubmitting || domains.length === 0}
 									onClick={handleTest}
@@ -196,7 +162,6 @@ const HTTPCertificateModal = EasyModal.create(({ visible, remove }: InnerModalPr
 									type="submit"
 									actionType="primary"
 									className="bg-pink"
-									data-bs-dismiss="modal"
 									isLoading={isSubmitting}
 									disabled={isSubmitting || isTesting}
 								>

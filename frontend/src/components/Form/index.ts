@@ -4,6 +4,7 @@ export * from "./BasicAuthFields";
 export * from "./CloudflareDnsFields";
 export * from "./DNSProviderFields";
 export * from "./DomainNamesField";
+export * from "./FloatingTextField";
 export * from "./LocationsFields";
 export * from "./NginxConfigField";
 export * from "./SSLCertificateField";

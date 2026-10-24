@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import EasyModal from "ez-modal-react";
 import { MemoryRouter } from "react-router-dom";
 import { ThemeProvider } from "src/context";
+import { AgentIngressDialog } from "src/modals/AgentIngressModal";
 import { IngressPageContent } from "src/pages/Ingress";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { IngressTester, siteIsolationPairLabel } from "./IngressTester";
@@ -149,8 +150,7 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => 
 	return json({ error: { message: `unexpected ${method} ${url}` } }, 500);
 });
 
-const createWrapper = () => {
-	const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+const createWrapper = (queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })) => {
 	return ({ children }: { children: ReactNode }) => (
 		<QueryClientProvider client={queryClient}>
 			<ThemeProvider>
@@ -461,6 +461,40 @@ describe("SiteIsolationCard", () => {
 		await waitFor(() => expect(cell(F, H).getAttribute("data-state")).toBe("blocked"));
 	});
 
+	it("confirming PUTs the pair set as of the confirm, not as of the click (no lost concurrent change)", async () => {
+		const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+		render(<SiteIsolationCard />, { wrapper: createWrapper(queryClient) });
+		await screen.findByTestId("site-isolation-matrix");
+		fireEvent.click(cell(F, H));
+		await screen.findByTestId("site-isolation-confirm");
+		// meanwhile another admin separated D/F and the overview refetched
+		const current = queryClient.getQueryData<any>(["site-isolation"]);
+		queryClient.setQueryData(["site-isolation"], {
+			...current,
+			pairs: [
+				...current.pairs,
+				{
+					id: 3,
+					linkA: D,
+					linkB: F,
+					nameA: "Daniel Home",
+					nameB: "Floppy Home",
+					enforced: true,
+					dropped: null,
+				},
+			],
+		});
+		fireEvent.click(await confirmButton("Separate"));
+		await waitFor(() => expect(puts()).toHaveLength(1));
+		expect(puts()[0].body).toEqual({
+			pairs: [
+				{ link_a: D, link_b: F },
+				{ link_a: D, link_b: H },
+				{ link_a: F, link_b: H },
+			],
+		});
+	});
+
 	it("allowing a separated pair asks with the allow text and removes it from the set", async () => {
 		render(<SiteIsolationCard />, { wrapper: createWrapper() });
 		await screen.findByTestId("site-isolation-matrix");
@@ -612,9 +646,23 @@ describe("site isolation in the per-site view", () => {
 		);
 		// the hint links to the card (which then opens), no duplicate tooltip
 		const link = screen.getByTestId("ingress-banner-isolated-link");
-		expect(link.getAttribute("href")).toBe("/ingress#site-isolation");
+		expect(link.getAttribute("href")).toBe("/ingress?agent=1#site-isolation");
 		expect(link.textContent).toBe("(see “Separation between sites”)");
 		expect(line.getAttribute("title")).toBeNull();
+	});
+
+	it("the WireGuard-page dialog (outside the router) links with a plain anchor instead of crashing", async () => {
+		const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+		const noRouter = ({ children }: { children: ReactNode }) => (
+			<QueryClientProvider client={client}>
+				<ThemeProvider>{children}</ThemeProvider>
+			</QueryClientProvider>
+		);
+		render(<AgentIngressDialog agentId={1} agentName="gw-h" visible onClose={() => {}} />, { wrapper: noRouter });
+		await screen.findByTestId("ingress-banner-isolated");
+		const link = screen.getByTestId("ingress-banner-isolated-link");
+		expect(link.tagName).toBe("A");
+		expect(link.getAttribute("href")).toBe("/ingress?agent=1#site-isolation");
 	});
 
 	it("finds the site by the agent's link name when the catalog has no link id", async () => {

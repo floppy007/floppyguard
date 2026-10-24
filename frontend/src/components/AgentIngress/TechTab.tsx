@@ -92,10 +92,12 @@ export function AgentIngressTechTab({
 						<InfoRow label={ti("tech.applied")}>
 							{ti(`applied.${applied.state}-short`)}{" "}
 							<span className="text-secondary">
-								({ti("tech.hashes", {
+								(
+								{ti("tech.hashes", {
 									desired: shortHash(applied.desiredHash),
 									applied: shortHash(applied.appliedHash),
-								})})
+								})}
+								)
 							</span>
 							{applied.error && <div className="font-monospace text-danger">{applied.error}</div>}
 						</InfoRow>
@@ -127,7 +129,9 @@ export function AgentIngressTechTab({
 					{preview.data ? ` (${ti("preview.count", { count: preview.data.ruleCount })})` : ""}
 				</h3>
 				<p className="text-secondary small mb-3">{ti("tech.preview-lead")}</p>
-				{preview.isLoading && <div className="text-secondary small">{intl.formatMessage({ id: "loading" })}</div>}
+				{preview.isLoading && (
+					<div className="text-secondary small">{intl.formatMessage({ id: "loading" })}</div>
+				)}
 				{preview.error && <div className="text-danger small">{preview.error.message}</div>}
 				{preview.data &&
 					(preview.data.rulesText ? (

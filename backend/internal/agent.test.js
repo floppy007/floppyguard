@@ -17,6 +17,7 @@ const {
 	sanitizeAgentMode,
 	sanitizeWgInterface,
 	sanitizeAgentServices,
+	sanitizeMgmtUrl,
 	_parseAllowedSites,
 	sanitizeHubUrl,
 	buildLoopScript,
@@ -85,6 +86,22 @@ test("deriveTunnelSubnet derives /24 from /32 host address", () => {
 test("deriveTunnelSubnet handles /16 and /8 masks", () => {
 	assert.equal(deriveTunnelSubnet("Address = 10.0.5.1/16"), "10.0.0.0/16");
 	assert.equal(deriveTunnelSubnet("Address = 10.5.3.1/8"), "10.0.0.0/8");
+});
+
+test("deriveTunnelSubnet masks host bits for non-octet-aligned prefixes", () => {
+	assert.equal(deriveTunnelSubnet("Address = 10.10.17.5/20"), "10.10.16.0/20");
+	assert.equal(deriveTunnelSubnet("Address = 10.200.0.5/12"), "10.192.0.0/12");
+});
+
+test("deriveTunnelSubnet keeps /25-/31 prefixes instead of widening to /24", () => {
+	assert.equal(deriveTunnelSubnet("Address = 10.10.0.129/25"), "10.10.0.128/25");
+	assert.equal(deriveTunnelSubnet("Address = 10.10.0.2/30"), "10.10.0.0/30");
+});
+
+test("deriveTunnelSubnet never derives a /0 or an out-of-range prefix", () => {
+	assert.equal(deriveTunnelSubnet("Address = 10.10.0.5/0"), "10.10.0.0/24");
+	assert.equal(deriveTunnelSubnet("Address = 10.10.0.5/33"), "10.10.0.0/24");
+	assert.equal(deriveTunnelSubnet("Address = 999.10.0.5/24"), "10.10.0.0/24");
 });
 
 test("deriveTunnelSubnet falls back to 10.10.0.0/24 if unparseable", () => {
@@ -250,6 +267,47 @@ PersistentKeepalive = 25`;
 	const result = _rewriteHubPeerAllowedIPs(config, ["10.10.0.0/24", "192.168.10.0/24"]);
 	assert.ok(result.includes("AllowedIPs = 10.10.0.0/24, 192.168.10.0/24"));
 	assert.ok(!result.includes("AllowedIPs = 10.10.0.0/24\n"));
+});
+
+test("_parseHubPeerAllowedIPs concatenates multiple AllowedIPs lines of the first peer only", () => {
+	const config = `[Interface]
+Address = 10.10.0.5/24
+
+[Peer]
+PublicKey = hubkey
+AllowedIPs = 10.10.0.0/24
+AllowedIPs = 192.168.50.0/24, 10.10.0.7/32
+
+[Peer]
+PublicKey = other
+AllowedIPs = 10.99.0.0/24`;
+	assert.deepEqual(_parseHubPeerAllowedIPs(config), ["10.10.0.0/24", "192.168.50.0/24", "10.10.0.7/32"]);
+});
+
+test("_parseHubPeerAllowedIPs does not fall through to a later peer when the first has no AllowedIPs", () => {
+	const config =
+		"[Interface]\nAddress = 10.10.0.5/24\n\n[Peer]\nPublicKey = a\n\n[Peer]\nPublicKey = b\nAllowedIPs = 10.99.0.0/24";
+	assert.deepEqual(_parseHubPeerAllowedIPs(config), []);
+});
+
+test("_rewriteHubPeerAllowedIPs collapses extra AllowedIPs lines of the hub peer and leaves other peers alone", () => {
+	const config = `[Interface]
+Address = 10.10.0.5/24
+
+[Peer]
+PublicKey = hubkey
+AllowedIPs = 10.10.0.0/24
+AllowedIPs = 192.168.50.0/24
+PersistentKeepalive = 25
+
+[Peer]
+PublicKey = other
+AllowedIPs = 10.99.0.0/24`;
+	const result = _rewriteHubPeerAllowedIPs(config, ["10.10.0.0/24"]);
+	assert.equal(result.match(/^AllowedIPs/gm).length, 2); // one for hub peer, one for other peer
+	assert.ok(!result.includes("192.168.50.0/24"));
+	assert.ok(result.includes("AllowedIPs = 10.99.0.0/24"));
+	assert.ok(result.includes("PersistentKeepalive = 25"));
 });
 
 // ─── _rewriteHubPeerEndpoint ─────────────────────────────────────────────────
@@ -693,6 +751,15 @@ test("sanitizeHubUrl accepts http and https URLs", () => {
 	assert.equal(sanitizeHubUrl("http://10.10.0.1:3300"), "http://10.10.0.1:3300");
 });
 
+test("sanitizeHubUrl matches the embedded agent's valid_hub_url whitelist", () => {
+	for (const u of ["https://h/?x=1", "https://h/*", "http://[fd00::1]:3300", "https://h/^", "https://müller.de"]) {
+		assert.equal(sanitizeHubUrl(u), null, u);
+	}
+	assert.equal(sanitizeHubUrl("http://10.10.0.1:3300/api%20x"), "http://10.10.0.1:3300/api%20x");
+	// the script's regex must stay in lockstep with the hub's
+	assert.match(buildLoopScript(), /grep -qE '\^https\?:\/\/\[A-Za-z0-9\._~%:@\+=,\/-\]\+\$'/);
+});
+
 test("sanitizeHubUrl strips trailing slashes", () => {
 	assert.equal(sanitizeHubUrl("https://proxy.comnic.de/"), "https://proxy.comnic.de");
 	assert.equal(sanitizeHubUrl("http://10.10.0.1:3300///"), "http://10.10.0.1:3300");
@@ -776,6 +843,13 @@ test("sanitizeAclNetworks rejects any /0 route incl. aliases (default-route hija
 	assert.throws(() => sanitizeAclNetworks(["10.0.0.0/0"]), /default route/);
 });
 
+test("sanitizeAclNetworks rejects /1…/7 pieces of the default route like the metadata lists", () => {
+	assert.throws(() => sanitizeAclNetworks(["0.0.0.0/1"]), /default route/);
+	assert.throws(() => sanitizeAclNetworks(["10.0.0.0/7"]), /default route/);
+	assert.deepEqual(sanitizeAclNetworks(["10.0.0.0/8"]), ["10.0.0.0/8"]);
+	assert.deepEqual(sanitizeAclNetworks(["192.168.10.1/24", "192.168.10.0/24"]), ["192.168.10.0/24"]);
+});
+
 test("sanitizeAclNetworks treats empty array as null (no restriction = full mesh)", () => {
 	assert.equal(sanitizeAclNetworks([]), null);
 	assert.equal(sanitizeAclNetworks(["", "   "]), null);
@@ -822,6 +896,20 @@ test("sanitizeAclSites coerces to trimmed non-empty strings, no CIDR check", () 
 	assert.equal(sanitizeAclSites(["", " "]), null);
 });
 
+// ─── mgmt_url (rendered as <a href> in the admin UI) ─────────────────────────
+
+test("sanitizeMgmtUrl accepts http(s), clears on empty, rejects other schemes", () => {
+	assert.equal(sanitizeMgmtUrl("http://192.168.10.7:8080"), "http://192.168.10.7:8080");
+	assert.equal(sanitizeMgmtUrl(" https://gw.example/ "), "https://gw.example/");
+	assert.equal(sanitizeMgmtUrl(""), null);
+	assert.equal(sanitizeMgmtUrl(null), null);
+	assert.equal(sanitizeMgmtUrl(undefined), null);
+	for (const bad of ["javascript:alert(1)", "data:text/html,x", "file:///etc/passwd", "not a url", 42]) {
+		assert.throws(() => sanitizeMgmtUrl(bad), /mgmt_url/);
+	}
+	assert.throws(() => sanitizeMgmtUrl(`https://gw.example/${"a".repeat(600)}`), /mgmt_url/);
+});
+
 // ─── token shape gate (MySQL VARCHAR/number coercion) ────────────────────────
 
 test("isWellFormedToken only accepts hex token strings", () => {
@@ -865,4 +953,236 @@ test("first start of a checked hash writer drops a last_hash written by 1.4.0", 
 	assert.match(block, /if \[ ! -f "\$HASH_CHECKED" \]; then\n {2}rm -f "\$HASH_FILE"\n/);
 	// before the loop reads it
 	assert.ok(script.indexOf('HASH_CHECKED="') < script.indexOf('CURRENT_HASH=$(cat "$HASH_FILE"'));
+});
+
+// ─── audit 2026-10 agent pass 2 ──────────────────────────────────────────────
+
+const { default: Agent } = await import("../models/agent.js");
+const { default: internalWireGuard } = await import("./wireguard.js");
+const { sanitizeAgentName, stripToTunnelOnly } = _testExports;
+
+/** Minimal chainable Agent.query() stub returning `row` and recording patches. */
+function stubAgentQuery(row, patches = []) {
+	const q = {
+		where() {
+			return q;
+		},
+		whereNotNull() {
+			return q;
+		},
+		select() {
+			return q;
+		},
+		first: async () => row,
+		patch(p) {
+			patches.push(p);
+			return q;
+		},
+	};
+	const orig = Agent.query;
+	Agent.query = () => q;
+	return () => {
+		Agent.query = orig;
+	};
+}
+
+test('getInstallScript refuses an agent without a pending reg_token (no FGTOKEN="")', async () => {
+	const row = {
+		id: 1,
+		is_deleted: 0,
+		reg_token: null,
+		agent_token: "x",
+		status: "active",
+		mode: "native",
+		wg_interface: "wg0",
+	};
+	const restore = stubAgentQuery(row);
+	try {
+		await assert.rejects(
+			() => internalAgent.getInstallScript(1, "https://ok.example", "http://10.10.0.1:3300"),
+			/no pending registration token/,
+		);
+		row.reg_token = "c".repeat(64);
+		const script = await internalAgent.getInstallScript(1, "https://ok.example", "http://10.10.0.1:3300");
+		assert.ok(script.includes(`FGTOKEN="${"c".repeat(64)}"`));
+		assert.ok(!script.includes('FGTOKEN=""'));
+	} finally {
+		restore();
+	}
+});
+
+test("update refuses a wg_interface change once the agent is installed", async () => {
+	const row = { id: 2, wg_interface: "wg0", agent_token: "tok", wg_link_name: null };
+	const patches = [];
+	const restore = stubAgentQuery(row, patches);
+	const orig = { sync: internalAgent.syncAgentConfigs, read: internalWireGuard.readMetadataStore };
+	internalAgent.syncAgentConfigs = async () => [];
+	internalWireGuard.readMetadataStore = async () => ({ links: {} });
+	try {
+		await assert.rejects(
+			() => internalAgent.update(2, { wg_interface: "wg1" }),
+			/wg_interface can only be changed/,
+		);
+		assert.equal(patches.length, 0);
+		// same name is not a change
+		await internalAgent.update(2, { wg_interface: "wg0" });
+		// not installed yet (before register / after resetToken): allowed
+		row.agent_token = null;
+		await internalAgent.update(2, { wg_interface: "wg1" });
+		assert.equal(patches.at(-1).wg_interface, "wg1");
+	} finally {
+		restore();
+		internalAgent.syncAgentConfigs = orig.sync;
+		internalWireGuard.readMetadataStore = orig.read;
+	}
+});
+
+test("update re-normalizes stored config_text when wg_interface changes on an uninstalled agent", async () => {
+	const tunnelOnly = stripToTunnelOnly(
+		[
+			"[Interface]",
+			"PrivateKey = (hidden)",
+			"Address = 10.10.0.7/24",
+			"",
+			"[Peer]",
+			"PublicKey = aHVicHVia2V5aHVicHVia2V5aHVicHVia2V5aHViMDA=",
+			"Endpoint = hub:51820",
+			"AllowedIPs = 10.10.0.0/24, 192.168.50.0/24",
+			"",
+		].join("\n"),
+		"wg0",
+	);
+	assert.match(tunnelOnly, /-i wg0/);
+	const row = { id: 4, wg_interface: "wg0", agent_token: null, wg_link_name: null, config_text: tunnelOnly };
+	const patches = [];
+	const restore = stubAgentQuery(row, patches);
+	const orig = { sync: internalAgent.syncAgentConfigs, read: internalWireGuard.readMetadataStore };
+	internalAgent.syncAgentConfigs = async () => [];
+	internalWireGuard.readMetadataStore = async () => ({ links: {} });
+	try {
+		await internalAgent.update(4, { wg_interface: "wg1" });
+		const p = patches.at(-1);
+		assert.equal(p.wg_interface, "wg1");
+		assert.match(p.config_text, /-i wg1/);
+		assert.match(p.config_text, /! -o wg1/);
+		assert.match(p.config_text, /dev wg1/);
+		assert.ok(!p.config_text.includes("wg0"), p.config_text);
+		assert.equal(p.config_hash, createHash("sha256").update(p.config_text).digest("hex"));
+		// no stored config yet: nothing to rewrite
+		row.config_text = null;
+		await internalAgent.update(4, { wg_interface: "wg2" });
+		assert.equal(patches.at(-1).wg_interface, "wg2");
+		assert.ok(!("config_text" in patches.at(-1)));
+	} finally {
+		restore();
+		internalAgent.syncAgentConfigs = orig.sync;
+		internalWireGuard.readMetadataStore = orig.read;
+	}
+});
+
+test("stripToTunnelOnly drops site nets listed on a second AllowedIPs line", () => {
+	const config = `[Interface]
+PrivateKey = x
+Address = 10.10.0.5/24
+
+[Peer]
+PublicKey = hubkey
+Endpoint = hub:51820
+AllowedIPs = 10.10.0.0/24
+AllowedIPs = 192.168.50.0/24, 10.10.0.7/32`;
+	const result = stripToTunnelOnly(config, "wg0");
+	assert.ok(!result.includes("192.168.50.0/24"));
+	assert.deepEqual(_parseHubPeerAllowedIPs(result), ["10.10.0.0/24", "10.10.0.7/32"]);
+});
+
+test("unbinding an agent strips cross-site AllowedIPs/MASQUERADE in the same patch", async () => {
+	const bound = normalizeAgentConfig(
+		[
+			"[Interface]",
+			"PrivateKey = (hidden)",
+			"Address = 10.10.0.7/24",
+			"",
+			"[Peer]",
+			"PublicKey = aHVicHVia2V5aHVicHVia2V5aHVicHVia2V5aHViMDA=",
+			"AllowedIPs = 10.10.0.0/24, 192.168.50.0/24, 10.10.0.7/32",
+			"",
+		].join("\n"),
+		["192.168.50.0/24"],
+		{ iface: "wg0" },
+	);
+	assert.match(bound, /MASQUERADE.*-s 192\.168\.50\.0\/24|-s 192\.168\.50\.0\/24.*MASQUERADE/);
+	const row = { id: 3, wg_link_name: "Site", wg_interface: "wg0", agent_token: "tok", config_text: bound };
+	const patches = [];
+	const restore = stubAgentQuery(row, patches);
+	const orig = { sync: internalAgent.syncAgentConfigs, read: internalWireGuard.readMetadataStore };
+	internalAgent.syncAgentConfigs = async () => [];
+	internalWireGuard.readMetadataStore = async () => ({ links: {} });
+	try {
+		await internalAgent.update(3, { wg_link_name: null });
+		const p = patches[0];
+		assert.equal(p.wg_link_name, null);
+		assert.deepEqual(_parseHubPeerAllowedIPs(p.config_text), ["10.10.0.0/24", "10.10.0.7/32"]);
+		assert.ok(!p.config_text.includes("192.168.50.0/24"));
+		assert.equal(p.config_hash, createHash("sha256").update(p.config_text).digest("hex"));
+		assert.equal(p.config_text, stripToTunnelOnly(bound, "wg0"));
+	} finally {
+		restore();
+		internalAgent.syncAgentConfigs = orig.sync;
+		internalWireGuard.readMetadataStore = orig.read;
+	}
+});
+
+test("uploadConfig of an unbound agent strips site nets and normalizes once", async () => {
+	const row = { id: 4, name: "solo", wg_link_name: null, wg_interface: "wg0", config_text: null };
+	const patches = [];
+	const restore = stubAgentQuery(row, patches);
+	try {
+		const conf = [
+			"[Interface]",
+			"PrivateKey=cHJpdmF0ZWtleXByaXZhdGVrZXlwcml2YXRla2V5MDA=",
+			"Address = 10.10.0.9/24",
+			"",
+			"[Peer]",
+			"PublicKey = aHVicHVia2V5aHVicHVia2V5aHVicHVia2V5aHViMDA=",
+			"AllowedIPs = 10.10.0.0/24, 192.168.50.0/24, 10.10.0.9/32",
+			"",
+		].join("\n");
+		assert.deepEqual(await internalAgent.uploadConfig("d".repeat(64), { config_text: conf }), {
+			ok: true,
+			stored: true,
+		});
+		const text = patches[0].config_text;
+		assert.ok(text.includes("AllowedIPs = 10.10.0.0/24, 10.10.0.9/32"));
+		assert.equal(text.match(/^Table = off$/gm).length, 1);
+		assert.equal(text.match(/^PostUp/gm).length, 1);
+		assert.equal(text.match(/^PostDown/gm).length, 1);
+		// hub-side guarantee: a space-less PrivateKey is masked on store too
+		assert.ok(text.includes("PrivateKey = (hidden)"));
+		assert.ok(!text.includes("cHJpdmF0ZWtleX"));
+	} finally {
+		restore();
+	}
+});
+
+test("sanitizeAgentName rejects non-strings, blanks and over-long names; trims", () => {
+	for (const bad of [undefined, null, "", "   ", {}, [], 5, "x".repeat(256)]) {
+		assert.throws(() => sanitizeAgentName(bad), /name must be a non-empty string/);
+	}
+	assert.equal(sanitizeAgentName(" Site A "), "Site A");
+	assert.equal(sanitizeAgentName("x".repeat(255)), "x".repeat(255));
+});
+
+test("create/update reject a non-string name or wg_link_name with a 400", async () => {
+	await assert.rejects(() => internalAgent.create({}), /name must be a non-empty string/);
+	await assert.rejects(
+		() => internalAgent.create({ name: "a", wg_link_name: { x: 1 } }),
+		/wg_link_name must be a string/,
+	);
+	const restore = stubAgentQuery({ id: 5, wg_interface: "wg0", agent_token: null, wg_link_name: null });
+	try {
+		await assert.rejects(() => internalAgent.update(5, { name: "" }), /name must be a non-empty string/);
+		await assert.rejects(() => internalAgent.update(5, { wg_link_name: ["a"] }), /wg_link_name must be a string/);
+	} finally {
+		restore();
+	}
 });

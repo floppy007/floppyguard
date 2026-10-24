@@ -7,11 +7,15 @@ import {
 	buildIngressRestore,
 	canonicalCidr,
 	cidrContains,
-	compareChains,
 	hubTunnelHosts,
+	isHubSourced,
+	isWgIface,
 	nextHitState,
+	pubKey8,
+	splitLinkId,
 	ruleCovers,
-	rulesFromVpnNetworks,
+	tunnelAddressEntries,
+	upstreamCovered,
 	sanitizeIngressCounters,
 	sanitizeIngressMode,
 	sanitizeIngressRule,
@@ -179,57 +183,6 @@ test("hash is stable and changes with content", () => {
 	assert.notEqual(a.hash, c.hash);
 });
 
-// ─── VPN_MGR migration ───────────────────────────────────────────────────────
-
-const VPN_NETWORKS = [
-	{
-		name: "Hinderlich",
-		destinations: ["192.168.200.0/24", "10.4.0.0/16"],
-		incoming: { mode: "restricted", allowed: ["10.3.10.12", "10.3.10.25"] },
-	},
-	{ name: "Cmnic Hub", destinations: ["192.168.111.0/24"], incoming: { mode: "full", allowed: [] } },
-	{ name: "Blocked", destinations: ["10.9.9.0/24"], incoming: { mode: "blocked", allowed: [] } },
-	{ name: "Proxy", destinations: ["10.10.0.1/32"], incoming: { mode: "restricted", allowed: ["192.168.60.22"] } },
-];
-
-const VPN_MGR_LIVE = `-N VPN_MGR
--A VPN_MGR -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
--A VPN_MGR -s 192.168.200.0/24 -d 10.3.10.12/32 -i wg0 -j ACCEPT
--A VPN_MGR -s 10.4.0.0/16 -d 10.3.10.12/32 -i wg0 -j ACCEPT
--A VPN_MGR -s 192.168.200.0/24 -d 10.3.10.25/32 -i wg0 -j ACCEPT
--A VPN_MGR -s 10.4.0.0/16 -d 10.3.10.25/32 -i wg0 -j ACCEPT
--A VPN_MGR -s 192.168.111.0/24 -i wg0 -j ACCEPT
--A VPN_MGR -s 10.10.0.1/32 -d 192.168.60.22/32 -i wg0 -j ACCEPT
--A VPN_MGR -i wg0 -j DROP`;
-
-test("rulesFromVpnNetworks maps entries (blocked skipped, full = any target)", () => {
-	const rules = rulesFromVpnNetworks(VPN_NETWORKS);
-	assert.equal(rules.length, 3);
-	assert.deepEqual(rules[1], {
-		name: "Cmnic Hub",
-		sources: ["192.168.111.0/24"],
-		destinations: [],
-		ports: [],
-		enabled: true,
-	});
-});
-
-test("imported ruleset is semantically identical to the live VPN_MGR chain", () => {
-	const rules = rulesFromVpnNetworks(VPN_NETWORKS).map((r, i) => ({ ...r, id: i + 1 }));
-	const b = buildIngressRestore({ ingress_mode: "restricted", iface: "wg0" }, rules);
-	const cmp = compareChains(VPN_MGR_LIVE, b.text);
-	assert.deepEqual(cmp, { equal: true, onlyOld: [], onlyNew: [], dropOk: true });
-});
-
-test("compareChains detects a missing rule and a missing DROP", () => {
-	const rules = rulesFromVpnNetworks(VPN_NETWORKS).map((r, i) => ({ ...r, id: i + 1 }));
-	const b = buildIngressRestore({ ingress_mode: "restricted", iface: "wg0" }, rules.slice(0, 2));
-	assert.equal(compareChains(VPN_MGR_LIVE, b.text).equal, false);
-	const open = buildIngressRestore({ ingress_mode: "open", iface: "wg0" }, rules);
-	const cmp = compareChains(VPN_MGR_LIVE, open.text);
-	assert.equal(cmp.equal, false);
-});
-
 // ─── counters / hits ─────────────────────────────────────────────────────────
 
 test("sanitizeIngressCounters drops hostile values", () => {
@@ -332,10 +285,87 @@ test("armedOnPatch re-arms on switch-on or target change, not on rename/note edi
 	assert.deepEqual(armedOnPatch(existing, { destinations: ["10.1.0.5/32"] }, 100), { armed_on: 100 });
 	assert.deepEqual(armedOnPatch({ ...existing, enabled: false }, { enabled: true }, 100), { armed_on: 100 });
 	assert.deepEqual(armedOnPatch(existing, { enabled: false }, 100), {});
+	const existing2 = {
+		enabled: true,
+		sources: ["10.0.0.0/24", "10.1.0.0/24"],
+		destinations: [],
+		ports: [
+			{ proto: "tcp", port: "636" },
+			{ proto: "tcp", port: "389" },
+		],
+	};
+	assert.deepEqual(armedOnPatch(existing2, { sources: ["10.1.0.0/24", "10.0.0.0/24"] }, 100), {}, "reorder only");
+	assert.deepEqual(
+		armedOnPatch(
+			existing2,
+			{
+				ports: [
+					{ proto: "tcp", port: "389" },
+					{ proto: "tcp", port: "636" },
+				],
+			},
+			100,
+		),
+		{},
+		"ports reorder only",
+	);
+	assert.deepEqual(armedOnPatch(existing2, { sources: ["10.1.0.0/24"] }, 100), { armed_on: 100 }, "subset re-arms");
 });
 
 test("self-update shebang check uses no pipe (large scripts must not SIGPIPE under pipefail)", () => {
 	const script = _testExports.buildLoopScript();
-	assert.ok(!script.includes('echo "$NEW_SCRIPT" | head'), "piping the downloaded script into head races with SIGPIPE");
+	assert.ok(
+		!script.includes('echo "$NEW_SCRIPT" | head'),
+		"piping the downloaded script into head races with SIGPIPE",
+	);
 	assert.ok(script.includes('[[ "$NEW_SCRIPT" == "#!"* ]]'));
+});
+
+// ─── shared predicates (proxyCheck / catalog) ────────────────────────────────
+
+test("upstreamCovered uses u.source when set, else the hub hosts; null port vs port list", () => {
+	const r = rule({
+		sources: ["10.10.0.1/32"],
+		destinations: ["10.3.10.5/32"],
+		ports: [{ proto: "tcp", port: "443" }],
+	});
+	const hub = ["10.10.0.1/32"];
+	assert.equal(upstreamCovered({ host: "10.3.10.5", port: 443, proto: "tcp" }, [r], hub), true);
+	// an egress flow with its own SNAT source is checked against that source only
+	assert.equal(
+		upstreamCovered({ host: "10.3.10.5", port: 443, proto: "tcp", source: "10.10.0.9/32" }, [r], hub),
+		false,
+	);
+	const own = rule({ sources: ["10.10.0.9/32"], destinations: [], ports: [] });
+	assert.equal(upstreamCovered({ host: "10.3.10.5", port: 443, source: "10.10.0.9/32" }, [own], hub), true);
+	// unknown port: a port-restricted rule does not cover it, undefined counts as unknown too
+	assert.equal(upstreamCovered({ host: "10.3.10.5", port: null, proto: "tcp" }, [r], hub), false);
+	assert.equal(upstreamCovered({ host: "10.3.10.5" }, [r], hub), false);
+	// proto missing defaults to tcp
+	assert.equal(upstreamCovered({ host: "10.3.10.5", port: 443 }, [r], hub), true);
+	assert.equal(upstreamCovered({ host: "10.3.10.5", port: 443 }, [r], undefined), false);
+});
+
+test("isHubSourced: every source inside a hub address, broad sources are not", () => {
+	const hub = ["10.10.0.1/32", "10.10.0.7/32"];
+	assert.equal(isHubSourced(rule({ sources: ["10.10.0.1/32"] }), hub), true);
+	assert.equal(isHubSourced(rule({ sources: ["10.10.0.1/32", "10.10.0.7/32"] }), hub), true);
+	assert.equal(isHubSourced(rule({ sources: ["10.10.0.1/32", "10.4.0.0/16"] }), hub), false);
+	assert.equal(isHubSourced(rule({ sources: ["10.10.0.0/24"] }), hub), false);
+	assert.equal(isHubSourced(rule({ sources: [] }), hub), false);
+	assert.equal(isHubSourced({}, hub), false);
+});
+
+test("tunnelAddressEntries splits every Address line in file order", () => {
+	assert.deepEqual(tunnelAddressEntries("Address = 10.10.0.1/24, 10.20.0.1\n"), ["10.10.0.1/24", "10.20.0.1"]);
+	assert.deepEqual(tunnelAddressEntries("[Interface]\naddress=10.1.0.1/24\n\nAddress = ,\n"), ["10.1.0.1/24"]);
+	assert.deepEqual(tunnelAddressEntries(null), []);
+});
+
+test("link id helpers: splitLinkId / isWgIface / pubKey8", () => {
+	assert.deepEqual(splitLinkId("wg0:abc:def="), ["wg0", "abc:def="]);
+	assert.equal(splitLinkId("nocolon"), null);
+	assert.equal(isWgIface("wg12"), true);
+	for (const bad of ["wg", "wg1234", "eth0", "wg0\n", null, undefined]) assert.equal(isWgIface(bad), false);
+	assert.equal(pubKey8("ABCDEFGHIJ"), "ABCDEFGH");
 });

@@ -2,11 +2,10 @@
 // otherwise land in the entry chunk, which loads on every page.
 import DE from "country-flag-icons/react/3x2/DE";
 import FR from "country-flag-icons/react/3x2/FR";
-import GB from "country-flag-icons/react/3x2/GB";
 import US from "country-flag-icons/react/3x2/US";
 
 /** Flags of the bundled locales (see localeOptions / getFlagCodeForLocale). */
-const FLAGS: Record<string, typeof DE> = { DE, FR, GB, US };
+const FLAGS: Record<string, typeof DE> = { DE, FR, US };
 
 interface FlagProps {
 	className?: string;

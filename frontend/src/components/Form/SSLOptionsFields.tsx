@@ -1,5 +1,6 @@
 import cn from "classnames";
 import { Field, useFormikContext } from "formik";
+import { useEffect } from "react";
 import { DNSProviderFields, DomainNamesField } from "src/components";
 import { T } from "src/locale";
 
@@ -25,9 +26,13 @@ export function SSLOptionsFields({
 	const { sslForced, http2Support, hstsEnabled, hstsSubdomains, trustForwardedProto, meta } = v;
 	const { dnsChallenge } = meta || {};
 
-	if (forceDNSForNew && newCertificate && !dnsChallenge) {
-		setFieldValue("meta.dnsChallenge", true);
-	}
+	// Streams must use the DNS challenge for a new certificate. Set it after commit,
+	// not during render, so Formik is not updated while this component renders.
+	useEffect(() => {
+		if (forceDNSForNew && newCertificate && !dnsChallenge) {
+			setFieldValue("meta.dnsChallenge", true);
+		}
+	}, [forceDNSForNew, newCertificate, dnsChallenge, setFieldValue]);
 
 	const handleToggleChange = (e: any, fieldName: string) => {
 		setFieldValue(fieldName, e.target.checked);

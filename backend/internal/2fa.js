@@ -3,10 +3,12 @@ import bcrypt from "bcrypt";
 import { createGuardrails, generateSecret, generateURI, verify } from "otplib";
 import errs from "../lib/error.js";
 import authModel from "../models/auth.js";
+import internalAuditLog from "./audit-log.js";
 import internalUser from "./user.js";
 
-const APP_NAME = "Nginx Proxy Manager";
+const APP_NAME = "FloppyGuard";
 const BACKUP_CODE_COUNT = 8;
+const BACKUP_CODE_LENGTH = 8; // randomBytes(4).toString("hex")
 
 /**
  * Generate backup codes
@@ -24,6 +26,24 @@ const generateBackupCodes = async () => {
 	}
 
 	return { plain, hashed };
+};
+
+// Lower otplib v13's 16-byte minimum to 10 bytes (the v12 minimum): secrets generated under
+// otplib v12 are still in the wild and must keep working for login, disable and backup-code
+// regeneration, otherwise people are locked out (or get a 500) after the upgrade.
+const LEGACY_GUARDRAILS = createGuardrails({ MIN_SECRET_BYTES: 10 });
+const verifyTotp = (secret, token) => verify({ token, secret, guardrails: LEGACY_GUARDRAILS });
+
+/**
+ * Render the otpauth URL as a PNG data URL on the server: the URL carries the TOTP secret,
+ * so it must never be handed to a third-party QR image service.
+ *
+ * @param   {string} otpauthUrl
+ * @returns {Promise<string>}
+ */
+const renderQrDataUrl = async (otpauthUrl) => {
+	const QRCode = (await import("qrcode")).default;
+	return QRCode.toDataURL(otpauthUrl, { type: "image/png", errorCorrectionLevel: "M", margin: 1, width: 240 });
 };
 
 const internal2fa = {
@@ -66,7 +86,7 @@ const internal2fa = {
 	 *
 	 * @param   {Access}  access
 	 * @param   {number} userId
-	 * @returns {Promise<{secret: string, otpauth_url: string}>}
+	 * @returns {Promise<{secret: string, otpauth_url: string, qr_data_url: string}>}
 	 */
 	startSetup: async (access, userId) => {
 		await access.can("users:password", userId);
@@ -95,7 +115,9 @@ const internal2fa = {
 			.andWhere("type", "password")
 			.patch({ meta });
 
-		return { secret, otpauth_url };
+		const qr_data_url = await renderQrDataUrl(otpauth_url);
+
+		return { secret, otpauth_url, qr_data_url };
 	},
 
 	/**
@@ -108,7 +130,7 @@ const internal2fa = {
 	 */
 	enable: async (access, userId, code) => {
 		await access.can("users:password", userId);
-		await internalUser.get(access, { id: userId });
+		const user = await internalUser.get(access, { id: userId });
 		const auth = await internal2fa.getUserPasswordAuth(userId);
 		const secret = auth?.meta?.totp_pending_secret || false;
 
@@ -116,7 +138,7 @@ const internal2fa = {
 			throw new errs.ValidationError("No pending 2FA setup found");
 		}
 
-		const result = await verify({ token: code, secret });
+		const result = await verifyTotp(secret, code);
 		if (!result.valid) {
 			throw new errs.ValidationError("Invalid verification code");
 		}
@@ -139,6 +161,13 @@ const internal2fa = {
 			.andWhere("type", "password")
 			.patch({ meta });
 
+		await internalAuditLog.add(access, {
+			action: "updated",
+			object_type: "user",
+			object_id: userId,
+			meta: { name: user.name, totp: "enabled" },
+		});
+
 		return { backup_codes: plain };
 	},
 
@@ -152,7 +181,7 @@ const internal2fa = {
 	 */
 	disable: async (access, userId, code) => {
 		await access.can("users:password", userId);
-		await internalUser.get(access, { id: userId });
+		const user = await internalUser.get(access, { id: userId });
 		const auth = await internal2fa.getUserPasswordAuth(userId);
 
 		const enabled = auth?.meta?.totp_enabled === true;
@@ -160,13 +189,7 @@ const internal2fa = {
 			throw new errs.ValidationError("2FA is not enabled");
 		}
 
-		const result = await verify({
-			token: code,
-			secret: auth.meta.totp_secret,
-			guardrails: createGuardrails({
-				MIN_SECRET_BYTES: 10,
-			}),
-		});
+		const result = await verifyTotp(auth.meta.totp_secret, code);
 
 		if (!result.valid) {
 			throw new errs.AuthError("Invalid verification code");
@@ -184,6 +207,13 @@ const internal2fa = {
 			.andWhere("user_id", userId)
 			.andWhere("type", "password")
 			.patch({ meta });
+
+		await internalAuditLog.add(access, {
+			action: "updated",
+			object_type: "user",
+			object_id: userId,
+			meta: { name: user.name, totp: "disabled" },
+		});
 	},
 
 	/**
@@ -204,40 +234,44 @@ const internal2fa = {
 		// Try TOTP code first, if it's 6 chars. it will throw errors if it's not 6 chars
 		// and the backup codes are 8 chars.
 		if (token.length === 6) {
-			const result = await verify({
-				token,
-				secret,
-				// These guardrails lower the minimum length requirement for secrets.
-				// In v12 of otplib the default minimum length is 10 and in v13 it is 16.
-				// Since there are 2fa secrets in the wild generated with v12 we need to allow shorter secrets
-				// so people won't be locked out when upgrading.
-				guardrails: createGuardrails({
-					MIN_SECRET_BYTES: 10,
-				}),
-			});
+			const result = await verifyTotp(secret, token);
 
 			if (result.valid) {
 				return true;
 			}
 		}
 
-		// Try backup codes
+		// Backup codes are always 8 hex chars; a 6/7-char token can never match, so don't
+		// burn 8 bcrypt compares after a wrong TOTP.
+		if (token.length !== BACKUP_CODE_LENGTH) {
+			return false;
+		}
+
+		const candidate = token.toUpperCase();
 		const backupCodes = auth?.meta?.backup_codes || [];
-		for (let i = 0; i < backupCodes.length; i++) {
-			const match = await bcrypt.compare(token.toUpperCase(), backupCodes[i]);
-			if (match) {
-				// Remove used backup code
-				const updatedCodes = [...backupCodes];
-				updatedCodes.splice(i, 1);
-				const meta = { ...auth.meta, backup_codes: updatedCodes };
-				await authModel
-					.query()
+		for (const hash of backupCodes) {
+			if (!(await bcrypt.compare(candidate, hash))) continue;
+
+			// Consume atomically: re-read under a row lock and only remove the code if it is
+			// still present, so two parallel requests with the same code cannot both succeed.
+			return authModel.transaction(async (trx) => {
+				const fresh = await authModel
+					.query(trx)
 					.where("id", auth.id)
 					.andWhere("user_id", userId)
 					.andWhere("type", "password")
-					.patch({ meta });
+					.forUpdate()
+					.first();
+				const current = fresh?.meta?.backup_codes || [];
+				if (!current.includes(hash)) {
+					return false;
+				}
+				await authModel
+					.query(trx)
+					.where("id", auth.id)
+					.patch({ meta: { ...fresh.meta, backup_codes: current.filter((h) => h !== hash) } });
 				return true;
-			}
+			});
 		}
 
 		return false;
@@ -253,7 +287,7 @@ const internal2fa = {
 	 */
 	regenerateBackupCodes: async (access, userId, token) => {
 		await access.can("users:password", userId);
-		await internalUser.get(access, { id: userId });
+		const user = await internalUser.get(access, { id: userId });
 		const auth = await internal2fa.getUserPasswordAuth(userId);
 		const enabled = auth?.meta?.totp_enabled === true;
 		const secret = auth?.meta?.totp_secret || false;
@@ -265,10 +299,7 @@ const internal2fa = {
 			throw new errs.ValidationError("No 2FA secret found");
 		}
 
-		const result = await verify({
-			token,
-			secret,
-		});
+		const result = await verifyTotp(secret, token);
 
 		if (!result.valid) {
 			throw new errs.ValidationError("Invalid verification code");
@@ -283,6 +314,13 @@ const internal2fa = {
 			.andWhere("user_id", userId)
 			.andWhere("type", "password")
 			.patch({ meta });
+
+		await internalAuditLog.add(access, {
+			action: "updated",
+			object_type: "user",
+			object_id: userId,
+			meta: { name: user.name, totp: "backup-codes-regenerated" },
+		});
 
 		return { backup_codes: plain };
 	},

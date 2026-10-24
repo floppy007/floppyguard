@@ -9,25 +9,7 @@
 const allLocales = [
   ["en", "en-US"],
   ["de", "de-DE"],
-  ["pt", "pt-PT"],
-  ["es", "es-ES"],
-  ["et", "et-EE"],
   ["fr", "fr-FR"],
-  ["it", "it-IT"],
-  ["ja", "ja-JP"],
-  ["nl", "nl-NL"],
-  ["pl", "pl-PL"],
-  ["ru", "ru-RU"],
-  ["sk", "sk-SK"],
-  ["cs", "cs-CZ"],
-  ["vi", "vi-VN"],
-  ["zh", "zh-CN"],
-  ["ko", "ko-KR"],
-  ["bg", "bg-BG"],
-  ["id", "id-ID"],
-  ["tr", "tr-TR"],
-  ["hu", "hu-HU"],
-  ["no", "no-NO"],
 ];
 
 const ignoreUnused = [/^.*$/];

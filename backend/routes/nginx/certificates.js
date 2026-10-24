@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import express from "express";
 import dnsPlugins from "../../certbot/dns-plugins.json" with { type: "json" };
 import internalCertificate from "../../internal/certificate.js";
@@ -351,7 +353,12 @@ router
 			const result = await internalCertificate.download(res.locals.access, {
 				id: Number.parseInt(req.params.certificate_id, 10),
 			});
-			res.status(200).download(result.fileName);
+			res.status(200).download(result.fileName, (err) => {
+				// Fires on success and on abort: drop the zip (holds the private key)
+				// together with its private temp dir.
+				fs.rm(path.dirname(result.fileName), { recursive: true, force: true }, () => {});
+				if (err) next(err);
+			});
 		} catch (err) {
 			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
 			next(err);

@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import errs from "../lib/error.js";
+import { SAFE_HTTP_URL_REGEX } from "../lib/safe-url.js";
 import settingModel from "../models/setting.js";
 import internalNginx from "./nginx.js";
 
@@ -7,7 +8,7 @@ import internalNginx from "./nginx.js";
 // (`return 301 {{ meta.redirect }};`). Only a plain http(s) URL may pass:
 // no whitespace/newlines/semicolons/quotes/config-or-shell metacharacters, so
 // the value cannot close the location block and inject arbitrary directives.
-const REDIRECT_URL_PATTERN = /^https?:\/\/[^\s"'$`\\;|&(){}<>!#]+$/;
+const REDIRECT_URL_PATTERN = SAFE_HTTP_URL_REGEX;
 
 /**
  * Throws a ValidationError unless `redirect` is a safe plain http(s) URL.
@@ -43,21 +44,30 @@ const internalSetting = {
 					);
 				}
 
-				// The 'html' default-site value requires meta.html to write index.html.
-				// Validate before persisting so a missing value can't half-apply the setting.
-				if (data.id === "default-site" && data.value === "html" && (!data.meta || typeof data.meta.html !== "string")) {
-					throw new errs.ValidationError("meta.html is required when value is 'html'");
-				}
+				// Validate the state as it will be AFTER the patch: the PUT schema allows a
+				// body with only `value` or only `meta`, and `meta` replaces the stored JSON
+				// wholesale. Checking data.value alone let `{ meta: {...} }` drop meta.html /
+				// meta.redirect while the stored value still needed it, leaving the DB patched
+				// but nginx unregenerated (html) or the default config deleted (redirect).
+				if (data.id === "default-site") {
+					const effectiveValue = data.value ?? row.value;
+					const effectiveMeta = data.meta ?? row.meta ?? {};
 
-				// The 'redirect' default-site value writes meta.redirect verbatim into the
-				// root nginx config (`return 301 {{ meta.redirect }};`). Reject anything but a
-				// plain http(s) URL so newlines/semicolons/quotes/config metacharacters can't
-				// close the location block and inject arbitrary nginx directives. This mirrors
-				// the schema pattern but must live here too: the schema is only enforced at the
-				// route layer, while this is the last gate before the value is persisted and
-				// rendered as root.
-				if (data.id === "default-site" && data.value === "redirect") {
-					assertSafeRedirect(data.meta?.redirect);
+					// The 'html' default-site value requires meta.html to write index.html.
+					if (effectiveValue === "html" && typeof effectiveMeta.html !== "string") {
+						throw new errs.ValidationError("meta.html is required when value is 'html'");
+					}
+
+					// The 'redirect' default-site value writes meta.redirect verbatim into the
+					// root nginx config (`return 301 {{ meta.redirect }};`). Reject anything but a
+					// plain http(s) URL so newlines/semicolons/quotes/config metacharacters can't
+					// close the location block and inject arbitrary nginx directives. This mirrors
+					// the schema pattern but must live here too: the schema is only enforced at the
+					// route layer, while this is the last gate before the value is persisted and
+					// rendered as root.
+					if (effectiveValue === "redirect") {
+						assertSafeRedirect(effectiveMeta.redirect);
+					}
 				}
 
 				return settingModel.query().where({ id: data.id }).patch(data);

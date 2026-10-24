@@ -1,4 +1,5 @@
 import { IconBuilding, IconDeviceLaptop, IconNetwork, IconServer, IconWorldWww } from "@tabler/icons-react";
+import { useMemo } from "react";
 import type { AgentIngressCatalog, AgentIngressCatalogKind } from "src/api/backend";
 import type { GroupBase, MultiValue, SingleValue, StylesConfig } from "react-select";
 import CreatableSelect from "react-select/creatable";
@@ -68,7 +69,8 @@ type Group = GroupBase<PickerOption>;
 // .react-select-container theme rules in App.css do not reach it: theme it
 // with the same Tabler variables here.
 const STYLES: StylesConfig<PickerOption, boolean, Group> = {
-	menuPortal: (base) => ({ ...base, zIndex: 1060 }),
+	// above every dialog: the Freigaben editor modal sits at 1065 (App.css .ingress-editor-modal)
+	menuPortal: (base) => ({ ...base, zIndex: 1070 }),
 	menu: (base) => ({
 		...base,
 		backgroundColor: "var(--tblr-bg-forms)",
@@ -120,23 +122,29 @@ export function CatalogPicker({
 	placeholder,
 	disabled,
 }: Props) {
-	const toOption = (e: PickerEntry): PickerOption => ({
-		value: e.id,
-		label: entryLabel(e, catalog),
-		cidrs: e.cidrs.map(canonCidr),
-		entry: e,
-	});
-
-	const grouped = new Map<GroupId, PickerOption[]>();
-	for (const e of entries) {
-		const g = groupOf(e);
-		if (!grouped.has(g)) grouped.set(g, []);
-		grouped.get(g)?.push(toOption(e));
-	}
-	const options: Group[] = GROUP_ORDER.filter((g) => grouped.has(g)).map((g) => ({
-		label: ti(`catalog.group.${g}`),
-		options: grouped.get(g) ?? [],
-	}));
+	// Options depend only on entries + catalog — not rebuilt (entryLabel per entry) on every keystroke.
+	const toOption = useMemo(
+		() =>
+			(e: PickerEntry): PickerOption => ({
+				value: e.id,
+				label: entryLabel(e, catalog),
+				cidrs: e.cidrs.map(canonCidr),
+				entry: e,
+			}),
+		[catalog],
+	);
+	const options: Group[] = useMemo(() => {
+		const grouped = new Map<GroupId, PickerOption[]>();
+		for (const e of entries) {
+			const g = groupOf(e);
+			if (!grouped.has(g)) grouped.set(g, []);
+			grouped.get(g)?.push(toOption(e));
+		}
+		return GROUP_ORDER.filter((g) => grouped.has(g)).map((g) => ({
+			label: ti(`catalog.group.${g}`),
+			options: grouped.get(g) ?? [],
+		}));
+	}, [entries, toOption]);
 
 	const { entries: whole, rest } = collapseCidrs(splitList(value), entries);
 	const selected: PickerOption[] = [
@@ -203,7 +211,11 @@ export function CatalogPicker({
 							</span>
 							{(o.entry.hint === "snat-hub-lan" || o.entry.hint === "masquerade") && (
 								<span className="d-block small text-secondary text-wrap">
-									{ti(o.entry.hint === "masquerade" ? "catalog.masquerade-hint" : "catalog.hub-snat-hint")}
+									{ti(
+										o.entry.hint === "masquerade"
+											? "catalog.masquerade-hint"
+											: "catalog.hub-snat-hint",
+									)}
 								</span>
 							)}
 						</span>

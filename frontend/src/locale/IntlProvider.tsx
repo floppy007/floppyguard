@@ -1,4 +1,5 @@
 import { createIntl, createIntlCache } from "react-intl";
+import { safeLocal } from "src/modules/safeStorage";
 import langDe from "./lang/de.json";
 import langEn from "./lang/en.json";
 import langFr from "./lang/fr.json";
@@ -6,7 +7,7 @@ import langList from "./lang/lang-list.json";
 
 // first item of each array should be the language code,
 // not the country code
-// Remember when adding to this list, also update check-locales.js script
+// Remember when adding to this list, also update check-locales.cjs (frontend root)
 const localeOptions = [
 	["en", "en-US", langEn],
 	["de", "de-DE", langDe],
@@ -44,7 +45,7 @@ const getFlagCodeForLocale = (locale?: string) => {
 };
 
 const getLocale = (short = false) => {
-	let loc = window.localStorage.getItem("locale");
+	let loc = safeLocal.get("locale");
 	if (!loc) {
 		loc = document.documentElement.lang;
 	}
@@ -66,7 +67,7 @@ let intl = createIntl({ locale: getLocale(), messages: initialMessages }, cache)
 const changeLocale = (locale: string): void => {
 	const messages = loadMessages(locale);
 	intl = createIntl({ locale, messages }, cache);
-	window.localStorage.setItem("locale", locale);
+	safeLocal.set("locale", locale);
 	document.documentElement.lang = locale;
 };
 

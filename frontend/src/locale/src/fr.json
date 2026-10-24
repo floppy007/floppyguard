@@ -341,23 +341,29 @@
 	"dashboard": {
 		"defaultMessage": "Tableau de bord"
 	},
-	"dashboard.ago-hours": {
-		"defaultMessage": "il y a {count} h"
+	"dashboard.chart.now": {
+		"defaultMessage": "maintenant"
 	},
-	"dashboard.ago-minutes": {
-		"defaultMessage": "il y a {count} min"
-	},
-	"dashboard.ago-seconds": {
-		"defaultMessage": "il y a {count} s"
+	"dashboard.count-active": {
+		"defaultMessage": "{count, plural, one {# actif} other {# actifs}}"
 	},
 	"dashboard.dead-blocked": {
 		"defaultMessage": "{count} bloqués"
 	},
+	"dashboard.dead-hint": {
+		"defaultMessage": "Répondent par 404 Not Found"
+	},
 	"dashboard.gateway-overview": {
 		"defaultMessage": "Vue d'ensemble Gateway"
 	},
+	"dashboard.hub-active": {
+		"defaultMessage": "{name} actif"
+	},
 	"dashboard.hub-interface": {
 		"defaultMessage": "Interface Hub"
+	},
+	"dashboard.link-meta": {
+		"defaultMessage": "{type} · {iface} · handshake {handshake}"
 	},
 	"dashboard.link-preview": {
 		"defaultMessage": "Aperçu des liens"
@@ -389,14 +395,32 @@
 	"dashboard.proxy-active-disabled": {
 		"defaultMessage": "{active} actifs · {disabled} désactivés"
 	},
+	"dashboard.redirections-hint": {
+		"defaultMessage": "Tous opérationnels"
+	},
+	"dashboard.stat.active-peers": {
+		"defaultMessage": "Pairs actifs"
+	},
+	"dashboard.stat.link-split": {
+		"defaultMessage": "{site} site · {client} client"
+	},
 	"dashboard.stat.logical-links": {
 		"defaultMessage": "Liens logiques"
+	},
+	"dashboard.streams-hint": {
+		"defaultMessage": "Redirection TCP"
 	},
 	"dashboard.topology": {
 		"defaultMessage": "Topologie"
 	},
+	"dashboard.topology-split": {
+		"defaultMessage": "{site} site · {hub} hub · {client} client"
+	},
 	"dashboard.total-traffic": {
 		"defaultMessage": "Trafic total"
+	},
+	"dashboard.traffic-scope": {
+		"defaultMessage": "{networks, plural, one {# réseau de pair} other {# réseaux de pairs}} · {routes, plural, one {# route privée} other {# routes privées}}"
 	},
 	"dashboard.update-notice.action": {
 		"defaultMessage": "Mettre à jour"
@@ -917,33 +941,6 @@
 	"platform": {
 		"defaultMessage": "Plateforme"
 	},
-	"platform.btn.open-gateway": {
-		"defaultMessage": "Ouvrir la vue Gateway"
-	},
-	"platform.btn.open-proxy": {
-		"defaultMessage": "Ouvrir les hôtes proxy"
-	},
-	"platform.btn.open-wireguard": {
-		"defaultMessage": "Ouvrir le module WireGuard"
-	},
-	"platform.cap.title": {
-		"defaultMessage": "Carte des capacités"
-	},
-	"platform.gateway-snapshot.title": {
-		"defaultMessage": "Snapshot Gateway"
-	},
-	"platform.hero.kicker": {
-		"defaultMessage": "Vue d'ensemble"
-	},
-	"platform.hero.subtitle": {
-		"defaultMessage": "FloppyGuard combine proxy, gateway et gestion WireGuard en une seule plateforme opérationnelle."
-	},
-	"platform.hub-interface": {
-		"defaultMessage": "Interface Hub"
-	},
-	"platform.link-readiness.title": {
-		"defaultMessage": "Préparation des liens"
-	},
 	"platform.link-type.client": {
 		"defaultMessage": "Client"
 	},
@@ -955,36 +952,6 @@
 	},
 	"platform.link-type.site": {
 		"defaultMessage": "Site"
-	},
-	"platform.missing-return.none": {
-		"defaultMessage": "Aucune route retour manquante détectée."
-	},
-	"platform.missing-return.some": {
-		"defaultMessage": "{count} réseau/réseaux importé(s) manque(nt) encore d'une route active."
-	},
-	"platform.missing-return.title": {
-		"defaultMessage": "Routes retour manquantes"
-	},
-	"platform.nat-candidates.none": {
-		"defaultMessage": "Aucun candidat NAT évident détecté."
-	},
-	"platform.nat-candidates.some": {
-		"defaultMessage": "{count} réseau/réseaux encore identifié(s) comme candidat(s) NAT."
-	},
-	"platform.nat-candidates.title": {
-		"defaultMessage": "Candidats NAT"
-	},
-	"platform.no-addresses": {
-		"defaultMessage": "Aucune adresse"
-	},
-	"platform.no-links": {
-		"defaultMessage": "Aucun lien logique configuré."
-	},
-	"platform.observations.none": {
-		"defaultMessage": "Aucune observation de route disponible."
-	},
-	"platform.observations.title": {
-		"defaultMessage": "Observations"
 	},
 	"platform.plan.discover": {
 		"defaultMessage": "Découvrir"
@@ -1000,15 +967,6 @@
 	},
 	"platform.plan.validate": {
 		"defaultMessage": "Valider"
-	},
-	"platform.runtime-risks.title": {
-		"defaultMessage": "Risques d'exécution"
-	},
-	"platform.stat.logical-links": {
-		"defaultMessage": "Liens logiques"
-	},
-	"platform.write-cap.title": {
-		"defaultMessage": "Capacité d'écriture"
 	},
 	"proxy-host": {
 		"defaultMessage": "Hôte proxy"
@@ -1297,6 +1255,9 @@
 	},
 	"user.nickname": {
 		"defaultMessage": "Pseudonyme"
+	},
+	"user.password-changed-relogin": {
+		"defaultMessage": "Mot de passe modifié, veuillez vous reconnecter"
 	},
 	"user.set-password": {
 		"defaultMessage": "Définir le mot de passe"
@@ -2309,6 +2270,9 @@
 	"wireguard.create.cancel": {
 		"defaultMessage": "Annuler"
 	},
+	"wireguard.create.client-config-label": {
+		"defaultMessage": "Configuration client à télécharger :"
+	},
 	"wireguard.create.close": {
 		"defaultMessage": "Fermer"
 	},
@@ -2409,7 +2373,7 @@
 		"defaultMessage": "Pairs"
 	},
 	"wireguard.iface.placeholder-notes": {
-		"defaultMessage": "Rôle hub, vérifier plus tard, ..."
+		"defaultMessage": "Une note par ligne"
 	},
 	"wireguard.iface.placeholder-routes": {
 		"defaultMessage": "ex. 10.10.0.0/16"
@@ -2452,6 +2416,9 @@
 	},
 	"wireguard.link.active": {
 		"defaultMessage": "actif"
+	},
+	"wireguard.link.agent": {
+		"defaultMessage": "Agent"
 	},
 	"wireguard.link.apps": {
 		"defaultMessage": "Applis"
@@ -2546,6 +2513,12 @@
 	"wireguard.link.planner": {
 		"defaultMessage": "Planificateur de lien"
 	},
+	"wireguard.link.platform-desktop": {
+		"defaultMessage": "Ordinateur"
+	},
+	"wireguard.link.platform-mobile": {
+		"defaultMessage": "Mobile"
+	},
 	"wireguard.link.qr-hint": {
 		"defaultMessage": "Scanner avec l'app WireGuard (iOS / Android)"
 	},
@@ -2614,6 +2587,9 @@
 	},
 	"wireguard.next.verify-return-path": {
 		"defaultMessage": "Vérifier le chemin retour"
+	},
+	"wireguard.overview.allowedips-conflict": {
+		"defaultMessage": "Conflit AllowedIPs"
 	},
 	"wireguard.overview.backups-title": {
 		"defaultMessage": "Sauvegardes de métadonnées"

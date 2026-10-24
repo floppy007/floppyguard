@@ -1,6 +1,6 @@
 import { IconSearch } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import Alert from "react-bootstrap/Alert";
 import { deleteUser, toggleUser } from "src/api/backend";
 import { Button, LoadingPage } from "src/components";
@@ -18,6 +18,48 @@ export default function TableWrapper() {
 	const { isFetching, isLoading, isError, error, data } = useUsers(["permissions"]);
 	const { data: currentUser } = useUser("me");
 
+	const handleDelete = useCallback(
+		(id: number) =>
+			showDeleteConfirmModal({
+				title: <T id="object.delete" tData={{ object: "user" }} />,
+				onConfirm: async () => {
+					await deleteUser(id);
+					showObjectSuccess("user", "deleted");
+				},
+				invalidations: [["users"], ["user", id]],
+				children: <T id="object.delete.content" tData={{ object: "user" }} />,
+			}),
+		[],
+	);
+
+	const handleDisableToggle = useCallback(
+		async (id: number, enabled: boolean) => {
+			try {
+				await toggleUser(id, enabled);
+				showObjectSuccess("user", enabled ? "enabled" : "disabled");
+			} catch (err) {
+				showError(err instanceof Error ? err.message : String(err));
+			} finally {
+				queryClient.invalidateQueries({ queryKey: ["users"] });
+				queryClient.invalidateQueries({ queryKey: ["user", id] });
+			}
+		},
+		[queryClient],
+	);
+
+	const handleLoginAs = useCallback(
+		async (id: number) => {
+			try {
+				await loginAs(id);
+			} catch (err) {
+				if (err instanceof Error) {
+					showError(err.message);
+				}
+			}
+		},
+		[loginAs],
+	);
+
 	if (isLoading) {
 		return <LoadingPage />;
 	}
@@ -26,30 +68,8 @@ export default function TableWrapper() {
 		return <Alert variant="danger">{error?.message || "Unknown error"}</Alert>;
 	}
 
-	const handleLoginAs = async (id: number) => {
-		try {
-			await loginAs(id);
-		} catch (err) {
-			if (err instanceof Error) {
-				showError(err.message);
-			}
-		}
-	};
-
-	const handleDelete = async (id: number) => {
-		await deleteUser(id);
-		showObjectSuccess("user", "deleted");
-	};
-
-	const handleDisableToggle = async (id: number, enabled: boolean) => {
-		await toggleUser(id, enabled);
-		queryClient.invalidateQueries({ queryKey: ["users"] });
-		queryClient.invalidateQueries({ queryKey: ["user", id] });
-		showObjectSuccess("user", enabled ? "enabled" : "disabled");
-	};
-
 	let filtered = null;
-	if (search && data) {
+	if (search && data?.length) {
 		filtered = data?.filter((item) => {
 			return (
 				item.name.toLowerCase().includes(search) ||
@@ -58,7 +78,7 @@ export default function TableWrapper() {
 			);
 		});
 	} else if (search !== "") {
-		// this can happen if someone deletes the last item while searching
+		// list became empty (e.g. last matching item deleted) - drop the stale filter
 		setSearch("");
 	}
 
@@ -100,17 +120,10 @@ export default function TableWrapper() {
 					isFiltered={!!search}
 					isFetching={isFetching}
 					currentUserId={currentUser?.id}
-					onEditUser={(id: number) => showUserModal(id)}
-					onEditPermissions={(id: number) => showPermissionsModal(id)}
-					onSetPassword={(id: number) => showSetPasswordModal(id)}
-					onDeleteUser={(id: number) =>
-						showDeleteConfirmModal({
-							title: <T id="object.delete" tData={{ object: "user" }} />,
-							onConfirm: () => handleDelete(id),
-							invalidations: [["users"], ["user", id]],
-							children: <T id="object.delete.content" tData={{ object: "user" }} />,
-						})
-					}
+					onEditUser={showUserModal}
+					onEditPermissions={showPermissionsModal}
+					onSetPassword={showSetPasswordModal}
+					onDeleteUser={handleDelete}
 					onDisableToggle={handleDisableToggle}
 					onNewUser={() => showUserModal("new")}
 					onLoginAs={handleLoginAs}

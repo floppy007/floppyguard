@@ -54,6 +54,11 @@ describe("DateFormatter", () => {
 		expect(text).toBe("7 Nov 2025, 12:41:52 am");
 	});
 
+	it("format date from unix millisecond timestamp", () => {
+		expect(formatDateTime(1762476112000)).toBe(formatDateTime(1762476112));
+		expect(formatDateTime("1762476112000")).toBe(formatDateTime(1762476112));
+	});
+
 	it("catch bad format from string", () => {
 		const value = "this is not a good date";
 		const text = formatDateTime(value);

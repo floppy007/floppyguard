@@ -12,9 +12,11 @@ import {
 } from "src/components";
 import { TableLayout } from "src/components/Table/TableLayout";
 import { intl, T } from "src/locale";
-import { showCustomCertificateModal, showDNSCertificateModal, showHTTPCertificateModal } from "src/modals";
 import { POPPER_FIXED } from "src/modules/Dropdown";
 import { CERTIFICATES, MANAGE } from "src/modules/Permissions";
+import AddCertificateDropdown from "./AddCertificateDropdown";
+
+const columnHelper = createColumnHelper<Certificate>();
 
 interface Props {
 	data: Certificate[];
@@ -25,7 +27,6 @@ interface Props {
 	onDownload?: (id: number) => void;
 }
 export default function Table({ data, isFetching, onDelete, onRenew, onDownload, isFiltered }: Props) {
-	const columnHelper = createColumnHelper<Certificate>();
 	const columns = useMemo(
 		() => [
 			columnHelper.accessor((row: any) => row.owner, {
@@ -163,7 +164,7 @@ export default function Table({ data, isFetching, onDelete, onRenew, onDownload,
 				},
 			}),
 		],
-		[columnHelper, onDelete, onRenew, onDownload],
+		[onDelete, onRenew, onDownload],
 	);
 
 	const tableInstance = useReactTable<Certificate>({
@@ -177,52 +178,6 @@ export default function Table({ data, isFetching, onDelete, onRenew, onDownload,
 		enableSortingRemoval: false,
 	});
 
-	const customAddBtn = (
-		<div className="dropdown">
-			<button
-				type="button"
-				className="btn dropdown-toggle btn-pink my-3"
-				data-bs-toggle="dropdown"
-				data-bs-popper-config={POPPER_FIXED}
-			>
-				<T id="object.add" tData={{ object: "certificate" }} />
-			</button>
-			<div className="dropdown-menu">
-				<a
-					className="dropdown-item"
-					href="#"
-					onClick={(e) => {
-						e.preventDefault();
-						showHTTPCertificateModal();
-					}}
-				>
-					<T id="lets-encrypt-via-http" />
-				</a>
-				<a
-					className="dropdown-item"
-					href="#"
-					onClick={(e) => {
-						e.preventDefault();
-						showDNSCertificateModal();
-					}}
-				>
-					<T id="lets-encrypt-via-dns" />
-				</a>
-				<div className="dropdown-divider" />
-				<a
-					className="dropdown-item"
-					href="#"
-					onClick={(e) => {
-						e.preventDefault();
-						showCustomCertificateModal();
-					}}
-				>
-					<T id="certificates.custom" />
-				</a>
-			</div>
-		</div>
-	);
-
 	return (
 		<TableLayout
 			tableInstance={tableInstance}
@@ -233,7 +188,7 @@ export default function Table({ data, isFetching, onDelete, onRenew, onDownload,
 					tableInstance={tableInstance}
 					isFiltered={isFiltered}
 					color="pink"
-					customAddBtn={customAddBtn}
+					customAddBtn={<AddCertificateDropdown className="my-3" />}
 					permissionSection={CERTIFICATES}
 				/>
 			}

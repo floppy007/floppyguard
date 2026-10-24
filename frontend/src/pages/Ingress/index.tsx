@@ -17,7 +17,8 @@ import {
 	SiteIsolationCard,
 	ti,
 } from "src/components/AgentIngress";
-import { useAgentIngress, useAgentIngressCheck, useAgents, useSiteIsolation } from "src/hooks";
+import { useAgentIngressActiveRules, useAgentIngressCheck, useAgents, useSiteIsolation } from "src/hooks";
+import { agentInvalidations } from "src/hooks/wireguardKeys";
 import { intl } from "src/locale/IntlProvider";
 import { showDeleteConfirmModal } from "src/modals";
 import { ADMIN, VIEW } from "src/modules/Permissions";
@@ -104,11 +105,14 @@ function AgentDangerZone({ agent, linkMissing }: { agent: Agent; linkMissing: bo
 							// Gateway gone for good: second confirmation, then forced delete.
 							await deleteAgentGuarded(agent, () =>
 								window.confirm(
-									intl.formatMessage({ id: "wireguard.agent.delete-force-confirm" }, { name: agent.name }),
+									intl.formatMessage(
+										{ id: "wireguard.agent.delete-force-confirm" },
+										{ name: agent.name },
+									),
 								),
 							);
 						},
-						invalidations: [["agents"], ["agent-ingress-check"]],
+						invalidations: agentInvalidations(),
 						children: intl.formatMessage({ id: "wireguard.agent.delete-confirm" }, { name: agent.name }),
 					})
 				}
@@ -124,7 +128,11 @@ function WarningDot({ count }: { count: number }) {
 	if (count <= 0) return null;
 	const label = ti("list.warnings", { count });
 	return (
-		<span className="d-inline-flex align-items-center gap-1 text-red small" title={label} data-testid="ingress-list-warning">
+		<span
+			className="d-inline-flex align-items-center gap-1 text-red small"
+			title={label}
+			data-testid="ingress-list-warning"
+		>
 			<span className="status-dot status-dot-animated status-red" aria-hidden />
 			<span aria-hidden>{count}</span>
 			<span className="visually-hidden">{label}</span>
@@ -136,16 +144,20 @@ function AgentListItem({
 	entry,
 	selected,
 	isolatedFrom,
+	checkSettled,
 	onSelect,
 }: {
 	entry: IngressAgentEntry;
 	selected: boolean;
+	/** the shared check has answered (an agent missing from it is not bound to a link) */
+	checkSettled: boolean;
 	/** sites the hub separates this one from */
 	isolatedFrom: string[];
 	onSelect: (id: number) => void;
 }) {
-	const ingress = useAgentIngress(entry.agent.id);
-	const active = ingress.data ? ingress.data.rules.filter((r) => r.enabled).length : null;
+	// from the shared check — no full ingress fetch per list item (N+1); only
+	// agents the check does not list (no WireGuard link) fetch their own rules
+	const active = useAgentIngressActiveRules(entry.agent.id, entry.activeRules, checkSettled);
 	const subName = ingressAgentSubName(entry.agent);
 	return (
 		<button
@@ -204,7 +216,10 @@ export function IngressPageContent() {
 		setParams(next, { replace: true });
 	};
 
-	const pinId = agents.isSuccess && fromUrl === null ? selectedId : null;
+	// pin only once the check has settled: the problem-first default (applied
+	// failed/offline, missing targets) needs check.data; list and detail show
+	// the provisional default meanwhile
+	const pinId = agents.isSuccess && (check.isSuccess || check.isError) && fromUrl === null ? selectedId : null;
 	// once pinned, fromUrl is set and pinId is null: re-runs (new setParams identity) are no-ops
 	useEffect(() => {
 		if (pinId === null) return;
@@ -222,9 +237,7 @@ export function IngressPageContent() {
 		return <LoadingPage />;
 	}
 	if (agents.isError) {
-		return (
-			<Alert variant="danger">{agents.error?.message || ti("error.unknown")}</Alert>
-		);
+		return <Alert variant="danger">{agents.error?.message || ti("error.unknown")}</Alert>;
 	}
 
 	const selectedCheck = selected ? check.data?.find((c) => c.agentId === selected.agent.id) : undefined;
@@ -301,6 +314,7 @@ export function IngressPageContent() {
 									entry={e}
 									selected={e.agent.id === selectedId}
 									isolatedFrom={isolatedFrom(e)}
+									checkSettled={check.isSuccess}
 									onSelect={select}
 								/>
 							))}
@@ -313,20 +327,28 @@ export function IngressPageContent() {
 								agentId={selected.agent.id}
 								linkName={selected.agent.wgLinkName}
 								dangerZone={
-									<AgentDangerZone agent={selected.agent} linkMissing={selectedCheck?.linkFound === false} />
+									<AgentDangerZone
+										agent={selected.agent}
+										linkMissing={selectedCheck?.linkFound === false}
+									/>
 								}
 								heading={
 									<div className="w-100" style={{ minWidth: 0 }}>
 										<div className="d-flex flex-wrap align-items-center gap-2">
 											<h2 className="h3 mb-0 text-break">{ingressSiteName(selected.agent)}</h2>
 											{selected.agent.status !== "active" && (
-												<span className={`badge ${statusBadge[selected.agent.status] ?? "bg-secondary-lt"}`}>
+												<span
+													className={`badge ${statusBadge[selected.agent.status] ?? "bg-secondary-lt"}`}
+												>
 													{agentStatusLabel(selected.agent.status)}
 												</span>
 											)}
 										</div>
 										{ingressAgentSubName(selected.agent) && (
-											<div className="small text-secondary text-break" data-testid="ingress-detail-agent">
+											<div
+												className="small text-secondary text-break"
+												data-testid="ingress-detail-agent"
+											>
 												{ingressAgentSubName(selected.agent)}
 											</div>
 										)}

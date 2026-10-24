@@ -1,3 +1,5 @@
+import { useId } from "react";
+
 interface PeerSparklineProps {
 	/** Array of bandwidth samples (bytes/s) — most recent last */
 	data: number[];
@@ -11,6 +13,8 @@ const W = 200;
 
 export function PeerSparkline({ data, color = "var(--tblr-green)", height = 32 }: PeerSparklineProps) {
 	const H = height;
+	// Stable per instance (useId must run before the early return below)
+	const gradId = `sg-${useId()}`;
 
 	if (!data.length) {
 		return (
@@ -32,7 +36,6 @@ export function PeerSparkline({ data, color = "var(--tblr-green)", height = 32 }
 
 	const line = `M ${pts.join(" L ")}`;
 	const area = `${line} L ${W.toFixed(1)},${H} L 0,${H} Z`;
-	const gradId = `sg-${Math.random().toString(36).slice(2, 8)}`;
 
 	return (
 		<svg

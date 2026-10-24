@@ -1,4 +1,4 @@
-import { IconBell, IconLock, IconLogout, IconShieldLock, IconUser } from "@tabler/icons-react";
+import { IconLock, IconLogout, IconShieldLock, IconUser } from "@tabler/icons-react";
 import { BrandLogo, LocalePicker, NavLink, SiteMenu, ThemeSwitcher } from "src/components";
 import { useAuthState } from "src/context";
 import { useUser } from "src/hooks";
@@ -48,9 +48,6 @@ export function SiteHeader() {
 						<div className="nav-item d-none d-md-block">
 							<LocalePicker />
 						</div>
-						<button type="button" className={styles.btnIcon} title="Notifications">
-							<IconBell size={15} />
-						</button>
 					</div>
 					<div className="nav-item d-md-flex">
 						<div className="nav-item dropdown">

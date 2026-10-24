@@ -16,6 +16,8 @@ import { intl, T } from "src/locale";
 import { POPPER_FIXED } from "src/modules/Dropdown";
 import { MANAGE, PROXY_HOSTS } from "src/modules/Permissions";
 
+const columnHelper = createColumnHelper<ProxyHost>();
+
 interface Props {
 	data: ProxyHost[];
 	isFiltered?: boolean;
@@ -26,7 +28,6 @@ interface Props {
 	onNew?: () => void;
 }
 export default function Table({ data, isFetching, onEdit, onDelete, onDisableToggle, onNew, isFiltered }: Props) {
-	const columnHelper = createColumnHelper<ProxyHost>();
 	const columns = useMemo(
 		() => [
 			columnHelper.accessor((row: any) => row.owner, {
@@ -162,7 +163,7 @@ export default function Table({ data, isFetching, onEdit, onDelete, onDisableTog
 				},
 			}),
 		],
-		[columnHelper, onEdit, onDisableToggle, onDelete],
+		[onEdit, onDisableToggle, onDelete],
 	);
 
 	const tableInstance = useReactTable<ProxyHost>({

@@ -6,7 +6,7 @@ import { Alert } from "react-bootstrap";
 import Modal from "react-bootstrap/Modal";
 import { createCertificate } from "src/api/backend";
 import { Button, DNSProviderFields, DomainNamesField } from "src/components";
-import { T } from "src/locale";
+import { intl, T } from "src/locale";
 import { showObjectSuccess } from "src/notifications";
 
 const showDNSCertificateModal = () => {
@@ -72,10 +72,10 @@ const DNSCertificateModal = EasyModal.create(({ visible, remove }: InnerModalPro
 												</label>
 												<select id="keyType" className="form-select" {...field}>
 													<option value="rsa">
-														<T id="certificates.key-type-rsa" />
+														{intl.formatMessage({ id: "certificates.key-type-rsa" })}
 													</option>
 													<option value="ecdsa">
-														<T id="certificates.key-type-ecdsa" />
+														{intl.formatMessage({ id: "certificates.key-type-ecdsa" })}
 													</option>
 												</select>
 												<small className="form-text text-muted">
@@ -89,14 +89,13 @@ const DNSCertificateModal = EasyModal.create(({ visible, remove }: InnerModalPro
 							</div>
 						</Modal.Body>
 						<Modal.Footer>
-							<Button data-bs-dismiss="modal" onClick={remove} disabled={isSubmitting}>
+							<Button onClick={remove} disabled={isSubmitting}>
 								<T id="cancel" />
 							</Button>
 							<Button
 								type="submit"
 								actionType="primary"
 								className="ms-auto bg-pink"
-								data-bs-dismiss="modal"
 								isLoading={isSubmitting}
 								disabled={isSubmitting}
 							>

@@ -127,7 +127,7 @@ describe("token refresh", () => {
 		);
 	});
 
-	it("refuses tokens without a user/admin scope", async () => {
+	it("refuses tokens without a user scope", async () => {
 		await assert.rejects(
 			() => internalToken.getFreshToken(fakeAccess({ attrs: { id: 1 }, scope: ["worker"] }), {}),
 			/Invalid token/,
@@ -218,5 +218,23 @@ describe("updater release pinning", () => {
 				}),
 			/could not be determined/,
 		);
+	});
+});
+
+describe("updater status file", () => {
+	it("treats an unparseable status file as idle instead of failing", async () => {
+		const dir = fs.mkdtempSync(path.join(tmp, "upd-"));
+		fs.writeFileSync(path.join(dir, "update-status.json"), "{");
+		const prev = process.env.FLOPPYGUARD_UPDATE_STATE_DIR;
+		process.env.FLOPPYGUARD_UPDATE_STATE_DIR = dir;
+		try {
+			// stateDir is read at module load: use a fresh module instance.
+			const { default: appUpdate } = await import("./app-update.js?corrupt-status");
+			const status = await appUpdate.getStatus();
+			assert.equal(status.state, "idle");
+		} finally {
+			if (prev === undefined) delete process.env.FLOPPYGUARD_UPDATE_STATE_DIR;
+			else process.env.FLOPPYGUARD_UPDATE_STATE_DIR = prev;
+		}
 	});
 });

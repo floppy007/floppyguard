@@ -9,7 +9,7 @@ const useCheckVersion = (options = {}) => {
 		queryFn: fetchVersion,
 		refetchOnWindowFocus: false,
 		retry: 5,
-		refetchInterval: 30 * 1000, // 30 seconds
+		refetchInterval: 5 * 60 * 1000, // 5 min: matches staleTime; the backend caches the GitHub result, so polling faster never yields new data
 		staleTime: 5 * 60 * 1000, // 5 mins
 		...options,
 	});

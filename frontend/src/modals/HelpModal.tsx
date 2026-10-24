@@ -2,6 +2,7 @@ import cn from "classnames";
 import EasyModal, { type InnerModalProps } from "ez-modal-react";
 import { useEffect, useState } from "react";
 import Modal from "react-bootstrap/Modal";
+import ReactMarkdown from "react-markdown";
 import { Button } from "src/components";
 import { getLocale, T } from "src/locale";
 import { getHelpFile } from "src/locale/src/HelpDoc";
@@ -34,17 +35,7 @@ const HelpModal = EasyModal.create(({ section, color, visible, remove }: Props) 
 		<Modal show={visible} onHide={remove}>
 			<Modal.Body>
 				<div className="platform-modal-copy">
-					<pre
-						style={{
-							whiteSpace: "pre-wrap",
-							wordBreak: "break-word",
-							margin: 0,
-							fontFamily: "inherit",
-							lineHeight: 1.65,
-						}}
-					>
-						{markdownText}
-					</pre>
+					<ReactMarkdown>{markdownText}</ReactMarkdown>
 				</div>
 			</Modal.Body>
 			<Modal.Footer>
@@ -52,7 +43,6 @@ const HelpModal = EasyModal.create(({ section, color, visible, remove }: Props) 
 					type="button"
 					actionType="primary"
 					className={cn("ms-auto", color ? `btn-${color}` : null)}
-					data-bs-dismiss="modal"
 					onClick={remove}
 				>
 					<T id="action.close" />

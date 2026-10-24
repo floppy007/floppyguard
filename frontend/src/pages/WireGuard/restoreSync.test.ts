@@ -69,7 +69,13 @@ describe("restoreSyncProblems", () => {
 		expect(
 			hubChangeCount({
 				wg0: { synced: true, changes: [{ peer: "a", allowedIPs: [] }] },
-				wg1: { synced: true, changes: [{ peer: "b", allowedIPs: [] }, { peer: "c", allowedIPs: [] }] },
+				wg1: {
+					synced: true,
+					changes: [
+						{ peer: "b", allowedIPs: [] },
+						{ peer: "c", allowedIPs: [] },
+					],
+				},
 				wg2: { synced: false, reason: "no-conf-file" },
 			}),
 		).toBe(3);

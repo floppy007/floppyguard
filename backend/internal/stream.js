@@ -28,6 +28,7 @@ const internalStream = {
 		return access
 			.can("streams:create", data)
 			.then(() => internalNginx.assertSafeHostFields("stream", data))
+			.then(() => internalHost.assertCertificateAccess(access, data.certificate_id))
 			.then((/*access_data*/) => {
 				// TODO: At this point the existing ports should have been checked
 				data.owner_user_id = access.token.getUserId(1);
@@ -47,11 +48,8 @@ const internalStream = {
 					return internalCertificate
 						.createQuickCertificate(access, data)
 						.then((cert) => {
-							// update host with cert id
-							return internalStream.update(access, {
-								id: row.id,
-								certificate_id: cert.id,
-							});
+							// link the new cert; the single re-fetch/configure below picks it up
+							return streamModel.query().where({ id: row.id }).patch({ certificate_id: cert.id });
 						})
 						.then(() => {
 							return row;
@@ -68,7 +66,8 @@ const internalStream = {
 			})
 			.then((row) => {
 				// Configure nginx
-				return internalNginx.configure(streamModel, "stream", row).then(() => {
+				return internalNginx.configure(streamModel, "stream", row).then((new_meta) => {
+					row.meta = new_meta;
 					return row;
 				});
 			})
@@ -94,7 +93,7 @@ const internalStream = {
 	 * @return {Promise}
 	 */
 	update: (access, data) => {
-		let thisData = data;
+		const thisData = data;
 		const create_certificate = thisData.certificate_id === "new";
 
 		if (create_certificate) {
@@ -103,6 +102,13 @@ const internalStream = {
 
 		return access
 			.can("streams:update", thisData.id)
+			.then(() => {
+				// The stream table has no domain_names column, so a quick certificate
+				// can only be requested with domain names sent along.
+				if (create_certificate && !Array.isArray(thisData.domain_names)) {
+					throw new errs.ValidationError("domain_names are required when requesting a new certificate");
+				}
+			})
 			.then(() => internalNginx.assertSafeHostFields("stream", thisData))
 			.then((/*access_data*/) => {
 				// TODO: at this point the existing streams should have been checked
@@ -119,7 +125,7 @@ const internalStream = {
 				if (create_certificate) {
 					return internalCertificate
 						.createQuickCertificate(access, {
-							domain_names: thisData.domain_names || row.domain_names,
+							domain_names: thisData.domain_names,
 							meta: _.assign({}, row.meta, thisData.meta),
 						})
 						.then((cert) => {
@@ -130,35 +136,29 @@ const internalStream = {
 							return row;
 						});
 				}
+				if (thisData.certificate_id !== undefined && thisData.certificate_id !== row.certificate_id) {
+					return internalHost.assertCertificateAccess(access, thisData.certificate_id).then(() => row);
+				}
 				return row;
 			})
 			.then((row) => {
-				// Add domain_names to the data in case it isn't there, so that the audit log renders correctly. The order is important here.
-				thisData = _.assign(
-					{},
-					{
-						domain_names: row.domain_names,
-					},
-					thisData,
-				);
+				// streams aren't routed by domain name so don't store domain names in the DB
+				// (they stay in thisData for the audit log, like create())
+				const patchData = _.omit(thisData, ["domain_names"]);
 
 				return streamModel
 					.query()
-					.patchAndFetchById(row.id, thisData)
-					.then(utils.omitRow(omissions()))
-					.then((saved_row) => {
+					.where({ id: row.id })
+					.patch(patchData)
+					.then(() =>
 						// Add to audit log
-						return internalAuditLog
-							.add(access, {
-								action: "updated",
-								object_type: "stream",
-								object_id: row.id,
-								meta: thisData,
-							})
-							.then(() => {
-								return saved_row;
-							});
-					});
+						internalAuditLog.add(access, {
+							action: "updated",
+							object_type: "stream",
+							object_id: row.id,
+							meta: thisData,
+						}),
+					);
 			})
 			.then(() => {
 				return internalStream.get(access, { id: thisData.id, expand: ["owner", "certificate"] }).then((row) => {

@@ -107,6 +107,29 @@ describe("Gateway page", () => {
 		expect(screen.getByText(/Define return path mode/)).toBeTruthy();
 	});
 
+	it("shows every warning and every missing return route, not only the first few", () => {
+		const status = buildStatus();
+		const warnings = ["w-one", "w-two", "w-three", "w-four", "w-five"];
+		const missing = Array.from({ length: 8 }, (_, i) => ({
+			network: `10.77.${i}.0/24`,
+			reason: "network-not-found-in-live-routes",
+		}));
+		statusMock.mockReturnValue({
+			data: {
+				...status,
+				links: [{ ...status.links[0], warnings }],
+				routes: { ...status.routes, missingReturnRoutes: missing },
+			},
+			isLoading: false,
+			isError: false,
+			error: null,
+		});
+		render(<Gateway />);
+		for (const w of warnings) expect(screen.getByText(new RegExp(w))).toBeTruthy();
+		for (const m of missing)
+			expect(screen.getAllByText(new RegExp(m.network.replace(/\./g, "\\."))).length).toBeGreaterThan(0);
+	});
+
 	it("renders reachability badge derived from route hints", () => {
 		render(<Gateway />);
 		expect(screen.getAllByText("Return path missing").length).toBeGreaterThan(0);
@@ -156,5 +179,18 @@ describe("Gateway page", () => {
 		render(<Gateway />);
 		expect(screen.getByText("10.10.0.0/24")).toBeTruthy();
 		expect(screen.queryByText("192.168.60.0/24")).toBeNull();
+	});
+
+	it("renders every link, not just the first twelve", () => {
+		const base = buildStatus();
+		const links = Array.from({ length: 13 }, (_, n) => ({
+			...base.links[0],
+			id: `wg1:peer-${n}`,
+			peerPublicKey: `peer-${n}`,
+			name: `site-${n}`,
+		}));
+		statusMock.mockReturnValue({ data: { ...base, links }, isLoading: false, isError: false, error: null });
+		render(<Gateway />);
+		expect(screen.getAllByText("site-12").length).toBeGreaterThan(0);
 	});
 });

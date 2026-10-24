@@ -26,22 +26,28 @@ import {
 	buildIngressRestore,
 	canonicalCidr,
 	cidrContains,
+	hostIp,
 	hubTunnelHosts,
+	isHubSourced,
+	isWgIface,
+	MAX_RULES_PER_AGENT,
 	nextHitState,
+	parseJsonArray,
+	pubKey8,
 	rowToRule,
 	armedOnPatch,
-	ruleCovers,
-	rulesFromVpnNetworks,
 	sanitizeIngressCounters,
 	sanitizeIngressMode,
 	sanitizeIngressRule,
+	splitLinkId,
+	upstreamCovered,
 } from "./agent-ingress-rules.js";
 import internalAuditLog from "./audit-log.js";
 import internalSiteIsolation from "./site-isolation.js";
 import internalWireGuard from "./wireguard.js";
 
 const OBJECT_TYPE = "agent-ingress";
-const MAX_RULES_PER_AGENT = 500;
+const nowSeconds = () => Math.floor(Date.now() / 1000);
 
 // Hand-written nginx server blocks next to the FloppyGuard-managed ones (e.g.
 // sso/webmail). They proxy into site LANs too, so the Prüfung must see them.
@@ -101,15 +107,8 @@ export function parseManualConfUpstreams(text, file) {
  */
 export function proxyHostUpstreams(p) {
 	const out = [];
-	let names = p.domain_names;
-	if (typeof names === "string") {
-		try {
-			names = JSON.parse(names);
-		} catch {
-			names = [names];
-		}
-	}
-	const hostLabel = (names || []).join(", ");
+	const names = parseJsonArray(p.domain_names, typeof p.domain_names === "string" ? [p.domain_names] : []);
+	const hostLabel = names.join(", ");
 	const enabled = Boolean(p.enabled);
 	const fromAdvanced = (text, label) => {
 		if (!text) return;
@@ -127,15 +126,7 @@ export function proxyHostUpstreams(p) {
 		enabled,
 	});
 	fromAdvanced(p.advanced_config, hostLabel);
-	let locations = p.locations;
-	if (typeof locations === "string") {
-		try {
-			locations = JSON.parse(locations);
-		} catch {
-			locations = [];
-		}
-	}
-	for (const loc of Array.isArray(locations) ? locations : []) {
+	for (const loc of parseJsonArray(p.locations)) {
 		const label = `${hostLabel} ${loc?.path || ""}`.trim();
 		fromAdvanced(loc?.advanced_config, label);
 		if (!loc?.forward_host) continue;
@@ -161,11 +152,11 @@ export function proxyHostUpstreams(p) {
  * the target to the hub source, which also carries the Hetzner-LAN SNAT
  * (MASQUERADE of 10.10.10.0/24 to the hub's tunnel address). An upstream without
  * a known port (a `proxy_pass $var` without scheme/port, an "any port" egress
- * flow) gets NO suggestion (null): the admin has to write the rule by hand with
- * the port(s) actually used.
+ * flow) or without a known hub source address gets NO suggestion (null): the
+ * admin has to write the rule by hand with the port(s) actually used.
  */
 export function upstreamSuggestion(u, srcs) {
-	if (!u.port) return null;
+	if (!u.port || !srcs?.length) return null;
 	return {
 		name: `${u.kind === "hub-egress" ? "Hub" : "Proxy"} ${u.label}`.slice(0, 100),
 		sources: srcs.slice(0, 1),
@@ -187,8 +178,7 @@ export function upstreamSuggestion(u, srcs) {
 export function broadHubRules(rules, hubSrcs, behind) {
 	const out = [];
 	for (const r of rules) {
-		if (!r.enabled || !r.sources.length) continue;
-		if (!r.sources.every((s) => hubSrcs.some((h) => cidrContains(h, s)))) continue;
+		if (!r.enabled || !isHubSourced(r, hubSrcs)) continue;
 		const inDest = (u) =>
 			canonicalCidr(u.host) && (!r.destinations.length || r.destinations.some((d) => cidrContains(d, u.host)));
 		if (!r.ports.length) {
@@ -312,7 +302,7 @@ export function parseHubEgressFlows(text) {
 			id: `egress-${i + 1}`,
 			label: String(f?.name || `Hub-Egress ${i + 1}`).slice(0, 100),
 			// single host stays a plain IP like the other upstreams
-			host: host.endsWith("/32") ? host.slice(0, -3) : host,
+			host: hostIp(host),
 			port: Number.isInteger(port) && port >= 1 && port <= 65535 ? port : null,
 			proto,
 			enabled: f?.enabled !== false,
@@ -417,8 +407,8 @@ export function vpnClientsFromStatus(status) {
 		}
 		nets = [...new Set(nets.map(canonicalCidr).filter(Boolean))].filter((n) => !n.endsWith("/32"));
 		if (!nets.length) continue;
-		const colon = String(l.id).indexOf(":");
-		clients.push({ id: l.id, label: l.name || String(l.id).slice(colon + 1, colon + 9), hosts, nets });
+		const parts = splitLinkId(l.id);
+		clients.push({ id: l.id, label: l.name || pubKey8(parts ? parts[1] : String(l.id)), hosts, nets });
 	}
 	return clients;
 }
@@ -449,18 +439,18 @@ export function clientIngressGaps(clients, ownNets, rules) {
 								r.destinations.some((d) => cidrContains(d, dst) || cidrContains(dst, d))),
 					);
 					if (covered) continue;
-					const hostIp = host.replace(/\/32$/, "");
+					const ip = hostIp(host);
 					gaps.push({
 						kind: "vpn-client",
 						id: `${c.id}|${dst}`,
-						label: `${c.label} (${hostIp})`,
+						label: `${c.label} (${ip})`,
 						host: dst,
 						port: null,
 						proto: "tcp",
 						enabled: true,
 						suggestion: {
 							name: `VPN-Client ${c.label}`.slice(0, 100),
-							sources: [`${hostIp}/32`],
+							sources: [`${ip}/32`],
 							destinations: [dst],
 							ports: [],
 						},
@@ -547,7 +537,7 @@ export function ingressAppliedState({
 	error: err,
 	buildError,
 	lastSeen = undefined,
-	now = Math.floor(Date.now() / 1000),
+	now = nowSeconds(),
 }) {
 	const applied = appliedHash || null;
 	const desired = desiredHash ?? null;
@@ -578,7 +568,7 @@ export function ingressAppliedState({
 	return { state, applied_hash: applied, desired_hash: desired, error: err || null };
 }
 
-const ifaceOf = (agent) => (/^wg\d{1,3}$/.test(agent?.wg_interface || "") ? agent.wg_interface : "wg0");
+const ifaceOf = (agent) => (isWgIface(agent?.wg_interface) ? agent.wg_interface : "wg0");
 
 async function loadAgent(agentId) {
 	const agent = await Agent.query().where("id", agentId).where("is_deleted", 0).first();
@@ -629,6 +619,14 @@ function assertNotEmptyRestricted(mode, rules) {
 			"Mindestens eine aktive Freigabe ist nötig, solange der Agent auf „nur Freigaben“ steht",
 		);
 	}
+}
+
+/**
+ * Rule totals for the proxy check, so list views show "n active rules" without
+ * loading every agent's full ingress state (N+1).
+ */
+export function ingressRuleCounts(rules) {
+	return { rule_count: rules.length, active_rule_count: rules.filter((r) => r.enabled).length };
 }
 
 /** True when a partial rule update can enlarge the generated ruleset. */
@@ -733,7 +731,7 @@ const wgContext = memo(async () => {
 
 	const confCache = new Map();
 	const confTextFor = async (ifaceName) => {
-		if (!/^wg\d{1,3}$/.test(ifaceName)) return "";
+		if (!isWgIface(ifaceName)) return "";
 		if (!confCache.has(ifaceName)) {
 			const dir = process.env.WG_CONF_DIR || "/etc/wireguard";
 			let text = "";
@@ -768,12 +766,13 @@ const wgContext = memo(async () => {
 	} else {
 		for (const [id, l] of metadataLinks) {
 			if (l.type !== "client") continue;
-			const colon = String(id).indexOf(":");
-			if (colon < 0) continue;
-			const hosts = peerTunnelHosts(await confTextFor(id.slice(0, colon)), id.slice(colon + 1));
+			const parts = splitLinkId(id);
+			if (!parts) continue;
+			const [iface, pub] = parts;
+			const hosts = peerTunnelHosts(await confTextFor(iface), pub);
 			const nets = l.fullTunnel ? ["0.0.0.0/0"] : (l.importedNetworks || []).map(canonicalCidr).filter(Boolean);
 			if (hosts.length && nets.length)
-				clients.push({ id, label: l.name || id.slice(colon + 1, colon + 9), hosts, nets });
+				clients.push({ id, label: l.name || pubKey8(pub), hosts, nets });
 		}
 	}
 	return {
@@ -813,8 +812,8 @@ async function catalogLinks(ctx) {
 	}
 	const out = [];
 	for (const [id, l] of ctx.metadataLinks) {
-		const colon = String(id).indexOf(":");
-		const tunnel = colon < 0 ? [] : peerTunnelHosts(await ctx.confTextFor(id.slice(0, colon)), id.slice(colon + 1));
+		const parts = splitLinkId(id);
+		const tunnel = parts ? peerTunnelHosts(await ctx.confTextFor(parts[0]), parts[1]) : [];
 		out.push({
 			id,
 			name: l.name || id,
@@ -834,25 +833,27 @@ function boundLinkId(linkName, ctx) {
 	return ctx.metadataLinks.find(([, l]) => l.name === linkName)?.[0] ?? null;
 }
 
-const nowSeconds = () => Math.floor(Date.now() / 1000);
-
 const internalAgentIngress = {
 	async list(agentId) {
 		const agent = await loadAgent(agentId);
+		const rules = await loadRules(agent.id);
 		return {
 			agent_id: agent.id,
 			ingress_mode: agent.ingress_mode || "open",
-			rules: await loadRules(agent.id),
-			applied: await this.appliedFor(agent),
+			rules,
+			applied: await this.appliedFor(agent, rules),
 		};
 	},
 
-	/** Applied-vs-desired filter state of one agent (see ingressAppliedState). */
-	async appliedFor(agent) {
+	/**
+	 * Applied-vs-desired filter state of one agent (see ingressAppliedState).
+	 * `rules` = the agent's already loaded rules (null = load them).
+	 */
+	async appliedFor(agent, rules = null) {
 		let desiredHash = null;
 		let buildError = null;
 		try {
-			desiredHash = (await this.payloadFor(agent))?.hash ?? "NONE";
+			desiredHash = (await this.payloadFor(agent, rules))?.hash ?? "NONE";
 		} catch (err) {
 			buildError = err.message || String(err);
 		}
@@ -865,50 +866,55 @@ const internalAgentIngress = {
 		});
 	},
 
+	// create / update / delete / setMode / createBulk / disableBulk all check the
+	// ruleset against the agent's mode and size caps and then write. Each runs in
+	// a transaction with the agent row locked (SELECT … FOR UPDATE) and re-reads
+	// mode + rules under that lock, so two concurrent changes (e.g. a bulk-disable
+	// and a single disable, a switch to restricted, or two creates near the line
+	// cap) cannot both pass a check — no restricted agent without an active rule,
+	// no ruleset beyond MAX_RULES_PER_AGENT / MAX_LINES_TOTAL.
+
 	async create(access, agentId, data) {
 		const agent = await loadAgent(agentId);
 		const clean = sanitizeIngressRule(data);
-		const existing = await loadRules(agent.id);
-		if (existing.length >= MAX_RULES_PER_AGENT)
-			throw new error.ValidationError(`Maximal ${MAX_RULES_PER_AGENT} Freigaben pro Agent`);
-		assertTotalLineCount([...existing, clean]);
-		const row = await AgentIngressRule.query().insertAndFetch({
-			...toDbPatch(clean),
-			agent_id: agent.id,
-			armed_on: Math.floor(Date.now() / 1000),
+		const rule = await AgentIngressRule.transaction(async (trx) => {
+			await lockAgent(agent.id, trx);
+			const existing = await loadRules(agent.id, trx);
+			if (existing.length >= MAX_RULES_PER_AGENT)
+				throw new error.ValidationError(`Maximal ${MAX_RULES_PER_AGENT} Freigaben pro Agent`);
+			assertTotalLineCount([...existing, clean]);
+			const row = await AgentIngressRule.query(trx).insertAndFetch({
+				...toDbPatch(clean),
+				agent_id: agent.id,
+				armed_on: nowSeconds(),
+			});
+			return rowToRule(row);
 		});
-		const rule = rowToRule(row);
 		await audit(access, "created", agent, { name: rule.name, rule: rule.id });
 		return rule;
 	},
-
-	// update / delete / setMode / createBulk / disableBulk all check the ruleset
-	// against the agent's mode and then write. Each runs in a transaction with
-	// the agent row locked (SELECT … FOR UPDATE) and re-reads mode + rules under
-	// that lock, so two concurrent changes (e.g. a bulk-disable and a single
-	// disable, or a switch to restricted) cannot both pass the "at least one
-	// active rule" check and leave a restricted agent with none.
 
 	async update(access, agentId, ruleId, data) {
 		const agent = await loadAgent(agentId);
 		const clean = sanitizeIngressRule(data, { partial: true });
 		const rule = await AgentIngressRule.transaction(async (trx) => {
 			const locked = await lockAgent(agent.id, trx);
-			const existing = await AgentIngressRule.query(trx).where("id", ruleId).where("agent_id", agent.id).first();
+			const all = await loadRules(agent.id, trx);
+			const existing = all.find((r) => r.id === ruleId);
 			if (!existing) throw new error.ItemNotFoundError(ruleId);
-			const rules = (await loadRules(agent.id, trx)).map((r) => (r.id === ruleId ? { ...r, ...clean } : r));
-			const merged = rules.find((r) => r.id === ruleId);
+			const merged = { ...existing, ...clean };
+			const rules = all.map((r) => (r.id === ruleId ? merged : r));
 			// Size caps only when the patch can grow the ruleset (targets changed or the
 			// rule switched on). Disabling or renaming an oversized rule saved before the
 			// caps existed must stay possible — that is how an admin gets out of it.
-			if (merged && updateCanGrow(clean)) {
+			if (updateCanGrow(clean)) {
 				assertRuleLineCount(merged);
 				assertTotalLineCount(rules);
 			}
 			assertNotEmptyRestricted(locked.ingress_mode, rules);
 			const row = await AgentIngressRule.query(trx).patchAndFetchById(ruleId, {
 				...toDbPatch(clean),
-				...armedOnPatch(rowToRule(existing), clean, Math.floor(Date.now() / 1000)),
+				...armedOnPatch(existing, clean, nowSeconds()),
 			});
 			return rowToRule(row);
 		});
@@ -920,10 +926,13 @@ const internalAgentIngress = {
 		const agent = await loadAgent(agentId);
 		const existing = await AgentIngressRule.transaction(async (trx) => {
 			const locked = await lockAgent(agent.id, trx);
-			const row = await AgentIngressRule.query(trx).where("id", ruleId).where("agent_id", agent.id).first();
+			const all = await loadRules(agent.id, trx);
+			const row = all.find((r) => r.id === ruleId);
 			if (!row) throw new error.ItemNotFoundError(ruleId);
-			const rules = (await loadRules(agent.id, trx)).filter((r) => r.id !== ruleId);
-			assertNotEmptyRestricted(locked.ingress_mode, rules);
+			assertNotEmptyRestricted(
+				locked.ingress_mode,
+				all.filter((r) => r.id !== ruleId),
+			);
 			await AgentIngressRule.query(trx).deleteById(ruleId);
 			return row;
 		});
@@ -947,11 +956,14 @@ const internalAgentIngress = {
 		return this.list(agent.id);
 	},
 
-	/** What the agent receives in /api/agent/config — null = no filter at all. */
-	async payloadFor(agent) {
+	/**
+	 * What the agent receives in /api/agent/config — null = no filter at all.
+	 * `rules` = the agent's already loaded rules (null = load them).
+	 */
+	async payloadFor(agent, rules = null) {
 		const built = buildIngressRestore(
 			{ ingress_mode: agent.ingress_mode || "open", iface: ifaceOf(agent) },
-			await loadRules(agent.id),
+			rules ?? (await loadRules(agent.id)),
 		);
 		return built ? { hash: built.hash, rules: built.text } : null;
 	},
@@ -979,7 +991,7 @@ const internalAgentIngress = {
 		const rows = await AgentIngressRule.query()
 			.where("agent_id", agent.id)
 			.whereIn("id", [...counters.keys()]);
-		const now = Math.floor(Date.now() / 1000);
+		const now = nowSeconds();
 		const knex = AgentIngressRule.knex();
 		for (const row of rows) {
 			const next = nextHitState(row, counters.get(row.id), now);
@@ -991,53 +1003,6 @@ const internalAgentIngress = {
 	},
 
 	/**
-	 * Import legacy UniFi-Manager entries (vpn-networks.json) as rules. Used once
-	 * for the VPN_MGR → FG_IN switch-over; does NOT change ingress_mode.
-	 */
-	async importVpnNetworks(access, agentId, entries, { replace = false, notes = {} } = {}) {
-		const agent = await loadAgent(agentId);
-		// Convert + validate EVERYTHING before touching the DB, and check the result
-		// like create/update/setMode do: a bad entry must not leave a restricted agent
-		// with a partial ruleset after the replace-delete already ran.
-		const cleaned = rulesFromVpnNetworks(entries).map((r) =>
-			sanitizeIngressRule({ ...r, note: notes[r.name] ?? "Import aus VPN_MGR (UniFi-Manager)" }),
-		);
-		const kept = replace ? [] : await loadRules(agent.id);
-		const result = [...kept, ...cleaned];
-		if (result.length > MAX_RULES_PER_AGENT)
-			throw new error.ValidationError(`Maximal ${MAX_RULES_PER_AGENT} Freigaben pro Agent`);
-		assertTotalLineCount(result);
-		assertNotEmptyRestricted(agent.ingress_mode, result);
-
-		let deleted = 0;
-		// Imported rules get the same armed_on as hand-made ones (create/update),
-		// so the "no hits for 30 days" window starts at the import.
-		const armedOn = Math.floor(Date.now() / 1000);
-		const created = await AgentIngressRule.transaction(async (trx) => {
-			if (replace) deleted = await AgentIngressRule.query(trx).where("agent_id", agent.id).delete();
-			const out = [];
-			for (const clean of cleaned) {
-				const row = await AgentIngressRule.query(trx).insertAndFetch({
-					...toDbPatch(clean),
-					agent_id: agent.id,
-					armed_on: armedOn,
-				});
-				out.push(rowToRule(row));
-			}
-			return out;
-		});
-		await audit(access, "created", agent, {
-			name: `Import ${created.length} Freigaben${replace ? ` (${deleted} ersetzt)` : ""}`,
-			imported: created.length,
-			replaced: deleted,
-		});
-		logger.info(
-			`Agent ${agent.name} (id=${agent.id}): imported ${created.length} ingress rules${replace ? `, replaced ${deleted}` : ""}`,
-		);
-		return created;
-	},
-
-	/**
 	 * Known sources/destinations of one agent for pickers and wizards (see
 	 * buildCatalog): other sites, VPN clients, the hub, upstreams and services
 	 * inside the agent's site, port presets and rules that look unused.
@@ -1046,7 +1011,7 @@ const internalAgentIngress = {
 		const agent = await loadAgent(agentId);
 		const [ctx, { upstreams, egressFlows }] = await Promise.all([wgContext(), collectUpstreams()]);
 		const site = agentSiteLink(agent.wg_link_name, { statusLinks: ctx.statusLinks, metaLinks: ctx.metadataLinks });
-		const iface = site ? String(site[0]).split(":")[0] : ifaceOf(agent);
+		const iface = site ? (splitLinkId(site[0])?.[0] ?? ifaceOf(agent)) : ifaceOf(agent);
 		const ownNets = site ? site[1] : [];
 		const rules = await loadRules(agent.id);
 		const others = await Agent.query()
@@ -1059,7 +1024,7 @@ const internalAgentIngress = {
 				preserve_lan_source_ip: a.preserve_lan_source_ip,
 			}))
 			.filter((a) => a.link_id);
-		const applied = await this.appliedFor(agent);
+		const applied = await this.appliedFor(agent, rules);
 		return buildCatalog({
 			agent,
 			site: site ? { linkId: site[0], ownNets } : null,
@@ -1084,7 +1049,8 @@ const internalAgentIngress = {
 		const q = sanitizeFlowQuery(body);
 		const ctx = await wgContext();
 		const site = agentSiteLink(agent.wg_link_name, { statusLinks: ctx.statusLinks, metaLinks: ctx.metadataLinks });
-		const applied = await this.appliedFor(agent);
+		const rules = await loadRules(agent.id);
+		const applied = await this.appliedFor(agent, rules);
 		// Hub-side site isolation is checked first: it drops the flow at the hub,
 		// before any agent filter sees it. A failing lookup must not break the
 		// tester — it then reports the Freigaben view only, with a note.
@@ -1112,13 +1078,16 @@ const internalAgentIngress = {
 				matched_rules: [],
 				disabled_match: null,
 				port_unknown: false,
-				notes: applied.state !== "applied" ? ["not-applied"] : [],
+				notes: [
+					...(applied.state !== "applied" ? ["not-applied"] : []),
+					...(!isolation ? ["site-isolation-unknown"] : isolation.partial ? ["site-isolation-partial"] : []),
+				],
 				link_found: false,
 			};
 		}
 		const result = evaluateFlow({
 			mode: agent.ingress_mode || "open",
-			rules: await loadRules(agent.id),
+			rules,
 			ownNets: site[1],
 			hubNets: ctx.hubNets,
 			...q,
@@ -1235,14 +1204,28 @@ const internalAgentIngress = {
 	 *   broadHubRules — hub-sourced rules without a port list / with ports no
 	 *     upstream uses (the hub source also carries the Hetzner-LAN SNAT)
 	 *   applied — whether the agent confirmed the current ruleset
+	 *   rule_count / active_rule_count — the agent's rules (all / enabled)
 	 * Upstreams come from proxy hosts (incl. custom locations), streams, the
 	 * hand-written zz-*.conf server blocks and the configured hub egress flows
 	 * (HUB_EGRESS_FLOWS_PATH — hub-originated traffic through the SNAT address).
 	 */
 	async proxyCheck() {
 		const agents = await Agent.query().where("is_deleted", 0).whereNotNull("wg_link_name");
-		const { upstreams, unchecked, egressFlows } = await collectUpstreams();
-		const { metadataLinks: links, statusLinks, hubNets, clients, hubHostsFor } = await wgContext();
+		const [
+			{ upstreams, unchecked, egressFlows },
+			{ metadataLinks: links, statusLinks, hubNets, clients, hubHostsFor },
+		] = await Promise.all([collectUpstreams(), wgContext()]);
+		// One query for every agent's rules instead of two per agent (N+1).
+		const rulesByAgent = new Map(agents.map((a) => [a.id, []]));
+		if (agents.length) {
+			const rows = await AgentIngressRule.query()
+				.whereIn(
+					"agent_id",
+					agents.map((a) => a.id),
+				)
+				.orderBy("id", "asc");
+			for (const row of rows) rulesByAgent.get(row.agent_id)?.push(rowToRule(row));
+		}
 
 		const egressSources = egressFlows.map((f) => f.source).filter(Boolean);
 		const result = [];
@@ -1268,24 +1251,27 @@ const internalAgentIngress = {
 					unchecked: [],
 					unused_hub_rules: [],
 					broad_hub_rules: [],
-					applied: await this.appliedFor(agent),
+					...ingressRuleCounts(rulesByAgent.get(agent.id) ?? []),
+					applied: await this.appliedFor(agent, rulesByAgent.get(agent.id) ?? []),
 				});
 				continue;
 			}
 			const [linkId, ownNets] = site;
-			const hubHosts = await hubHostsFor(String(linkId).split(":")[0]);
-			const rules = await loadRules(agent.id);
+			const hubHosts = await hubHostsFor(splitLinkId(linkId)?.[0] ?? "");
+			// Empty = wg conf unreadable or without Address line: only upstreams with
+			// their own egress source are checkable (see link_hint "hub-source-unknown").
+			const hubKnown = hubHosts.length > 0;
+			const rules = rulesByAgent.get(agent.id) ?? [];
 
 			const behind = upstreamsBehind(upstreams, ownNets, hubNets);
 			const missing = [];
 			const missingDisabled = [];
 			for (const u of behind) {
+				if (!u.source && !hubKnown) continue; // hub address unknown: not checkable
 				// A hub egress flow may name its own source (SNAT address); everything
 				// else arrives from the hub's tunnel address.
 				const srcs = u.source ? [u.source] : hubHosts;
-				const covered = srcs.some((src) =>
-					rules.some((r) => ruleCovers(r, { src, dst: u.host, port: u.port, proto: u.proto })),
-				);
+				const covered = upstreamCovered(u, rules, hubHosts);
 				if (!covered && !u.enabled) {
 					// Switched off on purpose: no traffic, no 504 — info only, no warning
 					missingDisabled.push(u);
@@ -1301,7 +1287,8 @@ const internalAgentIngress = {
 			// Client traffic is only dropped (and so only reported) while restricted.
 			if (mode === "restricted") {
 				const ownNoHub = ownNets.filter((n) => !hubNets.some((h) => cidrContains(h, n)));
-				missing.push(...clientIngressGaps(clients, ownNoHub, rules));
+				// An untyped single-LAN site is inferred as "client" too — never a gap against itself.
+				missing.push(...clientIngressGaps(clients.filter((c) => c.id !== linkId), ownNoHub, rules));
 			}
 
 			// Hub-sourced = EVERY source lies inside a hub/egress address. A broad
@@ -1309,13 +1296,7 @@ const internalAgentIngress = {
 			// VPN clients / other sites, whose targets no proxy host shows.
 			const hubSrcs = [...hubHosts, ...egressSources];
 			const unusedHubRules = rules
-				.filter(
-					(r) =>
-						r.enabled &&
-						r.destinations.length &&
-						r.sources.length &&
-						r.sources.every((s) => hubSrcs.some((h) => cidrContains(h, s))),
-				)
+				.filter((r) => r.enabled && r.destinations.length && isHubSourced(r, hubSrcs))
 				.map((r) => ({
 					id: r.id,
 					name: r.name,
@@ -1329,6 +1310,7 @@ const internalAgentIngress = {
 				agent_name: agent.name,
 				ingress_mode: mode,
 				link_found: true,
+				...(hubKnown ? {} : { link_hint: "hub-source-unknown" }),
 				hub_sources: hubHosts,
 				hub_egress_flows: egressFlows.length,
 				missing,
@@ -1336,7 +1318,8 @@ const internalAgentIngress = {
 				unchecked: mode === "restricted" ? unchecked : [],
 				unused_hub_rules: unusedHubRules,
 				broad_hub_rules: broad,
-				applied: await this.appliedFor(agent),
+				...ingressRuleCounts(rules),
+				applied: await this.appliedFor(agent, rules),
 			});
 		}
 		return result;

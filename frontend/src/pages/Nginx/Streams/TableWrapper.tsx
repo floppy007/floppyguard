@@ -1,6 +1,6 @@
 import { IconHelp, IconSearch } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import Alert from "react-bootstrap/Alert";
 import { deleteStream, toggleStream } from "src/api/backend";
 import { Button, HasPermission, LoadingPage } from "src/components";
@@ -8,14 +8,42 @@ import { useStreams } from "src/hooks";
 import { T } from "src/locale";
 import { showDeleteConfirmModal, showHelpModal, showStreamModal } from "src/modals";
 import { MANAGE, STREAMS } from "src/modules/Permissions";
-import { showObjectSuccess } from "src/notifications";
+import { showError, showObjectSuccess } from "src/notifications";
 import Table from "./Table";
 
 export default function TableWrapper() {
 	const queryClient = useQueryClient();
 	const [search, setSearch] = useState("");
-	const [_deleteId, _setDeleteIdd] = useState(0);
 	const { isFetching, isLoading, isError, error, data } = useStreams(["owner", "certificate"]);
+
+	const handleDelete = useCallback(
+		(id: number) =>
+			showDeleteConfirmModal({
+				title: <T id="object.delete" tData={{ object: "stream" }} />,
+				onConfirm: async () => {
+					await deleteStream(id);
+					showObjectSuccess("stream", "deleted");
+				},
+				invalidations: [["streams"], ["stream", id]],
+				children: <T id="object.delete.content" tData={{ object: "stream" }} />,
+			}),
+		[],
+	);
+
+	const handleDisableToggle = useCallback(
+		async (id: number, enabled: boolean) => {
+			try {
+				await toggleStream(id, enabled);
+				showObjectSuccess("stream", enabled ? "enabled" : "disabled");
+			} catch (err) {
+				showError(err instanceof Error ? err.message : String(err));
+			} finally {
+				queryClient.invalidateQueries({ queryKey: ["streams"] });
+				queryClient.invalidateQueries({ queryKey: ["stream", id] });
+			}
+		},
+		[queryClient],
+	);
 
 	if (isLoading) {
 		return <LoadingPage />;
@@ -25,29 +53,17 @@ export default function TableWrapper() {
 		return <Alert variant="danger">{error?.message || "Unknown error"}</Alert>;
 	}
 
-	const handleDelete = async (id: number) => {
-		await deleteStream(id);
-		showObjectSuccess("stream", "deleted");
-	};
-
-	const handleDisableToggle = async (id: number, enabled: boolean) => {
-		await toggleStream(id, enabled);
-		queryClient.invalidateQueries({ queryKey: ["streams"] });
-		queryClient.invalidateQueries({ queryKey: ["stream", id] });
-		showObjectSuccess("stream", enabled ? "enabled" : "disabled");
-	};
-
 	let filtered = null;
-	if (search && data) {
+	if (search && data?.length) {
 		filtered = data?.filter((item) => {
 			return (
 				`${item.incomingPort}`.includes(search) ||
 				`${item.forwardingPort}`.includes(search) ||
-				item.forwardingHost.includes(search)
+				item.forwardingHost.toLowerCase().includes(search)
 			);
 		});
 	} else if (search !== "") {
-		// this can happen if someone deletes the last item while searching
+		// list became empty (e.g. last matching item deleted) - drop the stale filter
 		setSearch("");
 	}
 
@@ -93,16 +109,9 @@ export default function TableWrapper() {
 				<Table
 					data={filtered ?? data ?? []}
 					isFetching={isFetching}
-					isFiltered={!!filtered}
-					onEdit={(id: number) => showStreamModal(id)}
-					onDelete={(id: number) =>
-						showDeleteConfirmModal({
-							title: <T id="object.delete" tData={{ object: "stream" }} />,
-							onConfirm: () => handleDelete(id),
-							invalidations: [["streams"], ["stream", id]],
-							children: <T id="object.delete.content" tData={{ object: "stream" }} />,
-						})
-					}
+					isFiltered={!!search}
+					onEdit={showStreamModal}
+					onDelete={handleDelete}
 					onDisableToggle={handleDisableToggle}
 					onNew={() => showStreamModal("new")}
 				/>

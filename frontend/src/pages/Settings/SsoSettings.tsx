@@ -21,6 +21,9 @@ const EMPTY: FormState = {
 	expiry: "1d",
 };
 
+// The login button falls back to this when the label is empty; must match backend oidc-settings DEFAULTS.label.
+const SERVER_DEFAULT_LABEL = "Mit Firmenkonto anmelden";
+
 const t = (id: string) => intl.formatMessage({ id });
 
 export default function SsoSettings() {
@@ -252,14 +255,14 @@ export default function SsoSettings() {
 				<h4 className="subheader mt-2 mb-2">
 					<T id="settings.sso.section.login" />
 				</h4>
-				{text("label", "settings.sso.label", { placeholder: "Mit Firmenkonto anmelden" })}
+				{text("label", "settings.sso.label", { placeholder: SERVER_DEFAULT_LABEL })}
 				<div className="mb-2">
 					<div className="form-label">
 						<T id="settings.sso.preview" />
 					</div>
 					<div className="platform-sso-preview">
 						<span className="btn btn-outline-primary w-100" aria-hidden="true">
-							{form.label || "Mit Firmenkonto anmelden"}
+							{form.label || SERVER_DEFAULT_LABEL}
 						</span>
 					</div>
 				</div>

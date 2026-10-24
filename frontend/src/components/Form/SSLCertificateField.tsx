@@ -26,6 +26,31 @@ const Option = (props: OptionProps<CertOption>) => {
 	);
 };
 
+// Clears fields that only make sense for the previously selected certificate.
+// DNS challenge fields live under meta.* (see SSLOptionsFields / DNSProviderFields),
+// so stale DNS provider credentials are not sent with the host's meta.
+export const resetDependentSslFields = (
+	v: any,
+	certValue: number | "new" | null | undefined,
+	forHttp: boolean,
+	setFieldValue: (field: string, value: any) => void,
+) => {
+	const { sslForced, http2Support, hstsEnabled, hstsSubdomains } = v;
+	const { dnsChallenge, dnsProvider, dnsProviderCredentials, propagationSeconds } = v.meta ?? {};
+	if (forHttp && !certValue) {
+		sslForced && setFieldValue("sslForced", false);
+		http2Support && setFieldValue("http2Support", false);
+		hstsEnabled && setFieldValue("hstsEnabled", false);
+		hstsSubdomains && setFieldValue("hstsSubdomains", false);
+	}
+	if (certValue !== "new") {
+		dnsChallenge !== undefined && setFieldValue("meta.dnsChallenge", undefined);
+		dnsProvider !== undefined && setFieldValue("meta.dnsProvider", undefined);
+		dnsProviderCredentials !== undefined && setFieldValue("meta.dnsProviderCredentials", undefined);
+		propagationSeconds !== undefined && setFieldValue("meta.propagationSeconds", undefined);
+	}
+};
+
 interface Props {
 	id?: string;
 	name?: string;
@@ -49,28 +74,7 @@ export function SSLCertificateField({
 
 	const handleChange = (newValue: any, _actionMeta: ActionMeta<CertOption>) => {
 		setFieldValue(name, newValue?.value);
-		const {
-			sslForced,
-			http2Support,
-			hstsEnabled,
-			hstsSubdomains,
-			dnsChallenge,
-			dnsProvider,
-			dnsProviderCredentials,
-			propagationSeconds,
-		} = v;
-		if (forHttp && !newValue?.value) {
-			sslForced && setFieldValue("sslForced", false);
-			http2Support && setFieldValue("http2Support", false);
-			hstsEnabled && setFieldValue("hstsEnabled", false);
-			hstsSubdomains && setFieldValue("hstsSubdomains", false);
-		}
-		if (newValue?.value !== "new") {
-			dnsChallenge && setFieldValue("dnsChallenge", undefined);
-			dnsProvider && setFieldValue("dnsProvider", undefined);
-			dnsProviderCredentials && setFieldValue("dnsProviderCredentials", undefined);
-			propagationSeconds && setFieldValue("propagationSeconds", undefined);
-		}
+		resetDependentSslFields(v, newValue?.value, forHttp, setFieldValue);
 	};
 
 	const options: CertOption[] =

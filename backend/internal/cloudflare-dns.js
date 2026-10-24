@@ -85,12 +85,19 @@ const publicAddresses = () => {
 
 const recordType = (address) => (address.includes(":") ? "AAAA" : "A");
 
-const findZone = async (token, domain) => {
+// `cache` (candidate zone name -> zone or null) is shared across one sync so
+// sibling domains don't probe the same suffixes again.
+const findZone = async (token, domain, cache = new Map()) => {
 	const labels = domain.split(".");
-	for (let index = 1; index < labels.length - 1; index += 1) {
+	// Start at 0: an apex domain (example.com) is its own zone. The bound keeps a bare TLD out.
+	for (let index = 0; index < labels.length - 1; index += 1) {
 		const name = labels.slice(index).join(".");
-		const zones = await api(token, `/zones?name=${encodeURIComponent(name)}&status=active`);
-		if (zones.length) return zones[0];
+		if (!cache.has(name)) {
+			const zones = await api(token, `/zones?name=${encodeURIComponent(name)}&status=active`);
+			cache.set(name, zones[0] ?? null);
+		}
+		const zone = cache.get(name);
+		if (zone) return zone;
 	}
 	throw new Error(`No Cloudflare zone is available for ${domain}`);
 };
@@ -172,6 +179,7 @@ const cloudflareDns = {
 	/** @internal for tests */
 	_getToken: getToken,
 	_api: api,
+	_findZone: findZone,
 
 	/**
 	 * @param {Object} host
@@ -193,8 +201,9 @@ const cloudflareDns = {
 				);
 			}
 			const records = { ...(config.records || {}) };
+			const zoneCache = new Map();
 			for (const domain of host.domain_names.filter((name) => !name.includes("*"))) {
-				const zone = await findZone(token, domain);
+				const zone = await findZone(token, domain, zoneCache);
 				for (const address of publicAddresses()) {
 					const type = recordType(address);
 					const key = `${domain}|${type}`;

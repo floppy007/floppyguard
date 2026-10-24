@@ -1,5 +1,6 @@
 import type React from "react";
 import { createContext, type ReactNode, useContext, useEffect, useState } from "react";
+import { safeLocal } from "src/modules/safeStorage";
 
 const StorageKey = "tabler-theme";
 export const Light = "light";
@@ -32,7 +33,7 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
 	const [theme, setThemeState] = useState<Theme>(() => {
 		// Try to read theme from localStorage or use 'light' as default
 		if (typeof window !== "undefined") {
-			const stored = localStorage.getItem(StorageKey) as Theme | null;
+			const stored = safeLocal.get(StorageKey) as Theme | null;
 			return stored || getBrowserDefault();
 		}
 		return getBrowserDefault();
@@ -42,7 +43,7 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
 		document.body.dataset.theme = theme;
 		document.body.classList.remove(theme === Light ? Dark : Light);
 		document.body.classList.add(theme);
-		localStorage.setItem(StorageKey, theme);
+		safeLocal.set(StorageKey, theme);
 	}, [theme]);
 
 	const toggleTheme = () => {

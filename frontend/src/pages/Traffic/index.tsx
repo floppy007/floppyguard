@@ -5,37 +5,10 @@ import type { BandwidthRange, PeerBandwidth } from "src/api/backend";
 import { DonutGauge, PeerSparkline } from "src/components";
 import { useWireGuardBandwidth, useWireGuardStatus } from "src/hooks";
 import { intl } from "src/locale/IntlProvider";
-import { currentRates, PEER_COLORS, peerColorMap, sortByVolume } from "./bandwidth";
-
-// ─── Formatters ────────────────────────────────────────────────────────────
-
-const byteFmt = (bytes: number) => {
-	if (bytes === 0) return "0 B";
-	if (bytes < 1024) return `${bytes} B`;
-	const units = ["KB", "MB", "GB", "TB"];
-	let v = bytes;
-	let i = -1;
-	do {
-		v /= 1024;
-		i++;
-	} while (v >= 1024 && i < units.length - 1);
-	return `${v < 10 ? v.toFixed(2) : v < 100 ? v.toFixed(1) : Math.round(v)} ${units[i]}`;
-};
-
-const rateFmt = (bytesPerSec: number) => {
-	if (bytesPerSec < 1024) return `${bytesPerSec} B/s`;
-	if (bytesPerSec < 1024 * 1024) return `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
-	return `${(bytesPerSec / 1024 / 1024).toFixed(2)} MB/s`;
-};
-
-const timeAgo = (ts: number) => {
-	if (!ts) return "—";
-	const s = Math.floor(Date.now() / 1000) - ts;
-	if (s < 60) return `${s}s`;
-	if (s < 3600) return `${Math.floor(s / 60)}m`;
-	if (s < 86400) return `${Math.floor(s / 3600)}h`;
-	return `${Math.floor(s / 86400)}d`;
-};
+import { relativeTime } from "src/modules/relativeTime";
+import { getLinkTypeBadge } from "src/pages/WireGuard/linkLabels";
+import { byteFmt, rateFmt } from "src/pages/WireGuard/topology";
+import { currentRates, isLinkActive, PEER_COLORS, peerColorMap, sortByVolume } from "./bandwidth";
 
 // ─── XY Line Chart ─────────────────────────────────────────────────────────
 
@@ -219,11 +192,10 @@ const Traffic = () => {
 	const { data: wg } = useWireGuardStatus();
 
 	const links = wg?.links ?? [];
+	const now = Date.now() / 1000;
 	const totalRx = links.reduce((s, l) => s + (l.rxBytes || 0), 0);
 	const totalTx = links.reduce((s, l) => s + (l.txBytes || 0), 0);
-	const activeLinks = links.filter(
-		(l) => l.active && l.latestHandshake > 0 && Date.now() / 1000 - l.latestHandshake < 180,
-	).length;
+	const activeLinks = links.filter((l) => isLinkActive(l, now)).length;
 
 	const { rx: currentRxRate, tx: currentTxRate } = currentRates(liveBw);
 
@@ -375,7 +347,7 @@ const Traffic = () => {
 										{rateFmt(currentRxRate + currentTxRate)}
 									</div>
 									<div className="text-secondary" style={{ fontSize: "0.72rem" }}>
-										{bw.length} {intl.formatMessage({ id: "traffic.peers" })}
+										{liveBw.length} {intl.formatMessage({ id: "traffic.peers" })}
 									</div>
 								</div>
 							</div>
@@ -510,10 +482,8 @@ const Traffic = () => {
 							{[...links]
 								.sort((a, b) => b.rxBytes + b.txBytes - (a.rxBytes + a.txBytes))
 								.map((link) => {
-									const isActive =
-										link.active &&
-										link.latestHandshake > 0 &&
-										Date.now() / 1000 - link.latestHandshake < 180;
+									const isActive = isLinkActive(link, now);
+									const typeBadge = getLinkTypeBadge(link);
 									const peerBw = bwMap.get(link.id);
 									const sparkData = peerBw?.history.map((s) => s.rx + s.tx) || [];
 									const color = isActive
@@ -544,18 +514,8 @@ const Traffic = () => {
 												</div>
 											</td>
 											<td>
-												<span
-													className={`badge ${
-														link.type === "client"
-															? "bg-green-lt text-green"
-															: link.type === "site-to-site"
-																? "bg-blue-lt text-blue"
-																: link.type === "hub-link"
-																	? "bg-cyan-lt text-cyan"
-																	: "bg-secondary-lt text-secondary"
-													}`}
-												>
-													{link.type || "—"}
+												<span className={`badge ${typeBadge.className}`}>
+													{intl.formatMessage({ id: typeBadge.labelId })}
 												</span>
 											</td>
 											<td>
@@ -564,7 +524,7 @@ const Traffic = () => {
 											<td className="text-end font-monospace">{byteFmt(link.rxBytes)}</td>
 											<td className="text-end font-monospace">{byteFmt(link.txBytes)}</td>
 											<td className="text-secondary">
-												{link.latestHandshake ? timeAgo(link.latestHandshake) : "—"}
+												{link.latestHandshake ? relativeTime(link.latestHandshake) : "—"}
 											</td>
 											<td>
 												{isActive ? (

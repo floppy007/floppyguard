@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import https from "node:https";
+import net from "node:net";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ProxyAgent } from "proxy-agent";
@@ -15,8 +16,27 @@ const CLOUDFRONT_URL = "https://ip-ranges.amazonaws.com/ip-ranges.json";
 const CLOUDFARE_V4_URL = "https://www.cloudflare.com/ips-v4";
 const CLOUDFARE_V6_URL = "https://www.cloudflare.com/ips-v6";
 
-const regIpV4 = /^(\d+\.?){4}\/\d+/;
-const regIpV6 = /^(([\da-fA-F]+)?:)+\/\d+/;
+const regIpV4Cidr = /^(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\/(?:[0-9]|[12]\d|3[0-2])$/;
+const regIpV6Chars = /^[0-9a-fA-F:.]+$/; // net.isIPv6 accepts "%zone" - exclude it
+
+/** Strict CIDR check: the value is rendered verbatim into a root-loaded nginx conf. */
+const isCidr = (value) => {
+	if (typeof value !== "string") return false;
+	const v = value.trim();
+	if (regIpV4Cidr.test(v)) return true;
+	const idx = v.indexOf("/");
+	if (idx === -1) return false;
+	const addr = v.slice(0, idx);
+	const prefix = v.slice(idx + 1);
+	return regIpV6Chars.test(addr) && net.isIPv6(addr) && /^\d{1,3}$/.test(prefix) && Number(prefix) <= 128;
+};
+
+const keepValid = (candidates, source) =>
+	candidates.filter((c) => {
+		if (isCidr(c)) return true;
+		if (c) logger.warn(`Ignoring invalid IP range from ${source}: ${JSON.stringify(String(c)).slice(0, 80)}`);
+		return false;
+	});
 
 const FETCH_TIMEOUT_MS = 15000;
 
@@ -37,6 +57,11 @@ const internalIpRanges = {
 			logger.info(`Fetching ${url}`);
 			const req = https
 				.get(url, { agent }, (res) => {
+					if (res.statusCode < 200 || res.statusCode >= 300) {
+						res.resume();
+						reject(new Error(`Fetching ${url} failed: HTTP ${res.statusCode}`));
+						return;
+					}
 					res.setEncoding("utf8");
 					let raw_data = "";
 					res.on("data", (chunk) => {
@@ -74,46 +99,44 @@ const internalIpRanges = {
 				.then((cloudfront_data) => {
 					const data = JSON.parse(cloudfront_data);
 
-					if (data && typeof data.prefixes !== "undefined") {
-						data.prefixes.map((item) => {
-							if (item.service === "CLOUDFRONT") {
-								ip_ranges.push(item.ip_prefix);
-							}
-							return true;
-						});
-					}
-
-					if (data && typeof data.ipv6_prefixes !== "undefined") {
-						data.ipv6_prefixes.map((item) => {
-							if (item.service === "CLOUDFRONT") {
-								ip_ranges.push(item.ipv6_prefix);
-							}
-							return true;
-						});
-					}
+					const isCloudFront = (item) => item?.service === "CLOUDFRONT";
+					const v4Candidates = Array.isArray(data?.prefixes)
+						? data.prefixes.filter(isCloudFront).map((item) => item.ip_prefix)
+						: [];
+					const v6Candidates = Array.isArray(data?.ipv6_prefixes)
+						? data.ipv6_prefixes.filter(isCloudFront).map((item) => item.ipv6_prefix)
+						: [];
+					ip_ranges.push(...keepValid(v4Candidates, CLOUDFRONT_URL));
+					ip_ranges.push(...keepValid(v6Candidates, CLOUDFRONT_URL));
 				})
 				.then(() => {
 					return internalIpRanges.fetchUrl(CLOUDFARE_V4_URL);
 				})
 				.then((cloudfare_data) => {
-					const items = cloudfare_data.split("\n").filter((line) => regIpV4.test(line));
+					const items = keepValid(
+						cloudfare_data.split("\n").map((l) => l.trim()),
+						CLOUDFARE_V4_URL,
+					);
+					// An error/captive-portal body yields no matches: keep the previous conf
+					if (!items.length) throw new Error(`No IPv4 ranges found in ${CLOUDFARE_V4_URL}`);
 					ip_ranges = [...ip_ranges, ...items];
 				})
 				.then(() => {
 					return internalIpRanges.fetchUrl(CLOUDFARE_V6_URL);
 				})
 				.then((cloudfare_data) => {
-					const items = cloudfare_data.split("\n").filter((line) => regIpV6.test(line));
+					const items = keepValid(
+						cloudfare_data.split("\n").map((l) => l.trim()),
+						CLOUDFARE_V6_URL,
+					);
+					if (!items.length) throw new Error(`No IPv6 ranges found in ${CLOUDFARE_V6_URL}`);
 					ip_ranges = [...ip_ranges, ...items];
 				})
 				.then(() => {
-					const clean_ip_ranges = [];
-					ip_ranges.map((range) => {
-						if (range) {
-							clean_ip_ranges.push(range);
-						}
-						return true;
-					});
+					const clean_ip_ranges = ip_ranges.filter(isCidr);
+					if (!clean_ip_ranges.length) {
+						throw new Error("No valid IP ranges fetched; keeping previous ip_ranges.conf");
+					}
 
 					return internalIpRanges.generateConfig(clean_ip_ranges).then((changed) => {
 						// Only reload when the ranges actually changed: every reload

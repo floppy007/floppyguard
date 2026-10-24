@@ -9,7 +9,7 @@ import type {
 	AgentIngressRule,
 	AgentIngressRuleData,
 } from "src/api/backend";
-import { formatPorts, parsePorts, splitList, ti } from "./utils";
+import { formatPorts, parsePorts, splitList, ti, toUnixSeconds } from "./utils";
 
 // Pure helpers around the ingress catalog: names for CIDRs, whole entries back
 // from CIDR lists, rule sentences, grouping, port presets and the wizard rule
@@ -58,7 +58,7 @@ export const cidrContains = (outer: string, inner: string): boolean => {
 	const i = parseCidr(inner);
 	if (!o || !i || i.bits < o.bits) return false;
 	const mask = o.bits === 0 ? 0 : (0xffffffff << (32 - o.bits)) >>> 0;
-	return ((i.net & mask) >>> 0) === o.net;
+	return (i.net & mask) >>> 0 === o.net;
 };
 
 /** "10.3.10.25/32" → "10.3.10.25"; networks stay CIDRs. */
@@ -71,9 +71,6 @@ export const shortCidr = (cidr: string): string => {
 
 export const flatEntries = (catalog: AgentIngressCatalog | undefined | null): AgentIngressCatalogEntry[] =>
 	catalog ? [...(catalog.sources ?? []), ...(catalog.destinations ?? [])] : [];
-
-export const entryById = (catalog: AgentIngressCatalog | undefined | null): Map<string, AgentIngressCatalogEntry> =>
-	new Map(flatEntries(catalog).map((e) => [e.id, e]));
 
 /** The hub source entry (hub tunnel address), if any. */
 export const hubEntryOf = (catalog: AgentIngressCatalog | undefined | null) =>
@@ -466,14 +463,6 @@ export const targetsFromValue = (
 	];
 };
 
-const toSec = (v: number | string | null | undefined): number => {
-	if (v === null || v === undefined || v === "") return 0;
-	if (typeof v === "number") return v > 1e12 ? Math.floor(v / 1000) : v;
-	if (/^\d+$/.test(v)) return toSec(Number(v));
-	const ms = Date.parse(v);
-	return Number.isNaN(ms) ? 0 : Math.floor(ms / 1000);
-};
-
 /**
  * Prune candidates the UI may switch off: only enabled rules that still exist;
  * in restricted mode at least one enabled rule always stays (the newest one —
@@ -489,7 +478,7 @@ export const pruneSelection = (
 	if (mode !== "restricted" || !list.length || list.length < enabled.length) return list;
 	const ref = (id: number) => {
 		const r = enabled.find((x) => x.id === id);
-		return r ? Math.max(r.lastHitAt ?? 0, toSec(r.createdOn), r.armedOn ?? 0) : 0;
+		return r ? Math.max(r.lastHitAt ?? 0, toUnixSeconds(r.createdOn) ?? 0, r.armedOn ?? 0) : 0;
 	};
 	let newest = 0;
 	list.forEach((c, i) => {

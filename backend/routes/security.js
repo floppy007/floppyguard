@@ -108,7 +108,16 @@ router
 			const { jail, ip } = req.params;
 			if (!/^[\w-]+$/.test(jail)) return next(new error.ValidationError("Invalid jail name"));
 			if (!/^[\d.:a-fA-F/]+$/.test(ip)) return next(new error.ValidationError("Invalid IP address"));
-			await f2b("set", jail, "unbanip", ip);
+			// fail2ban-client prints the number of unbanned IPs ("1"), "0" if the IP is not
+			// banned, and fails (-> null) when the daemon is down or the jail is unknown.
+			// Both error paths answer 400, so auditOnSuccess writes no "deleted" entry.
+			const out = await f2b("set", jail, "unbanip", ip);
+			if (out === null) {
+				return next(new error.ConfigurationError("fail2ban not available or unknown jail"));
+			}
+			if (!/^[1-9]\d*$/.test(out)) {
+				return next(new error.ValidationError(`${ip} is not banned in jail ${jail}`));
+			}
 			res.status(200).send({ unbanned: true, jail, ip });
 		} catch (err) {
 			debug(logger, `${req.method} ${req.path}: ${err}`);

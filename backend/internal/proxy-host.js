@@ -35,24 +35,8 @@ const internalProxyHost = {
 			.can("proxy_hosts:create", thisData)
 			.then(() => internalNginx.assertSafeHostFields("proxy_host", thisData))
 			.then(() => internalHost.assertCertificateAccess(access, thisData.certificate_id))
-			.then(() => {
-				// Get a list of the domain names and check each of them against existing records
-				const domain_name_check_promises = [];
-
-				thisData.domain_names.map((domain_name) => {
-					domain_name_check_promises.push(internalHost.isHostnameTaken(domain_name));
-					return true;
-				});
-
-				return Promise.all(domain_name_check_promises).then((check_results) => {
-					check_results.map((result) => {
-						if (result.is_taken) {
-							throw new errs.ValidationError(`${result.hostname} is already in use`);
-						}
-						return true;
-					});
-				});
-			})
+			.then(() => internalHost.assertAccessListAccess(access, thisData.access_list_id))
+			.then(() => internalHost.assertHostnamesFree(thisData.domain_names))
 			.then(() => {
 				// At this point the domains should have been checked
 				thisData.owner_user_id = access.token.getUserId(1);
@@ -71,11 +55,8 @@ const internalProxyHost = {
 					return internalCertificate
 						.createQuickCertificate(access, thisData)
 						.then((cert) => {
-							// update host with cert id
-							return internalProxyHost.update(access, {
-								id: row.id,
-								certificate_id: cert.id,
-							});
+							// link the new cert; the single re-fetch/configure below picks it up
+							return proxyHostModel.query().where({ id: row.id }).patch({ certificate_id: cert.id });
 						})
 						.then(() => {
 							return row;
@@ -91,9 +72,12 @@ const internalProxyHost = {
 				});
 			})
 			.then((row) => {
-				// Configure nginx
-				return internalNginx.configure(proxyHostModel, "proxy_host", row).then(async () => {
-					return cloudflareDns.syncProxyHost(row, await cloudflareDns.resolveActor(access));
+				// Configure nginx; carry its nginx_online/nginx_err meta into the
+				// Cloudflare sync so the sync's patch does not overwrite it (mirrors update()).
+				return internalNginx.configure(proxyHostModel, "proxy_host", row).then(async (new_meta) => {
+					row.meta = new_meta;
+					const actor = await cloudflareDns.resolveActor(access);
+					return cloudflareDns.syncProxyHost(row, actor);
 				});
 			})
 			.then((row) => {
@@ -131,27 +115,7 @@ const internalProxyHost = {
 		return access
 			.can("proxy_hosts:update", thisData.id)
 			.then(() => internalNginx.assertSafeHostFields("proxy_host", thisData))
-			.then((/*access_data*/) => {
-				// Get a list of the domain names and check each of them against existing records
-				const domain_name_check_promises = [];
-
-				if (typeof thisData.domain_names !== "undefined") {
-					thisData.domain_names.map((domain_name) => {
-						return domain_name_check_promises.push(
-							internalHost.isHostnameTaken(domain_name, "proxy", thisData.id),
-						);
-					});
-
-					return Promise.all(domain_name_check_promises).then((check_results) => {
-						check_results.map((result) => {
-							if (result.is_taken) {
-								throw new errs.ValidationError(`${result.hostname} is already in use`);
-							}
-							return true;
-						});
-					});
-				}
-			})
+			.then(() => internalHost.assertHostnamesFree(thisData.domain_names, "proxy", thisData.id))
 			.then(() => {
 				return internalProxyHost.get(access, { id: thisData.id });
 			})
@@ -181,10 +145,14 @@ const internalProxyHost = {
 							return row;
 						});
 				}
+				const checks = [];
 				if (thisData.certificate_id !== undefined && thisData.certificate_id !== row.certificate_id) {
-					return internalHost.assertCertificateAccess(access, thisData.certificate_id).then(() => row);
+					checks.push(internalHost.assertCertificateAccess(access, thisData.certificate_id));
 				}
-				return row;
+				if (thisData.access_list_id !== undefined && thisData.access_list_id !== row.access_list_id) {
+					checks.push(internalHost.assertAccessListAccess(access, thisData.access_list_id));
+				}
+				return Promise.all(checks).then(() => row);
 			})
 			.then((row) => {
 				// Add domain_names to the data in case it isn't there, so that the audit log renders correctly. The order is important here.
@@ -202,20 +170,15 @@ const internalProxyHost = {
 					.query()
 					.where({ id: thisData.id })
 					.patch(thisData)
-					.then(utils.omitRow(omissions()))
-					.then((saved_row) => {
+					.then(() =>
 						// Add to audit log
-						return internalAuditLog
-							.add(access, {
-								action: "updated",
-								object_type: "proxy-host",
-								object_id: row.id,
-								meta: thisData,
-							})
-							.then(() => {
-								return saved_row;
-							});
-					});
+						internalAuditLog.add(access, {
+							action: "updated",
+							object_type: "proxy-host",
+							object_id: row.id,
+							meta: thisData,
+						}),
+					);
 			})
 			.then(() => {
 				return internalProxyHost
@@ -274,7 +237,7 @@ const internalProxyHost = {
 				if (!row?.id) {
 					throw new errs.ItemNotFoundError(thisData.id);
 				}
-				const thisRow = internalHost.cleanRowCertificateMeta(row);
+				const thisRow = internalHost.cleanRowAccessListPasswords(internalHost.cleanRowCertificateMeta(row));
 				// Custom omissions
 				if (typeof thisData.omit !== "undefined" && thisData.omit !== null) {
 					return _.omit(row, thisData.omit);
@@ -341,7 +304,7 @@ const internalProxyHost = {
 			.then(() => {
 				return internalProxyHost.get(access, {
 					id: data.id,
-					expand: ["certificate", "owner", "access_list"],
+					expand: ["certificate", "owner", "access_list.[clients,items]"],
 				});
 			})
 			.then((row) => {
@@ -463,6 +426,7 @@ const internalProxyHost = {
 		}
 
 		const rows = await query.then(utils.omitRows(omissions()));
+		for (const row of rows) internalHost.cleanRowAccessListPasswords(row);
 		if (typeof expand !== "undefined" && expand !== null && expand.indexOf("certificate") !== -1) {
 			return internalHost.cleanAllRowsCertificateMeta(rows);
 		}

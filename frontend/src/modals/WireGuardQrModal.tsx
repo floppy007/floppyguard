@@ -25,15 +25,25 @@ const WireGuardQrModal = EasyModal.create(({ linkId, linkName, onGenerated, visi
 
 	useEffect(() => {
 		if (!visible) return;
+		let cancelled = false;
 		let objectUrl: string | null = null;
 		getWireGuardLinkConfigQr(linkId)
 			.then((url) => {
+				// The server has already rotated the key pair at this point, so the
+				// caller must refresh even if the dialog was dismissed meanwhile.
+				onGeneratedRef.current?.();
+				if (cancelled) {
+					URL.revokeObjectURL(url);
+					return;
+				}
 				objectUrl = url;
 				setQrUrl(url);
-				onGeneratedRef.current?.();
 			})
-			.catch((e) => setError(e.message ?? "Failed to load QR code"));
+			.catch((e) => {
+				if (!cancelled) setError(e.message ?? "Failed to load QR code");
+			});
 		return () => {
+			cancelled = true;
 			if (objectUrl) URL.revokeObjectURL(objectUrl);
 		};
 	}, [linkId, visible]);

@@ -5,7 +5,13 @@ import { Field, Form, Formik } from "formik";
 import { type ReactNode, useState } from "react";
 import { Alert } from "react-bootstrap";
 import Modal from "react-bootstrap/Modal";
-import { type Certificate, createCertificate, uploadCertificate, validateCertificate } from "src/api/backend";
+import {
+	type Certificate,
+	createCertificate,
+	deleteCertificate,
+	uploadCertificate,
+	validateCertificate,
+} from "src/api/backend";
 import { Button } from "src/components";
 import { T } from "src/locale";
 import { validateString } from "src/modules/Validations";
@@ -41,8 +47,14 @@ const CustomCertificateModal = EasyModal.create(({ visible, remove }: InnerModal
 			// Create certificate, as other without anything else
 			const cert = await createCertificate({ niceName, provider } as Certificate);
 
-			// Upload the certificates to the created certificate
-			await uploadCertificate(cert.id, formData);
+			// Upload the certificates to the created certificate; on failure remove the
+			// file-less row again so it does not linger as a selectable orphan.
+			try {
+				await uploadCertificate(cert.id, formData);
+			} catch (uploadErr) {
+				await deleteCertificate(cert.id).catch(() => undefined);
+				throw uploadErr;
+			}
 
 			// Success
 			showObjectSuccess("certificate", "saved");
@@ -208,14 +220,13 @@ const CustomCertificateModal = EasyModal.create(({ visible, remove }: InnerModal
 							</div>
 						</Modal.Body>
 						<Modal.Footer>
-							<Button data-bs-dismiss="modal" onClick={remove} disabled={isSubmitting}>
+							<Button onClick={remove} disabled={isSubmitting}>
 								<T id="cancel" />
 							</Button>
 							<Button
 								type="submit"
 								actionType="primary"
 								className="ms-auto bg-pink"
-								data-bs-dismiss="modal"
 								isLoading={isSubmitting}
 								disabled={isSubmitting}
 							>

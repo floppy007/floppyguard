@@ -15,8 +15,14 @@ export default () => {
 			// auditlog-list permission (requires admin role).
 			await access.can("auditlog:list");
 			next();
-		} catch (_err) {
-			next(new errs.PermissionError("Admin access required"));
+		} catch (err) {
+			// 401s (invalid or revoked token) pass through so the client logs out
+			// instead of seeing a misleading 403.
+			next(
+				err instanceof errs.UnauthorizedError || err instanceof errs.TokenRevokedError
+					? err
+					: new errs.PermissionError("Admin access required"),
+			);
 		}
 	};
 };

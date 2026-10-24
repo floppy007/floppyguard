@@ -15,13 +15,16 @@ import {
 import cn from "classnames";
 import React, { useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { HasPermission, NavLink } from "src/components";
+import type { UserPermissions } from "src/api/backend";
+import { NavLink } from "src/components";
+import { useUser } from "src/hooks";
 import { T } from "src/locale";
 import {
 	ACCESS_LISTS,
 	ADMIN,
 	CERTIFICATES,
 	DEAD_HOSTS,
+	hasPermission,
 	type MANAGE,
 	PROXY_HOSTS,
 	REDIRECTION_HOSTS,
@@ -137,7 +140,6 @@ const menuItems: MenuItem[] = [
 	{
 		icon: IconSettings,
 		label: "settings",
-		permissionSection: ADMIN,
 		items: [
 			{
 				to: "/access",
@@ -189,6 +191,21 @@ const pathMatches = (currentPath: string, targetPath?: string) => {
 const hasActiveChild = (currentPath: string, item: MenuItem) =>
 	Boolean(item.items?.some((subitem) => pathMatches(currentPath, subitem.to)));
 
+const isVisible = (item: MenuItem, perms: UserPermissions | undefined, roles: string[] | undefined) =>
+	!item.permissionSection || hasPermission(item.permissionSection, item.permission || VIEW, perms, roles);
+
+// Drop entries the current user may not see, and dropdown groups left without any
+// visible sub-item, so an empty "Settings"/"Hosts" toggle is never rendered.
+export const filterMenu = (
+	items: MenuItem[],
+	perms: UserPermissions | undefined,
+	roles: string[] | undefined,
+): MenuItem[] =>
+	items
+		.filter((item) => isVisible(item, perms, roles))
+		.map((item) => (item.items ? { ...item, items: filterMenu(item.items, perms, roles) } : item))
+		.filter((item) => !item.items || item.items.length > 0);
+
 const getMenuItem = (
 	item: MenuItem,
 	currentPath: string,
@@ -204,29 +221,22 @@ const getMenuItem = (
 	const isActive = pathMatches(currentPath, item.to);
 
 	return (
-		<HasPermission
-			key={`item-${item.label}`}
-			section={item.permissionSection}
-			permission={item.permission || VIEW}
-			hideError
-		>
-			<li className={cn("nav-item", styles.item)}>
-				<NavLink
-					to={item.to}
-					onClick={onClick}
-					className={cn("nav-link", styles.itemLink, {
-						[styles.itemActive]: isActive,
-					})}
-				>
-					<span className={styles.icon}>{renderIcon(item)}</span>
-					{!item.iconOnly && (
-						<span className="nav-link-title">
-							<T id={item.label} />
-						</span>
-					)}
-				</NavLink>
-			</li>
-		</HasPermission>
+		<li key={`item-${item.label}`} className={cn("nav-item", styles.item)}>
+			<NavLink
+				to={item.to}
+				onClick={onClick}
+				className={cn("nav-link", styles.itemLink, {
+					[styles.itemActive]: isActive,
+				})}
+			>
+				<span className={styles.icon}>{renderIcon(item)}</span>
+				{!item.iconOnly && (
+					<span className="nav-link-title">
+						<T id={item.label} />
+					</span>
+				)}
+			</NavLink>
+		</li>
 	);
 };
 
@@ -242,79 +252,66 @@ const getMenuDropown = (
 	const isActive = hasActiveChild(currentPath, item);
 	const isOpen = openDropdownLabel === item.label;
 	return (
-		<HasPermission
-			key={`item-${item.label}`}
-			section={item.permissionSection}
-			permission={item.permission || VIEW}
-			hideError
-		>
-			<li className={cn(cns, styles.item)}>
-				<button
-					type="button"
-					className={cn("nav-link", styles.dropdownToggle, styles.itemLink, {
-						[styles.itemActive]: isActive,
-						[styles.itemOpen]: isOpen,
+		<li key={`item-${item.label}`} className={cn(cns, styles.item)}>
+			<button
+				type="button"
+				className={cn("nav-link", styles.dropdownToggle, styles.itemLink, {
+					[styles.itemActive]: isActive,
+					[styles.itemOpen]: isOpen,
+				})}
+				aria-expanded={isOpen ? "true" : "false"}
+				onClick={() => {
+					if (onToggleDropdown) {
+						onToggleDropdown(item.label);
+					}
+				}}
+			>
+				<span className={styles.icon}>{renderIcon(item)}</span>
+				<span className="nav-link-title">
+					<T id={item.label} />
+				</span>
+			</button>
+			<div
+				className={cn(styles.dropdownPanel, {
+					[styles.dropdownPanelOpen]: isOpen,
+				})}
+			>
+				<div className={styles.dropdownList}>
+					{item.items?.map((subitem, idx) => {
+						const subitemActive = pathMatches(currentPath, subitem.to);
+						const SubitemIcon = getSubitemIcon(subitem.label);
+						return (
+							<NavLink
+								key={`${idx}-${subitem.to}`}
+								to={subitem.to}
+								isDropdownItem
+								onClick={() => {
+									if (onCloseDropdown) {
+										onCloseDropdown();
+									}
+									if (onClick) {
+										onClick();
+									}
+								}}
+								className={cn("dropdown-item", styles.dropdownItem, {
+									active: subitemActive,
+								})}
+							>
+								<span className={styles.dropdownItemIcon}>
+									<SubitemIcon size={16} />
+								</span>
+								<span className={styles.dropdownItemLabel}>
+									<T id={subitem.label} />
+								</span>
+								<span className={styles.dropdownItemArrow}>
+									<IconChevronRight size={15} />
+								</span>
+							</NavLink>
+						);
 					})}
-					aria-expanded={isOpen ? "true" : "false"}
-					onClick={() => {
-						if (onToggleDropdown) {
-							onToggleDropdown(item.label);
-						}
-					}}
-				>
-					<span className={styles.icon}>{renderIcon(item)}</span>
-					<span className="nav-link-title">
-						<T id={item.label} />
-					</span>
-				</button>
-				<div
-					className={cn(styles.dropdownPanel, {
-						[styles.dropdownPanelOpen]: isOpen,
-					})}
-				>
-					<div className={styles.dropdownList}>
-						{item.items?.map((subitem, idx) => {
-							const subitemActive = pathMatches(currentPath, subitem.to);
-							const SubitemIcon = getSubitemIcon(subitem.label);
-							return (
-								<HasPermission
-									key={`${idx}-${subitem.to}`}
-									section={subitem.permissionSection}
-									permission={subitem.permission || VIEW}
-									hideError
-								>
-									<NavLink
-										to={subitem.to}
-										isDropdownItem
-										onClick={() => {
-											if (onCloseDropdown) {
-												onCloseDropdown();
-											}
-											if (onClick) {
-												onClick();
-											}
-										}}
-										className={cn("dropdown-item", styles.dropdownItem, {
-											active: subitemActive,
-										})}
-									>
-										<span className={styles.dropdownItemIcon}>
-											<SubitemIcon size={16} />
-										</span>
-										<span className={styles.dropdownItemLabel}>
-											<T id={subitem.label} />
-										</span>
-										<span className={styles.dropdownItemArrow}>
-											<IconChevronRight size={15} />
-										</span>
-									</NavLink>
-								</HasPermission>
-							);
-						})}
-					</div>
 				</div>
-			</li>
-		</HasPermission>
+			</div>
+		</li>
 	);
 };
 
@@ -324,12 +321,9 @@ interface SiteMenuProps {
 
 export function SiteMenu({ className }: SiteMenuProps) {
 	const location = useLocation();
+	const { data: me } = useUser("me");
 	const [openDropdownLabel, setOpenDropdownLabel] = useState<string | null>(null);
 	const menuRef = useRef<HTMLDivElement | null>(null);
-
-	useEffect(() => {
-		setOpenDropdownLabel(null);
-	}, []);
 
 	useEffect(() => {
 		const handlePointerDown = (event: MouseEvent) => {
@@ -357,17 +351,16 @@ export function SiteMenu({ className }: SiteMenuProps) {
 		<div ref={menuRef} className={cn("collapse", "navbar-collapse", styles.menu, className)} id="navbar-menu">
 			<div className={styles.menuInner}>
 				<ul className={cn("navbar-nav", styles.nav)}>
-					{menuItems.length > 0 &&
-						menuItems.map((item) => {
-							return getMenuItem(
-								item,
-								location.pathname,
-								closeMenu,
-								openDropdownLabel,
-								(label) => setOpenDropdownLabel((current) => (current === label ? null : label)),
-								() => setOpenDropdownLabel(null),
-							);
-						})}
+					{filterMenu(menuItems, me?.permissions, me?.roles).map((item) => {
+						return getMenuItem(
+							item,
+							location.pathname,
+							closeMenu,
+							openDropdownLabel,
+							(label) => setOpenDropdownLabel((current) => (current === label ? null : label)),
+							() => setOpenDropdownLabel(null),
+						);
+					})}
 				</ul>
 			</div>
 		</div>

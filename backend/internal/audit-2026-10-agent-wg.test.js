@@ -333,6 +333,28 @@ describe("certificate renewal safety", async () => {
 
 describe("remote version fetch", async () => {
 	const { default: rv } = await import("./remote-version.js");
+	it("shares one GitHub request between concurrent callers", async () => {
+		const orig = rv.fetchUrl;
+		let calls = 0;
+		rv.fetchUrl = () =>
+			new Promise((resolve) => {
+				calls++;
+				setTimeout(() => resolve(JSON.stringify({ tag_name: "v9.9.9" })), 20);
+			});
+		rv.last_result = null;
+		rv.last_error = null;
+		try {
+			const results = await Promise.all([rv.get(), rv.get(), rv.get()]);
+			assert.equal(calls, 1);
+			for (const r of results) assert.equal(r.latest, "v9.9.9");
+			assert.equal(rv.inflight, null);
+		} finally {
+			rv.fetchUrl = orig;
+			rv.last_result = null;
+			rv.last_error = null;
+			rv.last_fetch_time = null;
+		}
+	});
 	it("caches a failure instead of re-fetching on every call", async () => {
 		const orig = rv.fetchUrl;
 		let calls = 0;
@@ -359,6 +381,27 @@ describe("remote version fetch", async () => {
 			rv.last_error = null;
 		}
 	});
+	it("keeps serving the last known release when a refresh fails", async () => {
+		const orig = rv.fetchUrl;
+		let calls = 0;
+		rv.fetchUrl = async () => {
+			calls++;
+			throw new Error("rate limited");
+		};
+		rv.last_result = { tag_name: "v9.9.9" };
+		rv.last_fetch_time = Date.now() - rv.cache_timeout - 1;
+		rv.last_error = null;
+		try {
+			assert.equal((await rv.get()).latest, "v9.9.9");
+			assert.equal((await rv.get()).latest, "v9.9.9");
+			assert.equal(calls, 1);
+		} finally {
+			rv.fetchUrl = orig;
+			rv.last_result = null;
+			rv.last_error = null;
+			rv.last_fetch_time = null;
+		}
+	});
 });
 
 describe("Config/QR guard: untyped single-LAN peer is a site, not a client", () => {
@@ -368,7 +411,10 @@ describe("Config/QR guard: untyped single-LAN peer is a site, not a client", () 
 		assert.equal(classifyLinkType(allowedIps, "wg0"), "client");
 		const link = { id: "wg0:s", name: "UXG", interfaceName: "wg0", allowedIps, type: "client" };
 		await assert.rejects(() => assertPeerConfigAllowed(link, {}, { boundAgents: noAgents }), /ausdrücklichen/);
-		await assert.rejects(() => assertPeerConfigAllowed(link, undefined, { boundAgents: noAgents }), /ausdrücklichen/);
+		await assert.rejects(
+			() => assertPeerConfigAllowed(link, undefined, { boundAgents: noAgents }),
+			/ausdrücklichen/,
+		);
 	});
 	it("still allows an explicitly typed client even with a network in AllowedIPs", async () => {
 		const link = {
@@ -408,7 +454,12 @@ describe("Prüfung: proxy upstreams and link binding", () => {
 			enabled: 1,
 			advanced_config: "location /api { proxy_pass http://192.168.20.6:8123; }\nproxy_pass_header Server;",
 			locations: JSON.stringify([
-				{ path: "/x", forward_host: "10.3.10.13", forward_port: 81, advanced_config: "proxy_pass https://10.3.10.14;" },
+				{
+					path: "/x",
+					forward_host: "10.3.10.13",
+					forward_port: 81,
+					advanced_config: "proxy_pass https://10.3.10.14;",
+				},
 			]),
 		});
 		const hosts = ups.map((u) => `${u.host}:${u.port}`).sort();
@@ -422,12 +473,19 @@ describe("Prüfung: proxy upstreams and link binding", () => {
 		);
 		assert.deepEqual(sug.ports, [{ proto: "tcp", port: "10100" }]);
 		assert.deepEqual(sug.destinations, ["10.3.10.26/32"]);
-		const udp = upstreamSuggestion({ kind: "stream", label: "s", host: "10.3.10.5", port: 53, proto: "udp" }, ["x"]);
+		const udp = upstreamSuggestion({ kind: "stream", label: "s", host: "10.3.10.5", port: 53, proto: "udp" }, [
+			"x",
+		]);
 		assert.deepEqual(udp.ports, [{ proto: "udp", port: "53" }]);
 	});
 	it("binds by the effective status link (generated name, AllowedIPs networks)", () => {
 		const statusLinks = [
-			{ id: "wg0:k", name: "site-to-site-abcdefgh", type: "site-to-site", importedNetworks: ["192.168.111.0/24"] },
+			{
+				id: "wg0:k",
+				name: "site-to-site-abcdefgh",
+				type: "site-to-site",
+				importedNetworks: ["192.168.111.0/24"],
+			},
 			{ id: "wg0:u", name: "Untyped", type: "client", typeExplicit: false, importedNetworks: ["192.168.5.0/24"] },
 			{ id: "wg0:c", name: "Phone", type: "client", typeExplicit: true, importedNetworks: [] },
 		];

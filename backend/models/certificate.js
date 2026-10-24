@@ -15,6 +15,13 @@ Model.knex(db());
 
 const boolFields = ["is_deleted"];
 
+/**
+ * Drops null/empty entries from a domain_names array.
+ * @param   {Array} names
+ * @returns {Array}
+ */
+export const cleanDomainNames = (names) => names.filter((name) => typeof name === "string" && name.trim() !== "");
+
 class Certificate extends Model {
 	$beforeInsert() {
 		this.created_on = now();
@@ -29,6 +36,7 @@ class Certificate extends Model {
 		if (typeof this.domain_names === "undefined") {
 			this.domain_names = [];
 		}
+		this.domain_names = cleanDomainNames(this.domain_names);
 
 		// Default for meta
 		if (typeof this.meta === "undefined") {
@@ -42,13 +50,19 @@ class Certificate extends Model {
 		this.modified_on = now();
 
 		// Sort domain_names
-		if (typeof this.domain_names !== "undefined") {
+		if (Array.isArray(this.domain_names)) {
+			this.domain_names = cleanDomainNames(this.domain_names);
 			this.domain_names.sort();
 		}
 	}
 
 	$parseDatabaseJson(json) {
 		const thisJson = super.$parseDatabaseJson(json);
+		// Custom certs uploaded while the OpenSSL 3 subject ("subject=CN=x") was not
+		// parsed got domain_names [null]; never hand null/empty names to the UI or nginx.
+		if (Array.isArray(thisJson.domain_names)) {
+			thisJson.domain_names = cleanDomainNames(thisJson.domain_names);
+		}
 		return convertIntFieldsToBool(thisJson, boolFields);
 	}
 

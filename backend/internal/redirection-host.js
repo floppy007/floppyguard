@@ -30,24 +30,7 @@ const internalRedirectionHost = {
 			.can("redirection_hosts:create", thisData)
 			.then(() => internalNginx.assertSafeHostFields("redirection_host", thisData))
 			.then(() => internalHost.assertCertificateAccess(access, thisData.certificate_id))
-			.then((/*access_data*/) => {
-				// Get a list of the domain names and check each of them against existing records
-				const domain_name_check_promises = [];
-
-				thisData.domain_names.map((domain_name) => {
-					domain_name_check_promises.push(internalHost.isHostnameTaken(domain_name));
-					return true;
-				});
-
-				return Promise.all(domain_name_check_promises).then((check_results) => {
-					check_results.map((result) => {
-						if (result.is_taken) {
-							throw new errs.ValidationError(`${result.hostname} is already in use`);
-						}
-						return true;
-					});
-				});
-			})
+			.then(() => internalHost.assertHostnamesFree(thisData.domain_names))
 			.then(() => {
 				// At this point the domains should have been checked
 				thisData.owner_user_id = access.token.getUserId(1);
@@ -55,8 +38,8 @@ const internalRedirectionHost = {
 
 				// Fix for db field not having a default value
 				// for this optional field.
-				if (typeof data.advanced_config === "undefined") {
-					data.advanced_config = "";
+				if (typeof thisData.advanced_config === "undefined") {
+					thisData.advanced_config = "";
 				}
 
 				return redirectionHostModel.query().insertAndFetch(thisData).then(utils.omitRow(omissions()));
@@ -66,11 +49,11 @@ const internalRedirectionHost = {
 					return internalCertificate
 						.createQuickCertificate(access, thisData)
 						.then((cert) => {
-							// update host with cert id
-							return internalRedirectionHost.update(access, {
-								id: row.id,
-								certificate_id: cert.id,
-							});
+							// link the new cert; the single re-fetch/configure below picks it up
+							return redirectionHostModel
+								.query()
+								.where({ id: row.id })
+								.patch({ certificate_id: cert.id });
 						})
 						.then(() => {
 							return row;
@@ -87,7 +70,8 @@ const internalRedirectionHost = {
 			})
 			.then((row) => {
 				// Configure nginx
-				return internalNginx.configure(redirectionHostModel, "redirection_host", row).then(() => {
+				return internalNginx.configure(redirectionHostModel, "redirection_host", row).then((new_meta) => {
+					row.meta = new_meta;
 					return row;
 				});
 			})
@@ -125,28 +109,7 @@ const internalRedirectionHost = {
 		return access
 			.can("redirection_hosts:update", thisData.id)
 			.then(() => internalNginx.assertSafeHostFields("redirection_host", thisData))
-			.then((/*access_data*/) => {
-				// Get a list of the domain names and check each of them against existing records
-				const domain_name_check_promises = [];
-
-				if (typeof thisData.domain_names !== "undefined") {
-					thisData.domain_names.map((domain_name) => {
-						domain_name_check_promises.push(
-							internalHost.isHostnameTaken(domain_name, "redirection", thisData.id),
-						);
-						return true;
-					});
-
-					return Promise.all(domain_name_check_promises).then((check_results) => {
-						check_results.map((result) => {
-							if (result.is_taken) {
-								throw new errs.ValidationError(`${result.hostname} is already in use`);
-							}
-							return true;
-						});
-					});
-				}
-			})
+			.then(() => internalHost.assertHostnamesFree(thisData.domain_names, "redirection", thisData.id))
 			.then(() => {
 				return internalRedirectionHost.get(access, { id: thisData.id });
 			})
@@ -193,19 +156,15 @@ const internalRedirectionHost = {
 					.query()
 					.where({ id: thisData.id })
 					.patch(thisData)
-					.then((saved_row) => {
+					.then(() =>
 						// Add to audit log
-						return internalAuditLog
-							.add(access, {
-								action: "updated",
-								object_type: "redirection-host",
-								object_id: row.id,
-								meta: thisData,
-							})
-							.then(() => {
-								return _.omit(saved_row, omissions());
-							});
-					});
+						internalAuditLog.add(access, {
+							action: "updated",
+							object_type: "redirection-host",
+							object_id: row.id,
+							meta: thisData,
+						}),
+					);
 			})
 			.then(() => {
 				return internalRedirectionHost

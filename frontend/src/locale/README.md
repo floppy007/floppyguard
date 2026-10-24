@@ -34,15 +34,19 @@ the new translations to be compiled into the `lang` folder.
 
 ## Adding a whole new language
 
+Only English, German and French are bundled; the other upstream languages were
+removed (git history still has them).
+
 There's a fair bit you'll need to touch. Here's a list that may
 not be complete by the time you're reading this:
 
 - frontend/src/locale/src/[yourlang].json
 - frontend/src/locale/src/lang-list.json
 - frontend/src/locale/src/HelpDoc/[yourlang]/*
-- frontend/src/locale/src/HelpDoc/index.tsx
+- frontend/src/locale/src/HelpDoc/index.ts
 - frontend/src/locale/IntlProvider.tsx
 - frontend/check-locales.cjs
+- frontend/src/components/Flag.tsx (FLAGS map)
 
 
 ## Checking for missing translations in languages

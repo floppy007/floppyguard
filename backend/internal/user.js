@@ -1,6 +1,7 @@
 import gravatar from "gravatar";
 import _ from "lodash";
 import errs from "../lib/error.js";
+import { withUserEmailLock } from "../lib/user-email-lock.js";
 import utils from "../lib/utils.js";
 import authModel from "../models/auth.js";
 import userModel from "../models/user.js";
@@ -52,6 +53,11 @@ const internalUser = {
 	create: async (access, data) => {
 		const auth = data.auth || null;
 		delete data.auth;
+		// Normalize like update(), login and the OIDC lookup do, so case-sensitive
+		// collations can't produce an unreachable or duplicate account
+		data.email = String(data.email || "")
+			.toLowerCase()
+			.trim();
 
 		data.avatar = data.avatar || "";
 		data.roles = data.roles || [];
@@ -63,9 +69,17 @@ const internalUser = {
 		await access.can("users:create", data);
 		data.avatar = gravatar.url(data.email, { default: "mm" });
 
-		let user = await userModel.query().insertAndFetch(data).then(utils.omitRow(omissions()));
+		// Check and insert under one lock: the user table has no unique index on email
+		const user = await withUserEmailLock(async () => {
+			if (!(await internalUser.isEmailAvailable(data.email))) {
+				throw new errs.ValidationError(`Email address already in use - ${data.email}`);
+			}
+			return userModel.query().insertAndFetch(data).then(utils.omitRow(omissions()));
+		});
 		if (auth) {
-			user = await authModel.query().insert({
+			// Must not overwrite `user`: the auth row id differs from the user id as soon as
+			// the auth table holds oidc rows or rows of deleted users
+			await authModel.query().insert({
 				user_id: user.id,
 				type: auth.type,
 				secret: auth.secret,
@@ -76,27 +90,18 @@ const internalUser = {
 		// Create permissions row as well
 		const isAdmin = data.roles.indexOf("admin") !== -1;
 
-		await userPermissionModel.query().insert({
-			user_id: user.id,
-			visibility: isAdmin ? "all" : "user",
-			proxy_hosts: "manage",
-			redirection_hosts: "manage",
-			dead_hosts: "manage",
-			streams: "manage",
-			access_lists: "manage",
-			certificates: "manage",
-		});
+		await userPermissionModel.insertDefaults(user.id, isAdmin);
 
-		user = await internalUser.get(access, { id: user.id, expand: ["permissions"] });
+		const created = await internalUser.get(access, { id: user.id, expand: ["permissions"] });
 
 		await internalAuditLog.add(access, {
 			action: "created",
 			object_type: "user",
-			object_id: user.id,
-			meta: user,
+			object_id: created.id,
+			meta: created,
 		});
 
-		return user;
+		return created;
 	},
 
 	/**
@@ -134,37 +139,29 @@ const internalUser = {
 					});
 			})
 			.then(() => {
-				// Make sure that the user being updated doesn't change their email to another user that is already using it
-				// 1. get user we want to update
-				return internalUser.get(access, { id: data.id }).then((user) => {
-					// 2. if email is to be changed, find other users with that email
+				// The e-mail check and the patch run under one lock: the user table has no
+				// unique index on email, so two concurrent writes could otherwise both pass
+				return withUserEmailLock(async () => {
+					// 1. get user we want to update
+					const user = await internalUser.get(access, { id: data.id });
+					// 2. if email is to be changed, make sure no other user is already using it
 					if (typeof data.email !== "undefined") {
 						data.email = data.email.toLowerCase().trim();
-
-						if (user.email !== data.email) {
-							return internalUser.isEmailAvailable(data.email, data.id).then((available) => {
-								if (!available) {
-									throw new errs.ValidationError(`Email address already in use - ${data.email}`);
-								}
-								return user;
-							});
+						if (user.email !== data.email && !(await internalUser.isEmailAvailable(data.email, data.id))) {
+							throw new errs.ValidationError(`Email address already in use - ${data.email}`);
 						}
 					}
 
-					// No change to email:
-					return user;
-				});
-			})
-			.then((user) => {
-				if (user.id !== data.id) {
-					// Sanity check that something crazy hasn't happened
-					throw new errs.InternalValidationError(
-						`User could not be updated, IDs do not match: ${user.id} !== ${data.id}`,
-					);
-				}
+					if (user.id !== data.id) {
+						// Sanity check that something crazy hasn't happened
+						throw new errs.InternalValidationError(
+							`User could not be updated, IDs do not match: ${user.id} !== ${data.id}`,
+						);
+					}
 
-				data.avatar = gravatar.url(data.email || user.email, { default: "mm" });
-				return userModel.query().patchAndFetchById(user.id, data).then(utils.omitRow(omissions()));
+					data.avatar = gravatar.url(data.email || user.email, { default: "mm" });
+					await userModel.query().where("id", user.id).patch(data);
+				});
 			})
 			.then(() => {
 				return internalUser.get(access, { id: data.id });
@@ -215,20 +212,19 @@ const internalUser = {
 
 				return query.then(utils.omitRow(omissions()));
 			})
-			.then((row) => {
+			.then(async (row) => {
 				if (!row?.id) {
 					throw new errs.ItemNotFoundError(thisData.id);
 				}
-				// Custom omissions
-				if (typeof thisData.omit !== "undefined" && thisData.omit !== null) {
-					return _.omit(row, thisData.omit);
-				}
-
 				if (row.avatar === "") {
 					row.avatar = DEFAULT_AVATAR;
 				}
-
-				return attachAuthSources(row);
+				const out = await attachAuthSources(row);
+				// Custom omissions
+				if (typeof thisData.omit !== "undefined" && thisData.omit !== null) {
+					return _.omit(out, thisData.omit);
+				}
+				return out;
 			});
 	},
 
@@ -295,43 +291,6 @@ const internalUser = {
 			});
 	},
 
-	deleteAll: async () => {
-		await userModel.query().patch({
-			is_deleted: 1,
-		});
-	},
-
-	/**
-	 * This will only count the users
-	 *
-	 * @param   {Access}  access
-	 * @param   {String}  [search_query]
-	 * @returns {*}
-	 */
-	getCount: (access, search_query) => {
-		return access
-			.can("users:list")
-			.then(() => {
-				const query = userModel.query().count("id as count").where("is_deleted", 0).first();
-
-				// Query is used for searching
-				if (typeof search_query === "string") {
-					query.where(function () {
-						this.where("user.name", "like", `%${search_query}%`).orWhere(
-							"user.email",
-							"like",
-							`%${search_query}%`,
-						);
-					});
-				}
-
-				return query;
-			})
-			.then((row) => {
-				return Number.parseInt(row.count, 10);
-			});
-	},
-
 	/**
 	 * All users
 	 *
@@ -365,21 +324,6 @@ const internalUser = {
 	},
 
 	/**
-	 * @param   {Access} access
-	 * @param   {Integer} [id_requested]
-	 * @returns {[String]}
-	 */
-	getUserOmisionsByAccess: (access, idRequested) => {
-		let response = []; // Admin response
-
-		if (!access.token.hasScope("admin") && access.token.getUserId(0) !== idRequested) {
-			response = ["is_deleted"]; // Restricted response
-		}
-
-		return response;
-	},
-
-	/**
 	 * @param  {Access}  access
 	 * @param  {Object}  data
 	 * @param  {Integer} data.id
@@ -407,12 +351,17 @@ const internalUser = {
 						throw new errs.ValidationError("Current password was not supplied");
 					}
 
-					return internalToken
-						.getTokenFromEmail({
-							identity: user.email,
-							secret: data.current,
-						})
-						.then(() => {
+					// Check the password row directly instead of running the whole login flow;
+					// same error for a wrong password and an account without one (SSO-only)
+					return authModel
+						.query()
+						.where("user_id", user.id)
+						.andWhere("type", "password")
+						.first()
+						.then(async (auth) => {
+							if (!auth || !(await auth.verifyPassword(data.current))) {
+								throw new errs.AuthError("Invalid email or password", "error.invalid-auth");
+							}
 							return user;
 						});
 				}
@@ -427,19 +376,29 @@ const internalUser = {
 					.andWhere("type", data.type)
 					.first()
 					.then((existing_auth) => {
+						// Tokens issued before this second stop working (lib/access.js assertTokenNotRevoked).
+						// Stamped from the app clock, the same one that writes a token's `iat`, rather than
+						// read off modified_on: the database clock/timezone can differ from Node's.
+						const password_changed_at = Math.floor(Date.now() / 1000);
+
 						if (existing_auth) {
 							// patch
-							return authModel.query().where("user_id", user.id).andWhere("type", data.type).patch({
-								type: data.type, // This is required for the model to encrypt on save
-								secret: data.secret,
-							});
+							return authModel
+								.query()
+								.where("user_id", user.id)
+								.andWhere("type", data.type)
+								.patch({
+									type: data.type, // This is required for the model to encrypt on save
+									secret: data.secret,
+									meta: { ...(existing_auth.meta || {}), password_changed_at },
+								});
 						}
 						// insert
 						return authModel.query().insert({
 							user_id: user.id,
 							type: data.type,
 							secret: data.secret,
-							meta: {},
+							meta: { password_changed_at },
 						});
 					})
 					.then(() => {
@@ -483,6 +442,8 @@ const internalUser = {
 				return user;
 			})
 			.then((user) => {
+				// `data.id` is the user id injected by the route; it must not reach the permission row
+				const perms = _.assign({ user_id: user.id }, _.omit(data, ["id"]));
 				// Get perms row, patch if it exists
 				return userPermissionModel
 					.query()
@@ -494,10 +455,10 @@ const internalUser = {
 							return userPermissionModel
 								.query()
 								.where("user_id", user.id)
-								.patchAndFetchById(existing_auth.id, _.assign({ user_id: user.id }, data));
+								.patchAndFetchById(existing_auth.id, perms);
 						}
 						// insert
-						return userPermissionModel.query().insertAndFetch(_.assign({ user_id: user.id }, data));
+						return userPermissionModel.query().insertAndFetch(perms);
 					})
 					.then((permissions) => {
 						// Add to Audit Log
@@ -525,10 +486,21 @@ const internalUser = {
 	loginAs: (access, data) => {
 		return access
 			.can("users:loginas", data.id)
-			.then(() => {
-				return internalUser.get(access, data);
-			})
-			.then((user) => {
+			.then(() => internalUser.get(access, data))
+			.then(async (user) => {
+				// get() hides deleted users but not disabled ones. A token for a disabled
+				// account is refused on its first request (401), and that 401 makes the SPA
+				// clear the whole token stack, logging the admin out as well.
+				if (user.is_disabled) {
+					throw new errs.ValidationError("Cannot log in as a disabled user");
+				}
+				// Admin impersonation: record who (access token user) signed in as whom
+				await internalAuditLog.add(access, {
+					action: "login-as",
+					object_type: "user",
+					object_id: user.id,
+					meta: { name: user.name, email: user.email },
+				});
 				return internalToken.getTokenFromUser(user);
 			});
 	},

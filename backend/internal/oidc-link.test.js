@@ -186,3 +186,16 @@ describe("ensureUser (DB path)", () => {
 		});
 	});
 });
+
+describe("ensureUser e-mail race", () => {
+	it("two concurrent first SSO logins with the same e-mail create exactly one account", async () => {
+		await withFakeDb({ users: [], auth: [] }, async ({ users }) => {
+			const [a, b] = await Promise.all([
+				internalOidc.ensureUser("race@x.de", { sub: "R1", email: "race@x.de" }),
+				internalOidc.ensureUser("race@x.de", { sub: "R1", email: "race@x.de" }),
+			]);
+			assert.equal(users.length, 1, "one account only");
+			assert.equal(a.id, b.id);
+		});
+	});
+});

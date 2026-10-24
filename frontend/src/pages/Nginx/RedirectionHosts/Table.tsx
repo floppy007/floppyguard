@@ -15,6 +15,8 @@ import { intl, T } from "src/locale";
 import { POPPER_FIXED } from "src/modules/Dropdown";
 import { MANAGE, REDIRECTION_HOSTS } from "src/modules/Permissions";
 
+const columnHelper = createColumnHelper<RedirectionHost>();
+
 interface Props {
 	data: RedirectionHost[];
 	isFiltered?: boolean;
@@ -25,7 +27,6 @@ interface Props {
 	onNew?: () => void;
 }
 export default function Table({ data, isFetching, onEdit, onDelete, onDisableToggle, onNew, isFiltered }: Props) {
-	const columnHelper = createColumnHelper<RedirectionHost>();
 	const columns = useMemo(
 		() => [
 			columnHelper.accessor((row: any) => row.owner, {
@@ -148,7 +149,7 @@ export default function Table({ data, isFetching, onEdit, onDelete, onDisableTog
 				},
 			}),
 		],
-		[columnHelper, onEdit, onDisableToggle, onDelete],
+		[onEdit, onDisableToggle, onDelete],
 	);
 
 	const tableInstance = useReactTable<RedirectionHost>({

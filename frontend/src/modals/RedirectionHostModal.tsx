@@ -14,7 +14,7 @@ import {
 	SSLOptionsFields,
 } from "src/components";
 import { useRedirectionHost, useSetRedirectionHost } from "src/hooks";
-import { T } from "src/locale";
+import { intl, T } from "src/locale";
 import { validateString } from "src/modules/Validations";
 import { showObjectSuccess } from "src/notifications";
 
@@ -165,7 +165,7 @@ const RedirectionHostModal = EasyModal.create(({ id, visible, remove }: Props) =
 																		{...field}
 																	>
 																		<option value="auto">
-																			<T id="auto" />
+																			{intl.formatMessage({ id: "auto" })}
 																		</option>
 																		<option value="http">http</option>
 																		<option value="https">https</option>
@@ -229,22 +229,34 @@ const RedirectionHostModal = EasyModal.create(({ id, visible, remove }: Props) =
 																{...field}
 															>
 																<option value="300">
-																	<T id="redirection-hosts.http-code.300" />
+																	{intl.formatMessage({
+																		id: "redirection-hosts.http-code.300",
+																	})}
 																</option>
 																<option value="301">
-																	<T id="redirection-hosts.http-code.301" />
+																	{intl.formatMessage({
+																		id: "redirection-hosts.http-code.301",
+																	})}
 																</option>
 																<option value="302">
-																	<T id="redirection-hosts.http-code.302" />
+																	{intl.formatMessage({
+																		id: "redirection-hosts.http-code.302",
+																	})}
 																</option>
 																<option value="303">
-																	<T id="redirection-hosts.http-code.303" />
+																	{intl.formatMessage({
+																		id: "redirection-hosts.http-code.303",
+																	})}
 																</option>
 																<option value="307">
-																	<T id="redirection-hosts.http-code.307" />
+																	{intl.formatMessage({
+																		id: "redirection-hosts.http-code.307",
+																	})}
 																</option>
 																<option value="308">
-																	<T id="redirection-hosts.http-code.308" />
+																	{intl.formatMessage({
+																		id: "redirection-hosts.http-code.308",
+																	})}
 																</option>
 															</select>
 															{form.errors.forwardHttpCode ? (
@@ -328,14 +340,13 @@ const RedirectionHostModal = EasyModal.create(({ id, visible, remove }: Props) =
 								</div>
 							</Modal.Body>
 							<Modal.Footer>
-								<Button data-bs-dismiss="modal" onClick={remove} disabled={isSubmitting}>
+								<Button onClick={remove} disabled={isSubmitting}>
 									<T id="cancel" />
 								</Button>
 								<Button
 									type="submit"
 									actionType="primary"
 									className="ms-auto bg-yellow"
-									data-bs-dismiss="modal"
 									isLoading={isSubmitting}
 									disabled={isSubmitting}
 								>

@@ -1,13 +1,8 @@
 import { IconLock, IconLockOpen, IconPlus, IconShieldCheck, IconShieldLock, IconShieldX } from "@tabler/icons-react";
 import { type KeyboardEvent, type ReactNode, type Ref, useEffect, useRef, useState } from "react";
 import Alert from "react-bootstrap/Alert";
-import { Link } from "react-router-dom";
-import type {
-	AgentIngressApplied,
-	AgentIngressCatalog,
-	AgentIngressMode,
-	AgentIngressRule,
-} from "src/api/backend";
+import { Link, useInRouterContext } from "react-router-dom";
+import type { AgentIngressApplied, AgentIngressCatalog, AgentIngressMode, AgentIngressRule } from "src/api/backend";
 import {
 	useAgentIngress,
 	useAgentIngressCatalog,
@@ -95,6 +90,11 @@ function StatusBanner({
 	const blocked = restricted && activeRules === 0;
 	const titleId = `ingress-${agentId}-status`;
 	const tone = blocked ? "red" : restricted ? "green" : "secondary";
+	// The WireGuard-page agent dialog is rendered by EasyModal outside the
+	// <Router>, where <Link> throws: there a plain anchor opens the page. Both
+	// keep ?agent=<id> so the Freigaben page stays on this site.
+	const inRouter = useInRouterContext();
+	const isolationHref = `/ingress?agent=${agentId}#${SITE_ISOLATION_ANCHOR}`;
 	return (
 		<section
 			className="card"
@@ -107,76 +107,89 @@ function StatusBanner({
 			{heading && <div className="card-header">{heading}</div>}
 			<div className="card-body d-flex flex-column flex-sm-row align-items-sm-start gap-3">
 				<div className="d-flex align-items-start gap-3 flex-fill" style={{ minWidth: 0 }}>
-				<span className={`avatar flex-shrink-0 bg-${tone}-lt text-${tone}`} aria-hidden>
-					{blocked ? <IconShieldX /> : restricted ? <IconShieldCheck /> : <IconLockOpen />}
-				</span>
-				<div className="flex-fill" style={{ minWidth: 0 }}>
-					<div className="fw-bold" id={titleId}>
-						{ti(restricted ? "banner.title-on" : "banner.title-off")}
-					</div>
-					<div className="small text-secondary mb-1" data-testid="ingress-banner-explain">
-						{ti("banner.explain")}
-					</div>
-					{blocked ? (
-						<div className="text-danger fw-medium" data-testid="ingress-banner-blocked">
-							{ti("banner.restricted-none")}
+					<span className={`avatar flex-shrink-0 bg-${tone}-lt text-${tone}`} aria-hidden>
+						{blocked ? <IconShieldX /> : restricted ? <IconShieldCheck /> : <IconLockOpen />}
+					</span>
+					<div className="flex-fill" style={{ minWidth: 0 }}>
+						<div className="fw-bold" id={titleId}>
+							{ti(restricted ? "banner.title-on" : "banner.title-off")}
 						</div>
-					) : (
-						<div className="text-secondary" data-testid="ingress-banner-text">
-							{restricted
-								? ti("banner.restricted", { count: activeRules })
-								: isolatedFrom.length > 0
-									? ti("banner.open-except", { sites: isolatedFrom.join(", ") })
-									: ti("banner.open")}
+						<div className="small text-secondary mb-1" data-testid="ingress-banner-explain">
+							{ti("banner.explain")}
 						</div>
-					)}
-					{!restricted && hasEnabledRules && (
-						<div className="small text-secondary mt-1" data-testid="ingress-open-hint">
-							{ti("open-hint")}
-						</div>
-					)}
-					{networks.length > 0 && (
-						<div className="d-flex flex-wrap align-items-center gap-1 mt-2 small">
-							<span className="text-secondary me-1">{ti("banner.networks")}</span>
-							{networks.map((n) => (
-								<span key={n} className="badge bg-secondary-lt text-secondary fw-normal font-monospace">
-									{n}
-								</span>
-							))}
-						</div>
-					)}
-					{isolatedFrom.length > 0 && (
-						<div
-							className="small mt-2 text-red d-flex align-items-start gap-1"
-							data-testid="ingress-banner-isolated"
-						>
-							<IconLock size={14} className="flex-shrink-0 mt-1" aria-hidden />
-							<span>
-								{ti("banner.isolated-from", { sites: isolatedFrom.join(", ") })}{" "}
-								<Link
-									to={`/ingress#${SITE_ISOLATION_ANCHOR}`}
-									className="text-secondary"
-									data-testid="ingress-banner-isolated-link"
-								>
-									{ti("banner.isolated-hint")}
-								</Link>
-							</span>
-						</div>
-					)}
-					{restricted && dropped > 0 && (
-						<div className="small mt-2 text-danger" data-testid="ingress-banner-dropped">
-							{ti("list.warnings", { count: dropped })}.{" "}
-							<button
-								type="button"
-								className="btn btn-link p-0 border-0 align-baseline"
-								style={{ minHeight: 0, fontSize: "inherit", lineHeight: "inherit" }}
-								onClick={onShowCheck}
+						{blocked ? (
+							<div className="text-danger fw-medium" data-testid="ingress-banner-blocked">
+								{ti("banner.restricted-none")}
+							</div>
+						) : (
+							<div className="text-secondary" data-testid="ingress-banner-text">
+								{restricted
+									? ti("banner.restricted", { count: activeRules })
+									: isolatedFrom.length > 0
+										? ti("banner.open-except", { sites: isolatedFrom.join(", ") })
+										: ti("banner.open")}
+							</div>
+						)}
+						{!restricted && hasEnabledRules && (
+							<div className="small text-secondary mt-1" data-testid="ingress-open-hint">
+								{ti("open-hint")}
+							</div>
+						)}
+						{networks.length > 0 && (
+							<div className="d-flex flex-wrap align-items-center gap-1 mt-2 small">
+								<span className="text-secondary me-1">{ti("banner.networks")}</span>
+								{networks.map((n) => (
+									<span
+										key={n}
+										className="badge bg-secondary-lt text-secondary fw-normal font-monospace"
+									>
+										{n}
+									</span>
+								))}
+							</div>
+						)}
+						{isolatedFrom.length > 0 && (
+							<div
+								className="small mt-2 text-red d-flex align-items-start gap-1"
+								data-testid="ingress-banner-isolated"
 							>
-								{ti("banner.to-check")}
-							</button>
-						</div>
-					)}
-				</div>
+								<IconLock size={14} className="flex-shrink-0 mt-1" aria-hidden />
+								<span>
+									{ti("banner.isolated-from", { sites: isolatedFrom.join(", ") })}{" "}
+									{inRouter ? (
+										<Link
+											to={isolationHref}
+											className="text-secondary"
+											data-testid="ingress-banner-isolated-link"
+										>
+											{ti("banner.isolated-hint")}
+										</Link>
+									) : (
+										<a
+											href={isolationHref}
+											className="text-secondary"
+											data-testid="ingress-banner-isolated-link"
+										>
+											{ti("banner.isolated-hint")}
+										</a>
+									)}
+								</span>
+							</div>
+						)}
+						{restricted && dropped > 0 && (
+							<div className="small mt-2 text-danger" data-testid="ingress-banner-dropped">
+								{ti("list.warnings", { count: dropped })}.{" "}
+								<button
+									type="button"
+									className="btn btn-link p-0 border-0 align-baseline"
+									style={{ minHeight: 0, fontSize: "inherit", lineHeight: "inherit" }}
+									onClick={onShowCheck}
+								>
+									{ti("banner.to-check")}
+								</button>
+							</div>
+						)}
+					</div>
 				</div>
 				<button
 					type="button"
@@ -313,7 +326,9 @@ export function AgentIngressDetail({ agentId, heading, dangerZone, linkName }: P
 		const menuButton =
 			target !== null
 				? document
-						.getElementById(tab === "tech" ? rawRuleDomId(agentId, target) : ingressRuleDomId(agentId, target))
+						.getElementById(
+							tab === "tech" ? rawRuleDomId(agentId, target) : ingressRuleDomId(agentId, target),
+						)
 						?.querySelector<HTMLButtonElement>("button[data-ingress-edit]")
 				: null;
 		(menuButton ?? addRef.current)?.focus();
@@ -476,15 +491,15 @@ export function AgentIngressDetail({ agentId, heading, dangerZone, linkName }: P
 
 			{rules.length === 0 ? (
 				<div className="text-center py-4 px-2" data-testid="ingress-empty">
-						<span className="avatar avatar-lg bg-primary-lt text-primary mb-3" aria-hidden>
-							<IconShieldLock />
-						</span>
-						<h3 className="h4 mb-2">{ti("empty.title")}</h3>
-						<p className="text-secondary mx-auto mb-3" style={{ maxWidth: "36rem" }}>
-							{ti(restricted ? "empty.text-restricted" : "empty.text")}
-						</p>
-						<div className="d-inline-flex">{newButton}</div>
-					</div>
+					<span className="avatar avatar-lg bg-primary-lt text-primary mb-3" aria-hidden>
+						<IconShieldLock />
+					</span>
+					<h3 className="h4 mb-2">{ti("empty.title")}</h3>
+					<p className="text-secondary mx-auto mb-3" style={{ maxWidth: "36rem" }}>
+						{ti(restricted ? "empty.text-restricted" : "empty.text")}
+					</p>
+					<div className="d-inline-flex">{newButton}</div>
+				</div>
 			) : (
 				<AgentIngressRuleSentences
 					agentId={agentId}

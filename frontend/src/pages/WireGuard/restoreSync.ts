@@ -1,4 +1,13 @@
-import type { WireGuardHubSyncResult, WireGuardRenameCascade, WireGuardRestoreMetadataResponse } from "src/api/backend";
+import type {
+	WireGuardAgentSyncOutcome,
+	WireGuardHubSyncOutcome,
+	WireGuardHubSyncResult,
+	WireGuardRenameCascade,
+} from "src/api/backend";
+
+/** A single hub-sync result (the sync itself failed) vs. the per-interface map. */
+const isSingle = (h: NonNullable<WireGuardHubSyncOutcome>): h is WireGuardHubSyncResult =>
+	typeof (h as WireGuardHubSyncResult).synced === "boolean";
 
 /**
  * Failed steps of the link-rename cascade (agent bindings follow a renamed link).
@@ -16,10 +25,11 @@ export function renameCascadeProblems(cascade: WireGuardRenameCascade | null | u
  * interface (or a single failure object), agentSync may be a fleet-wide error.
  * Per-agent failures come as {changed: false, error}; skips as {reason}.
  */
-export function restoreSyncProblems(
-	data: Pick<WireGuardRestoreMetadataResponse, "hubSync" | "agentSync"> &
-		Partial<Pick<WireGuardRestoreMetadataResponse, "renameCascade">>,
-): {
+export function restoreSyncProblems(data: {
+	hubSync: WireGuardHubSyncOutcome;
+	agentSync: WireGuardAgentSyncOutcome;
+	renameCascade?: WireGuardRenameCascade | null;
+}): {
 	hub: string[];
 	agentError: string | null;
 	agentsSkipped: string[];
@@ -28,11 +38,10 @@ export function restoreSyncProblems(
 } {
 	const hub: string[] = [];
 	const hubSync = data.hubSync;
-	if (hubSync && typeof (hubSync as WireGuardHubSyncResult).synced === "boolean") {
-		const single = hubSync as WireGuardHubSyncResult;
-		if (!single.synced) hub.push(single.reason ?? "?");
+	if (hubSync && isSingle(hubSync)) {
+		if (!hubSync.synced) hub.push(hubSync.reason ?? "?");
 	} else if (hubSync) {
-		for (const [iface, res] of Object.entries(hubSync as Record<string, WireGuardHubSyncResult>)) {
+		for (const [iface, res] of Object.entries(hubSync)) {
 			if (res && res.synced === false) hub.push(`${iface}: ${res.reason ?? "?"}`);
 		}
 	}
@@ -48,15 +57,8 @@ export function restoreSyncProblems(
 }
 
 /** Number of hub peers changed by a live sync (per-interface map or a single result). */
-export function hubChangeCount(
-	hubSync: Record<string, WireGuardHubSyncResult> | WireGuardHubSyncResult | null | undefined,
-): number {
+export function hubChangeCount(hubSync: WireGuardHubSyncOutcome | undefined): number {
 	if (!hubSync) return 0;
-	if (typeof (hubSync as WireGuardHubSyncResult).synced === "boolean") {
-		return (hubSync as WireGuardHubSyncResult).changes?.length ?? 0;
-	}
-	return Object.values(hubSync as Record<string, WireGuardHubSyncResult>).reduce(
-		(sum, res) => sum + (res?.changes?.length ?? 0),
-		0,
-	);
+	if (isSingle(hubSync)) return hubSync.changes?.length ?? 0;
+	return Object.values(hubSync).reduce((sum, res) => sum + (res?.changes?.length ?? 0), 0);
 }

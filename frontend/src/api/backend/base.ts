@@ -1,8 +1,6 @@
-import { QueryClient } from "@tanstack/react-query";
 import queryString, { type StringifiableRecord } from "query-string";
 import AuthStore from "src/modules/AuthStore";
 
-const queryClient = new QueryClient();
 const contentTypeHeader = "Content-Type";
 
 const decamelize = (value: string) => value.replace(/([a-z\d])([A-Z])/g, "$1_$2").toLowerCase();
@@ -75,31 +73,34 @@ function buildBody(data?: Record<string, any>): string | undefined {
  *   must report its own error instead of reloading the page.
  */
 async function processResponse(response: Response, logoutOn401 = true) {
+	if (!response.ok) await throwApiError(response, logoutOn401);
 	let payload: any;
 	try {
 		payload = await response.json();
 	} catch {
-		if (response.status === 401 && logoutOn401) {
-			AuthStore.clear();
-			queryClient.clear();
-			window.location.reload();
-		}
 		throw new Error(`HTTP ${response.status} ${response.statusText}`);
 	}
-	if (!response.ok) {
-		if (response.status === 401 && logoutOn401) {
-			// Force logout user and reload the page if Unauthorized
-			AuthStore.clear();
-			queryClient.clear();
-			window.location.reload();
-		}
-		throw new Error(
-			typeof payload?.error?.messageI18n !== "undefined"
-			? payload.error.messageI18n
-			: (payload?.error?.message ?? `HTTP ${response.status} ${response.statusText}`),
-		);
-	}
 	return camelizeKeys(payload) as any;
+}
+
+/** Throw the backend's error message for a failed response (logs out on 401). */
+async function throwApiError(response: Response, logoutOn401 = true): Promise<never> {
+	let payload: any;
+	try {
+		payload = await response.json();
+	} catch {
+		payload = undefined;
+	}
+	if (response.status === 401 && logoutOn401) {
+		// Force logout user and reload the page if Unauthorized. The reload also drops the
+		// app's QueryClient cache (App.tsx), so no second client is needed here.
+		AuthStore.clear();
+		window.location.reload();
+	}
+	const e = payload?.error;
+	throw new Error(
+		e?.message_i18n ?? e?.messageI18n ?? e?.message ?? `HTTP ${response.status} ${response.statusText}`,
+	);
 }
 
 interface GetArgs {
@@ -120,11 +121,19 @@ export async function get(args: GetArgs, abortController?: AbortController) {
 	return processResponse(await baseGet(args, abortController));
 }
 
-export async function download({ url, params }: GetArgs, filename = "download.file") {
-	const headers = buildAuthHeader();
-	const res = await fetch(buildUrl({ url, params }), { headers });
-	if (!res.ok) throw new Error(`Download failed: HTTP ${res.status}`);
-	const bl = await res.blob();
+/** Authenticated GET of a binary response; errors carry the backend message like get(). */
+export async function fetchBlob({ url, params }: GetArgs): Promise<Blob> {
+	const res = await fetch(buildUrl({ url, params }), { headers: buildAuthHeader() });
+	if (!res.ok) await throwApiError(res);
+	return res.blob();
+}
+
+export async function download(args: GetArgs, filename = "download.file") {
+	saveBlob(await fetchBlob(args), filename);
+}
+
+/** Hand a blob to the browser as a file download. */
+export function saveBlob(bl: Blob, filename: string) {
 	const u = window.URL.createObjectURL(bl);
 	const a = document.createElement("a");
 	a.href = u;
@@ -193,14 +202,20 @@ export async function put({ url, params, data }: PutArgs, abortController?: Abor
 interface DeleteArgs {
 	url: string;
 	params?: queryString.StringifiableRecord;
+	/** Optional JSON body, for values that must not appear in the URL (e.g. a 2FA code) */
+	data?: Record<string, any>;
 }
-export async function del({ url, params }: DeleteArgs, abortController?: AbortController) {
+export async function del({ url, params, data }: DeleteArgs, abortController?: AbortController) {
 	const apiUrl = buildUrl({ url, params });
 	const method = "DELETE";
-	const headers = {
+	const headers: Record<string, string> = {
 		...buildAuthHeader(),
 	};
+	const body = buildBody(data);
+	if (body !== undefined) {
+		headers[contentTypeHeader] = "application/json";
+	}
 	const signal = abortController?.signal;
-	const response = await fetch(apiUrl, { method, headers, signal });
+	const response = await fetch(apiUrl, { method, headers, body, signal });
 	return processResponse(response);
 }

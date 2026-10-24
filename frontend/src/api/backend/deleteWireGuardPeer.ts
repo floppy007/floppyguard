@@ -35,7 +35,8 @@ export interface DeleteWireGuardPeerResponse {
 }
 
 export async function deleteWireGuardPeer(data: DeleteWireGuardPeerRequest): Promise<DeleteWireGuardPeerResponse> {
-	return api.post({ url: "wireguard/delete-peer", data }) as Promise<DeleteWireGuardPeerResponse>;
+	// rawBody: backend deleteOptions() reads camelCase dryRun/deleteBoundAgents/forceAgentIds
+	return api.post({ url: "wireguard/delete-peer", data, rawBody: true }) as Promise<DeleteWireGuardPeerResponse>;
 }
 
 /**

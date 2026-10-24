@@ -5,13 +5,14 @@ import { EventFormatter, GravatarFormatter } from "src/components";
 import { TableLayout } from "src/components/Table/TableLayout";
 import { intl, T } from "src/locale";
 
+const columnHelper = createColumnHelper<AuditLog>();
+
 interface Props {
 	data: AuditLog[];
 	isFetching?: boolean;
 	onSelectItem?: (id: number) => void;
 }
 export default function Table({ data, isFetching, onSelectItem }: Props) {
-	const columnHelper = createColumnHelper<AuditLog>();
 	const columns = useMemo(
 		() => [
 			columnHelper.accessor((row: AuditLog) => row.user, {
@@ -52,7 +53,7 @@ export default function Table({ data, isFetching, onSelectItem }: Props) {
 				},
 			}),
 		],
-		[columnHelper, onSelectItem],
+		[onSelectItem],
 	);
 
 	const tableInstance = useReactTable<AuditLog>({

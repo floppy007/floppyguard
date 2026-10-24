@@ -1,27 +1,12 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useState } from "react";
-import {
-	getToken,
-	isTwoFactorChallenge,
-	loginAsUser,
-	refreshToken,
-	type TokenResponse,
-	verify2FA,
-} from "src/api/backend";
+import { getToken, isTwoFactorChallenge, loginAsUser, refreshToken, type TokenResponse } from "src/api/backend";
 import AuthStore from "src/modules/AuthStore";
-
-// 2FA challenge state
-export interface TwoFactorChallenge {
-	challengeToken: string;
-}
 
 // Context
 export interface AuthContextType {
 	authenticated: boolean;
-	twoFactorChallenge: TwoFactorChallenge | null;
 	login: (username: string, password: string) => Promise<void>;
-	verifyTwoFactor: (code: string) => Promise<void>;
-	cancelTwoFactor: () => void;
 	loginAs: (id: number) => Promise<void>;
 	logout: () => void;
 	token?: string;
@@ -38,35 +23,21 @@ interface Props {
 function AuthProvider({ children, tokenRefreshInterval = 5 * 60 * 1000 }: Props) {
 	const queryClient = useQueryClient();
 	const [authenticated, setAuthenticated] = useState(AuthStore.hasActiveToken());
-	const [twoFactorChallenge, setTwoFactorChallenge] = useState<TwoFactorChallenge | null>(null);
 
 	const handleTokenUpdate = useCallback((response: TokenResponse) => {
 		AuthStore.set(response);
 		setAuthenticated(true);
-		setTwoFactorChallenge(null);
 	}, []);
 
 	const login = async (identity: string, secret: string) => {
 		const response = await getToken(identity, secret);
 		if (isTwoFactorChallenge(response)) {
-			setTwoFactorChallenge({ challengeToken: response.challengeToken });
-			return;
+			// Only used by Setup for a freshly created admin; 2FA cannot be enabled yet.
+			// The interactive login/2FA flow lives in pages/Login.
+			throw new Error("Two-factor authentication is handled on the login page");
 		}
 		handleTokenUpdate(response);
 		window.location.assign("/");
-	};
-
-	const verifyTwoFactor = async (code: string) => {
-		if (!twoFactorChallenge) {
-			throw new Error("No 2FA challenge pending");
-		}
-		const response = await verify2FA(twoFactorChallenge.challengeToken, code);
-		handleTokenUpdate(response);
-		window.location.assign("/");
-	};
-
-	const cancelTwoFactor = () => {
-		setTwoFactorChallenge(null);
 	};
 
 	const loginAs = async (id: number) => {
@@ -85,7 +56,6 @@ function AuthProvider({ children, tokenRefreshInterval = 5 * 60 * 1000 }: Props)
 		}
 		AuthStore.clear();
 		setAuthenticated(false);
-		setTwoFactorChallenge(null);
 		queryClient.clear();
 	};
 
@@ -120,10 +90,7 @@ function AuthProvider({ children, tokenRefreshInterval = 5 * 60 * 1000 }: Props)
 
 	const value = {
 		authenticated,
-		twoFactorChallenge,
 		login,
-		verifyTwoFactor,
-		cancelTwoFactor,
 		loginAs,
 		logout,
 	};

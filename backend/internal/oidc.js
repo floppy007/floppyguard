@@ -1,13 +1,14 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import errs from "../lib/error.js";
+import { withUserEmailLock } from "../lib/user-email-lock.js";
 import { express as logger } from "../logger.js";
 import authModel from "../models/auth.js";
 import TokenModel from "../models/token.js";
 import userModel from "../models/user.js";
 import userPermissionModel from "../models/user_permission.js";
 import internalAuditLog from "./audit-log.js";
-import { expirySeconds } from "./oidc-settings.js";
+import { configPath, DEFAULTS, expirySeconds, normalizeIssuer } from "./oidc-settings.js";
 
 // Anmeldung über einen OpenID-Connect-Anbieter (hier: Authentik unter
 // https://sso.comnic-it.de). Bewusst schlank gehalten:
@@ -22,7 +23,6 @@ import { expirySeconds } from "./oidc-settings.js";
 //   * Eine lokal eingerichtete 2FA wird bei SSO NICHT zusätzlich abgefragt —
 //     die Faktoren verwaltet der Anbieter.
 
-const CONFIG_PATH = process.env.OIDC_CONFIG_PATH || "/data/oidc.json";
 const DISCOVERY_TTL_MS = 10 * 60 * 1000;
 const STATE_TTL_MS = 10 * 60 * 1000;
 const RESULT_TTL_MS = 60 * 1000;
@@ -85,9 +85,10 @@ const rejected = (reason, message) => {
 };
 
 const readConfig = () => {
+	const file = configPath();
 	let stat;
 	try {
-		stat = fs.statSync(CONFIG_PATH);
+		stat = fs.statSync(file);
 	} catch {
 		return { enabled: false };
 	}
@@ -96,25 +97,25 @@ const readConfig = () => {
 	}
 	let parsed;
 	try {
-		parsed = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
+		parsed = JSON.parse(fs.readFileSync(file, "utf8"));
 	} catch (err) {
-		logger.error(`OIDC: ${CONFIG_PATH} ist kein gültiges JSON: ${err.message}`);
+		logger.error(`OIDC: ${file} ist kein gültiges JSON: ${err.message}`);
 		return { enabled: false };
 	}
 	const value = {
 		enabled: parsed.enabled === true,
-		label: parsed.label || "Mit Firmenkonto anmelden",
-		issuer: String(parsed.issuer || "").replace(/\/+$/, ""),
+		label: parsed.label || DEFAULTS.label,
+		issuer: normalizeIssuer(parsed.issuer),
 		client_id: parsed.client_id || "",
 		client_secret: parsed.client_secret || "",
 		redirect_uri: parsed.redirect_uri || "",
 		required_group: parsed.required_group || "",
-		groups_claim: parsed.groups_claim || "groups",
-		scopes: parsed.scopes || "openid profile email",
-		expiry: expirySeconds(parsed.expiry) === null ? "1d" : parsed.expiry,
+		groups_claim: parsed.groups_claim || DEFAULTS.groups_claim,
+		scopes: parsed.scopes || DEFAULTS.scopes,
+		expiry: expirySeconds(parsed.expiry) === null ? DEFAULTS.expiry : parsed.expiry,
 	};
 	if (parsed.expiry && value.expiry !== parsed.expiry) {
-		logger.warn(`OIDC: ungültige Gültigkeitsdauer ${JSON.stringify(parsed.expiry)}, verwende 1d`);
+		logger.warn(`OIDC: ungültige Gültigkeitsdauer ${JSON.stringify(parsed.expiry)}, verwende ${DEFAULTS.expiry}`);
 	}
 	configCache = { mtimeMs: stat.mtimeMs, value };
 	return value;
@@ -135,7 +136,7 @@ const discovery = async (cfg) => {
 		throw new Error(`Discovery antwortete mit HTTP ${res.status}`);
 	}
 	const doc = await res.json();
-	if (String(doc.issuer || "").replace(/\/+$/, "") !== cfg.issuer) {
+	if (normalizeIssuer(doc.issuer) !== cfg.issuer) {
 		throw new Error(`Issuer stimmt nicht: ${doc.issuer} statt ${cfg.issuer}`);
 	}
 	discoveryCache = { issuer: cfg.issuer, at: Date.now(), doc };
@@ -366,35 +367,53 @@ const internalOidc = {
 				existing = await userModel.query().where("id", bound.user_id).andWhere("is_deleted", 0).first();
 			}
 		}
+		// E-Mail-Suche bis zum Anlegen unter einer Sperre: Die user-Tabelle hat keinen
+		// Unique-Index auf email, zwei gleichzeitige Erst-Anmeldungen ergäben sonst zwei Konten.
+		let created = null;
 		if (!existing) {
-			existing = await userModel.query().where("email", email).andWhere("is_deleted", 0).first();
-			if (existing) {
-				const oidcRow = await authModel
-					.query()
-					.where("user_id", existing.id)
-					.andWhere("type", "oidc")
-					.andWhere("is_deleted", 0)
-					.first();
-				const passwordRow = await authModel
-					.query()
-					.where("user_id", existing.id)
-					.andWhere("type", "password")
-					.andWhere("is_deleted", 0)
-					.first();
-				const refusal = ssoLinkRefusal({
-					storedSub: oidcRow?.meta?.sub,
-					hasPassword: !!passwordRow?.secret,
-					claims,
-				});
-				if (refusal) {
-					logger.warn(`OIDC: ${email} abgewiesen: ${refusal}`);
-					await auditSso(existing.id, "sso-refused", email, `SSO abgewiesen: ${refusal}`, {
-						sub,
-						reason: refusal,
+			({ existing, created } = await withUserEmailLock(async () => {
+				const found = await userModel.query().where("email", email).andWhere("is_deleted", 0).first();
+				if (found) {
+					const oidcRow = await authModel
+						.query()
+						.where("user_id", found.id)
+						.andWhere("type", "oidc")
+						.andWhere("is_deleted", 0)
+						.first();
+					const passwordRow = await authModel
+						.query()
+						.where("user_id", found.id)
+						.andWhere("type", "password")
+						.andWhere("is_deleted", 0)
+						.first();
+					const refusal = ssoLinkRefusal({
+						storedSub: oidcRow?.meta?.sub,
+						hasPassword: !!passwordRow?.secret,
+						claims,
 					});
-					throw rejected("linked", "Dieses Konto ist für FloppyGuard nicht freigegeben");
+					if (refusal) {
+						logger.warn(`OIDC: ${email} abgewiesen: ${refusal}`);
+						await auditSso(found.id, "sso-refused", email, `SSO abgewiesen: ${refusal}`, {
+							sub,
+							reason: refusal,
+						});
+						throw rejected("linked", "Dieses Konto ist für FloppyGuard nicht freigegeben");
+					}
+					return { existing: found, created: null };
 				}
-			}
+
+				const name = String(claims.name || claims.preferred_username || email.split("@")[0]).trim();
+				const row = await userModel.query().insertAndFetch({
+					email,
+					name,
+					nickname: String(claims.given_name || name).trim(),
+					avatar: "",
+					roles: ["admin"],
+					is_disabled: 0,
+				});
+				await userPermissionModel.insertDefaults(row.id, true);
+				return { existing: null, created: row };
+			}));
 		}
 
 		if (existing) {
@@ -419,25 +438,6 @@ const internalOidc = {
 			return existing;
 		}
 
-		const name = String(claims.name || claims.preferred_username || email.split("@")[0]).trim();
-		const created = await userModel.query().insertAndFetch({
-			email,
-			name,
-			nickname: String(claims.given_name || name).trim(),
-			avatar: "",
-			roles: ["admin"],
-			is_disabled: 0,
-		});
-		await userPermissionModel.query().insert({
-			user_id: created.id,
-			visibility: "all",
-			proxy_hosts: "manage",
-			redirection_hosts: "manage",
-			dead_hosts: "manage",
-			streams: "manage",
-			access_lists: "manage",
-			certificates: "manage",
-		});
 		await markSso(created.id, claims);
 		logger.info(`OIDC: Konto für ${email} angelegt (Admin)`);
 		await auditSso(created.id, "created", email, "SSO: Konto angelegt, Admin");

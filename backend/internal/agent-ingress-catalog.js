@@ -7,7 +7,18 @@
 // appear as object keys, because the frontend camelizes response keys deeply.
 
 import error from "../lib/error.js";
-import { canonicalCidr, cidrContains, ruleCovers, sanitizeIngressRule } from "./agent-ingress-rules.js";
+import {
+	canonicalCidr,
+	cidrContains,
+	echoValue as echo,
+	hostIp,
+	isHubSourced,
+	parseJsonArray,
+	ruleCovers,
+	sanitizeIngressRule,
+	tunnelAddressEntries,
+	upstreamCovered,
+} from "./agent-ingress-rules.js";
 
 /** Common port sets for the rule editor ([] = all ports). */
 export const PORT_PRESETS = [
@@ -49,13 +60,7 @@ const DEST_GROUP = { "proxy-host": 0, stream: 0, manual: 0, "hub-egress": 0, ser
 
 const uniq = (list) => [...new Set(list)];
 const byLabel = (a, b) => String(a.label).localeCompare(String(b.label));
-const hostIp = (cidr) => (String(cidr).endsWith("/32") ? String(cidr).slice(0, -3) : String(cidr));
 const portKey = (p) => `${p.proto}/${p.port}`;
-/** A request value echoed in an error message: clipped, so a large body is not reflected / logged. */
-const echo = (v) => {
-	const s = String(v ?? "");
-	return s.length > 64 ? `${s.slice(0, 64)}…` : s;
-};
 
 function mergePorts(into, add) {
 	for (const p of add) {
@@ -85,13 +90,10 @@ export function toUnixSeconds(value) {
 /** Subnets of the Address lines of a wg conf ("Address = 10.10.0.1/24" → "10.10.0.0/24"). */
 export function tunnelSubnets(confText) {
 	const out = [];
-	for (const m of String(confText || "").matchAll(/^\s*Address\s*=\s*(.+)$/gim)) {
-		for (const part of m[1].split(",")) {
-			const p = part.trim();
-			if (!p.includes("/")) continue;
-			const c = canonicalCidr(p);
-			if (c && !c.endsWith("/32") && !out.includes(c)) out.push(c);
-		}
+	for (const p of tunnelAddressEntries(confText)) {
+		if (!p.includes("/")) continue;
+		const c = canonicalCidr(p);
+		if (c && !c.endsWith("/32") && !out.includes(c)) out.push(c);
 	}
 	return out;
 }
@@ -130,12 +132,7 @@ export function upstreamDestinations(behind, { rules = [], hubHosts = [] } = {})
 		for (const u of ordered) {
 			if (u.port) mergePorts(ports, [{ proto: u.proto || "tcp", port: String(u.port) }]);
 		}
-		const covered = ordered.every((u) => {
-			const srcs = u.source ? [u.source] : hubHosts;
-			return srcs.some((src) =>
-				rules.some((r) => ruleCovers(r, { src, dst: u.host, port: u.port ?? null, proto: u.proto || "tcp" })),
-			);
-		});
+		const covered = ordered.every((u) => upstreamCovered(u, rules, hubHosts));
 		const entry = {
 			id: `host:${hostIp(cidr)}`,
 			kind: ordered[0].kind,
@@ -162,15 +159,8 @@ export function upstreamDestinations(behind, { rules = [], hubHosts = [] } = {})
  * ownNets null = no filter. Port = URL port or the scheme default. Pure.
  */
 export function serviceDestinations(services, ownNets, { agentId = 0 } = {}) {
-	let list = services;
-	if (typeof list === "string") {
-		try {
-			list = JSON.parse(list);
-		} catch {
-			list = [];
-		}
-	}
-	if (!Array.isArray(list)) return [];
+	const list = parseJsonArray(services);
+	if (!list.length) return [];
 	const byIp = new Map();
 	const out = [];
 	list.forEach((svc, i) => {
@@ -310,6 +300,7 @@ export function buildCatalog(ctx) {
 	sources.push(...egressSources);
 	if (linkFound) sources.push(...siteSources);
 	for (const c of clients) {
+		if (site && c.id === site.linkId) continue; // the agent's own (inferred-client) site link
 		const l = linkById.get(c.id);
 		sources.push({
 			id: `client:${c.id}`,
@@ -400,13 +391,9 @@ export function pruneCandidates({
 }) {
 	if (!linkFound || appliedState !== "applied") return [];
 	const enabled = rules.filter((r) => r.enabled);
-	const hubSourced = (r) =>
-		Array.isArray(r.sources) &&
-		r.sources.length > 0 &&
-		r.sources.every((s) => hubSrcs.some((h) => cidrContains(h, s)));
 	const out = [];
 	for (const r of enabled) {
-		if (!hubSourced(r)) continue;
+		if (!isHubSourced(r, hubSrcs)) continue;
 		const ref = ruleReferenceTime(r);
 		if (ref === null || now - ref <= STALE_RULE_SECONDS) continue;
 		// armed_on = when the rule last started to matter (falls back to creation)

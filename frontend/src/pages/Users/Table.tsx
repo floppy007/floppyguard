@@ -23,6 +23,8 @@ import { TableLayout } from "src/components/Table/TableLayout";
 import { intl, T } from "src/locale";
 import { POPPER_FIXED } from "src/modules/Dropdown";
 
+const columnHelper = createColumnHelper<User>();
+
 interface Props {
 	data: User[];
 	isFiltered?: boolean;
@@ -49,7 +51,6 @@ export default function Table({
 	onNewUser,
 	onLoginAs,
 }: Props) {
-	const columnHelper = createColumnHelper<User>();
 	const columns = useMemo(
 		() => [
 			columnHelper.accessor((row: any) => row, {
@@ -214,16 +215,7 @@ export default function Table({
 				},
 			}),
 		],
-		[
-			columnHelper,
-			currentUserId,
-			onEditUser,
-			onDisableToggle,
-			onDeleteUser,
-			onEditPermissions,
-			onSetPassword,
-			onLoginAs,
-		],
+		[currentUserId, onEditUser, onDisableToggle, onDeleteUser, onEditPermissions, onSetPassword, onLoginAs],
 	);
 
 	const tableInstance = useReactTable<User>({

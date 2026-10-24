@@ -32,13 +32,26 @@ const errs = {
 		this.status = 400;
 	},
 
-	InternalError: function (message, previous) {
+	// Token no longer usable (expired, malformed, foreign key, user disabled/deleted).
+	// 401 makes the SPA drop the stored token (base.ts). Login failures stay AuthError (400).
+	UnauthorizedError: function (message, previous) {
 		Error.captureStackTrace(this, this.constructor);
 		this.name = this.constructor.name;
 		this.previous = previous;
-		this.message = message;
-		this.status = 500;
-		this.public = false;
+		this.message = message || "Unauthorized";
+		this.public = true;
+		this.status = 401;
+	},
+
+	// Token issued before the account's last password change (lib/access.js). 401 like
+	// UnauthorizedError so the SPA drops the dead token and shows the login page.
+	TokenRevokedError: function (message, previous) {
+		Error.captureStackTrace(this, this.constructor);
+		this.name = this.constructor.name;
+		this.previous = previous;
+		this.message = message || "Token was issued before the password was changed";
+		this.public = true;
+		this.status = 401;
 	},
 
 	InternalValidationError: function (message, previous) {
@@ -57,15 +70,6 @@ const errs = {
 		this.message = message;
 		this.status = 400;
 		this.public = true;
-	},
-
-	CacheError: function (message, previous) {
-		Error.captureStackTrace(this, this.constructor);
-		this.name = this.constructor.name;
-		this.message = message;
-		this.previous = previous;
-		this.status = 500;
-		this.public = false;
 	},
 
 	ValidationError: function (message, previous) {

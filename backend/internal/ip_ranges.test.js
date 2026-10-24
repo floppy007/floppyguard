@@ -67,4 +67,43 @@ describe("ip_ranges fetch", () => {
 		assert.equal(state.reloads, 0);
 		assert.equal(internalIpRanges.interval_processing, false);
 	});
+
+	it("keeps the previous conf when a Cloudflare list is not a list (error page)", async (t) => {
+		const state = setup(t, rendered);
+		const origFetch = internalIpRanges.fetchUrl;
+		t.mock.method(internalIpRanges, "fetchUrl", async (url) =>
+			url.endsWith("v4") ? "<html><body>503 Service Unavailable</body></html>" : origFetch(url),
+		);
+		await internalIpRanges.fetch();
+		assert.equal(state.written, null);
+		assert.equal(state.reloads, 0);
+		assert.equal(internalIpRanges.interval_processing, false);
+	});
+
+	it("drops invalid or injected ranges instead of rendering them into the conf", async (t) => {
+		const state = setup(t, "# old\n");
+		t.mock.method(internalIpRanges, "fetchUrl", async (url) => {
+			if (url.includes("amazonaws")) {
+				return JSON.stringify({
+					prefixes: [
+						{ service: "CLOUDFRONT", ip_prefix: "13.32.0.0/15" },
+						{ service: "CLOUDFRONT", ip_prefix: "13.33.0.0/16;\ninclude /etc/x;" },
+					],
+					ipv6_prefixes: [{ service: "CLOUDFRONT", ipv6_prefix: "fe80::1%eth0/64" }],
+				});
+			}
+			return url.endsWith("v4")
+				? "173.245.48.0/20\n1.2.3.4/24; include /data/x.conf\n999.1.1.1/8\n"
+				: "2400:cb00::/32\n2400::/129\n";
+		});
+		await internalIpRanges.fetch();
+		assert.match(state.written, /173\.245\.48\.0\/20/);
+		assert.match(state.written, /2400:cb00::\/32/);
+		assert.doesNotMatch(state.written, /include|999\.|%|\/129/);
+		assert.ok(
+			state.written
+				.split("\n")
+				.every((l) => !l || /^set_real_ip_from [0-9a-fA-F:./]+;$/.test(l) || l.startsWith("#")),
+		);
+	});
 });

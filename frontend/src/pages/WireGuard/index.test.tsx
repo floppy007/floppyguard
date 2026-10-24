@@ -35,6 +35,7 @@ vi.mock("src/hooks", () => ({
 	useAgents: () => agentsMock(),
 	useAgentIngress: () => ({ data: undefined, isLoading: false, error: null }),
 	useAgentIngressCheck: () => ({ data: undefined, isLoading: false, error: null }),
+	useAgentIngressActiveRules: () => null,
 	useCreateAgent: () => createAgentMock(),
 	useUpdateAgent: () => updateAgentMock(),
 	useCreateWireGuardPeer: () => createPeerMock(),
@@ -485,6 +486,11 @@ describe("WireGuard page", () => {
 		expect(screen.getByText(/Return path mode not set/)).toBeTruthy();
 	});
 
+	it("renders global backend string warnings on the overview tab", () => {
+		render(<WireGuard />, { wrapper: createWrapper() });
+		expect(screen.getByText("Interface wg1 needs review")).toBeTruthy();
+	});
+
 	it("hides Download/QR on site links (they would rotate the gateway's key)", () => {
 		render(<WireGuard />, { wrapper: createWrapper() });
 		fireEvent.click(screen.getAllByRole("button", { name: /Links/ })[0]);
@@ -504,12 +510,10 @@ describe("WireGuard page", () => {
 		// Open editor for wg1 (second interface) to see its notes in the textarea
 		const editButtons = screen.getAllByRole("button", { name: "Edit" });
 		fireEvent.click(editButtons[editButtons.length - 1]);
-		// Notes textarea has comma-joined notes as value
-		expect(
-			screen.getAllByDisplayValue(
-				"1 link(s) on this interface need review, inactive interface with imported networks",
-			).length,
-		).toBeGreaterThan(0);
+		// Notes textarea has newline-joined notes as value (notes are free text and may contain commas)
+		expect((screen.getByPlaceholderText("One note per line") as HTMLTextAreaElement).value).toBe(
+			"1 link(s) on this interface need review\ninactive interface with imported networks",
+		);
 		// Switch back to Overview tab for backups
 		fireEvent.click(screen.getAllByRole("button", { name: /Overview/ })[0]);
 		// Backup section is visible with a Restore button
@@ -546,9 +550,20 @@ describe("WireGuard page", () => {
 		fireEvent.click(screen.getAllByRole("button", { name: /Links/ })[0]);
 		// Open planner
 		fireEvent.click(screen.getAllByRole("button", { name: "Plan link" })[0]);
-		// Click the save plan button
-		fireEvent.click(screen.getByRole("button", { name: "Save plan" }));
+		// Untouched planner: nothing to save (no derived defaults frozen, no config-intent apply)
+		const save = screen.getByRole("button", { name: "Save plan" }) as HTMLButtonElement;
+		expect(save.disabled).toBe(true);
+		// The stored 'unknown' modes are shown as such, not as the first option
+		const mgmt = screen.getByLabelText("Remote Management") as HTMLSelectElement;
+		expect(mgmt.value).toBe("unknown");
+		fireEvent.change(mgmt, { target: { value: "ssh" } });
+		expect(save.disabled).toBe(false);
+		fireEvent.click(save);
 		await waitFor(() => expect(applyMutation).toHaveBeenCalledTimes(1));
+		// Only the changed field is sent
+		expect(applyMutation.mock.calls[0][0]).toEqual({
+			links: { "wg1:site-peer-key": { remoteManagementMode: "ssh" } },
+		});
 	});
 
 	it("shows the apply result outside the closed editor, incl. per-interface hub and fleet sync failures", () => {
@@ -658,7 +673,7 @@ describe("WireGuard page", () => {
 		// Open the interface editor
 		fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]);
 		// Edit the notes
-		fireEvent.change(screen.getByPlaceholderText("Hub role, check later, ..."), {
+		fireEvent.change(screen.getByPlaceholderText("One note per line"), {
 			target: { value: "reviewed interface" },
 		});
 		// Preview the change
@@ -777,6 +792,73 @@ describe("WireGuard page", () => {
 		expect(applyMutation.mock.calls[0][0]).toEqual({ links: { "wg1:site-peer-key": { name: "site-a-renamed" } } });
 	});
 
+	it('sends a cleared display name as "" so the request still carries it', async () => {
+		const applyMutation = vi.fn();
+		applyMetadataMock.mockReturnValue({
+			mutateAsync: vi.fn(),
+			mutate: applyMutation,
+			isPending: false,
+			isSuccess: false,
+			isError: false,
+			data: null,
+			reset: vi.fn(),
+		});
+		render(<WireGuard />, { wrapper: createWrapper() });
+		fireEvent.click(screen.getAllByRole("button", { name: /Links/ })[0]);
+		fireEvent.click(screen.getAllByRole("button", { name: "Edit metadata" })[0]);
+		fireEvent.change(screen.getByDisplayValue("site-a"), { target: { value: "  " } });
+		fireEvent.click(screen.getByRole("button", { name: "Save" }));
+		await waitFor(() => expect(applyMutation).toHaveBeenCalledTimes(1));
+		// compare the wire form: an undefined name would vanish in JSON.stringify (silent no-op)
+		expect(JSON.parse(JSON.stringify(applyMutation.mock.calls[0][0]))).toEqual({
+			links: { "wg1:site-peer-key": { name: "" } },
+		});
+	});
+
+	it("clears client-only fields when a link is re-typed away from client", async () => {
+		const applyMutation = vi.fn();
+		applyMetadataMock.mockReturnValue({
+			mutateAsync: vi.fn(),
+			mutate: applyMutation,
+			isPending: false,
+			isSuccess: false,
+			isError: false,
+			data: null,
+			reset: vi.fn(),
+		});
+		const status = buildStatus();
+		const link = { ...status.links[0], type: "client" as const, platform: "mobile" as const, fullTunnel: true };
+		statusMock.mockReturnValue({
+			data: { ...status, links: [link] },
+			isLoading: false,
+			isError: false,
+			error: null,
+		});
+		render(<WireGuard />, { wrapper: createWrapper() });
+		fireEvent.click(screen.getAllByRole("button", { name: /Links/ })[0]);
+		fireEvent.click(screen.getAllByRole("button", { name: "Edit metadata" })[0]);
+		fireEvent.change(screen.getByDisplayValue("Client"), { target: { value: "site-to-site" } });
+		fireEvent.click(screen.getByRole("button", { name: "Save" }));
+		await waitFor(() => expect(applyMutation).toHaveBeenCalledTimes(1));
+		expect(applyMutation.mock.calls[0][0]).toEqual({
+			links: { "wg1:site-peer-key": { type: "site-to-site", fullTunnel: false, platform: null } },
+		});
+	});
+
+	it("shows the Desktop/Mobile badge only on client links", () => {
+		const status = buildStatus();
+		const link = { ...status.links[0], platform: "mobile" as const };
+		statusMock.mockReturnValue({
+			data: { ...status, links: [link] },
+			isLoading: false,
+			isError: false,
+			error: null,
+		});
+		render(<WireGuard />, { wrapper: createWrapper() });
+		fireEvent.click(screen.getAllByRole("button", { name: /Links/ })[0]);
+		expect(screen.queryByText("Mobile")).toBeNull();
+	});
+
 	it("sends only changed interface fields (derived lists/notes are not frozen)", async () => {
 		const applyMutation = vi.fn();
 		applyMetadataMock.mockReturnValue({
@@ -799,7 +881,7 @@ describe("WireGuard page", () => {
 		render(<WireGuard />, { wrapper: createWrapper() });
 		fireEvent.click(screen.getAllByRole("button", { name: /Interfaces/ })[0]);
 		fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]);
-		fireEvent.change(screen.getByPlaceholderText("Hub role, check later, ..."), {
+		fireEvent.change(screen.getByPlaceholderText("One note per line"), {
 			target: { value: "reviewed interface" },
 		});
 		fireEvent.click(screen.getAllByRole("button", { name: "Preview" })[0]);
@@ -807,6 +889,39 @@ describe("WireGuard page", () => {
 		fireEvent.click(screen.getAllByRole("button", { name: "Save" })[0]);
 		expect(applyMutation).toHaveBeenCalledTimes(1);
 		expect(applyMutation.mock.calls[0][0]).toEqual({ interfaces: { wg0: { notes: ["reviewed interface"] } } });
+	});
+
+	it("keeps a comma inside an interface note as one note", async () => {
+		const applyMutation = vi.fn();
+		applyMetadataMock.mockReturnValue({
+			mutateAsync: vi.fn(),
+			mutate: applyMutation,
+			isPending: false,
+			isSuccess: false,
+			isError: false,
+			data: null,
+			reset: vi.fn(),
+		});
+		const metaPreviewData = buildMetadataOnlyInterfacePreviewResponse();
+		previewPlanMock.mockReturnValue({
+			mutateAsync: vi.fn().mockResolvedValue(metaPreviewData),
+			mutate: vi.fn((_, opts) => opts?.onSuccess?.(metaPreviewData)),
+			isPending: false,
+			isError: false,
+		});
+		render(<WireGuard />, { wrapper: createWrapper() });
+		fireEvent.click(screen.getAllByRole("button", { name: /Interfaces/ })[0]);
+		fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]);
+		fireEvent.change(screen.getByPlaceholderText("One note per line"), {
+			target: { value: "Standort Berlin, Keller\nhub ready" },
+		});
+		fireEvent.click(screen.getAllByRole("button", { name: "Preview" })[0]);
+		expect(await screen.findByText("valid")).toBeTruthy();
+		fireEvent.click(screen.getAllByRole("button", { name: "Save" })[0]);
+		expect(applyMutation).toHaveBeenCalledTimes(1);
+		expect(applyMutation.mock.calls[0][0]).toEqual({
+			interfaces: { wg0: { notes: ["Standort Berlin, Keller", "hub ready"] } },
+		});
 	});
 
 	it("shows a failed agent auto-create with the reason and a retry button", async () => {

@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import https from "node:https";
+import os from "node:os";
 import path from "path";
 import { ZipArchive } from "archiver";
 import _ from "lodash";
@@ -54,6 +55,7 @@ const checkDnsCredentials = (meta) => {
 /**
  * Zugangsdaten-Datei schreiben; route53 nur in geprüfter Form.
  */
+let credentialsTmpSeq = 0;
 const writeCredentialsFile = (location, provider, credentials) => {
 	let content;
 	try {
@@ -61,7 +63,238 @@ const writeCredentialsFile = (location, provider, credentials) => {
 	} catch (err) {
 		throw new error.ValidationError(err.message);
 	}
-	fs.writeFileSync(location, content, { mode: 0o600 });
+	// Write to a temp file and rename: a concurrent certbot run of the same
+	// certificate never reads a half-written file, and an old file with looser
+	// permissions is replaced instead of keeping its mode.
+	const tmp = `${location}.${process.pid}.${++credentialsTmpSeq}.tmp`;
+	try {
+		fs.writeFileSync(tmp, content, { mode: 0o600 });
+		fs.chmodSync(tmp, 0o600);
+		fs.renameSync(tmp, location);
+	} catch (err) {
+		fs.rmSync(tmp, { force: true });
+		throw err;
+	}
+};
+
+/**
+ * Builds the certbot `certonly` argument list shared by request and renewal,
+ * HTTP and DNS challenge. Previously hand-built in four places, so every fix
+ * (key_type, route53 env, duckdns flag) had to be applied four times.
+ *
+ * @param   {Object}  certificate
+ * @param   {Object}  options
+ * @param   {Boolean} [options.renew]                adds --force-renewal
+ * @param   {String}  [options.email]                adds -m <email> (request only)
+ * @param   {String}  options.challenge              "http" | "dns"
+ * @param   {Object}  [options.dnsPlugin]            entry of dns-plugins.json (dns only)
+ * @param   {String}  [options.credentialsLocation]  credentials file (dns only)
+ * @returns {{args: Array<String>, opts: Object}}
+ */
+const buildCertbotArgs = (
+	certificate,
+	{ renew = false, email = null, challenge, dnsPlugin = null, credentialsLocation = null },
+) => {
+	const args = ["certonly"];
+	if (renew) {
+		args.push("--force-renewal");
+	}
+	args.push(
+		"--config",
+		letsencryptConfig,
+		"--work-dir",
+		certbotWorkDir,
+		"--logs-dir",
+		certbotLogsDir,
+		"--cert-name",
+		`npm-${certificate.id}`,
+		"--agree-tos",
+	);
+	if (challenge === "http") {
+		args.push(
+			"--authenticator",
+			"webroot",
+			"--webroot-path",
+			"/data/letsencrypt-acme-challenge",
+			"--non-interactive",
+		);
+	}
+	if (email) {
+		args.push("-m", email);
+	}
+	args.push("--preferred-challenges", challenge, "--domains", certificate.domain_names.join(","));
+
+	if (challenge === "dns") {
+		args.push(`--${dnsPlugin.full_plugin_name}`);
+		// Whether the plugin has a --<name>-credentials argument
+		if (certificate.meta.dns_provider !== "route53") {
+			args.push(`--${dnsPlugin.full_plugin_name}-credentials`, credentialsLocation);
+		}
+		if (certificate.meta.propagation_seconds !== undefined) {
+			args.push(
+				`--${dnsPlugin.full_plugin_name}-propagation-seconds`,
+				certificate.meta.propagation_seconds.toString(),
+			);
+		}
+	}
+
+	// Add key-type parameter if specified
+	if (certificate.meta?.key_type) {
+		args.push("--key-type", certificate.meta.key_type);
+	}
+
+	// dns_provider only for the DNS challenge: a webroot run must never get the
+	// duckdns flag or the route53 AWS env.
+	const adds = internalCertificate.getAdditionalCertbotArgs(
+		certificate.id,
+		challenge === "dns" ? certificate.meta.dns_provider : undefined,
+		credentialsLocation,
+	);
+	args.push(...adds.args);
+
+	logger.info(`Command: ${certbotCommand} ${args.join(" ")}`);
+	return { args, opts: adds.opts };
+};
+
+// Credentials dirs certbot may reference: FloppyGuard's own root and certbot's
+// config dir (upstream default /etc/letsencrypt). A renewal conf pointing
+// anywhere else is ignored (the file is written from user-controlled DB content).
+const credentialsDirs = () => [...new Set([letsencryptRoot, certbotConfigDir].map((d) => `${d}/credentials`))];
+
+/**
+ * Where certbot expects the credentials of certificate <id>: the path its
+ * renewal conf (renewal/npm-<id>.conf -> dns_*_credentials) references when
+ * that is one of the known credentials dirs, otherwise
+ * <letsencryptRoot>/credentials/credentials-<id>.
+ *
+ * @param   {Number} certificateId
+ * @returns {String}
+ */
+export const credentialsLocationFor = (certificateId) => {
+	const fallback = `${letsencryptRoot}/credentials/credentials-${certificateId}`;
+	const allowed = credentialsDirs().map((d) => `${d}/credentials-${certificateId}`);
+	for (const dir of [...new Set([certbotConfigDir, letsencryptRoot])]) {
+		let conf;
+		try {
+			conf = fs.readFileSync(`${dir}/renewal/npm-${certificateId}.conf`, "utf8");
+		} catch {
+			continue;
+		}
+		const match = /^\s*dns_[a-z0-9_]+_credentials\s*=\s*(\S+)\s*$/m.exec(conf);
+		if (!match) {
+			continue;
+		}
+		if (allowed.includes(match[1])) {
+			return match[1];
+		}
+		logger.warn(
+			`Renewal conf of npm-${certificateId} references credentials at ${match[1]}, using ${fallback} instead`,
+		);
+		return fallback;
+	}
+	return fallback;
+};
+
+// certificate id → number of certbot runs currently using its credentials file
+const credentialsInUse = new Map();
+
+/**
+ * Runs one certbot call with the DNS provider credentials on disk: the file
+ * (0600) is written right before and removed right after the run, so the
+ * secrets only exist on disk while certbot needs them. Concurrent runs of the
+ * same certificate share the file, the last one to finish removes it.
+ *
+ * @param   {Object}   certificate
+ * @param   {String}   credentials        provider credentials (from the DB)
+ * @param   {Function} run                async (credentialsLocation) => result
+ * @returns {Promise}
+ */
+const withDnsCredentials = async (certificate, credentials, run) => {
+	const id = Number(certificate.id);
+	const location = credentialsLocationFor(id);
+	credentialsInUse.set(id, (credentialsInUse.get(id) || 0) + 1);
+	try {
+		fs.mkdirSync(path.dirname(location), { recursive: true });
+		writeCredentialsFile(location, certificate.meta.dns_provider, credentials);
+		return await run(location);
+	} finally {
+		const left = credentialsInUse.get(id) - 1;
+		if (left > 0) {
+			credentialsInUse.set(id, left);
+		} else {
+			credentialsInUse.delete(id);
+			fs.rmSync(location, { force: true });
+		}
+	}
+};
+
+/**
+ * True when the on-disk credentials-<id> file is the only copy of the
+ * certificate's DNS provider credentials: a DNS certificate whose DB row has
+ * none stored. Upstream (#5814) keeps such legacy files, they are what keeps
+ * the certificate renewable. A failed lookup counts as "keep".
+ *
+ * @param   {Number}  id
+ * @returns {Promise<Boolean>}
+ */
+const credentialsOnlyOnDisk = async (id) => {
+	try {
+		const row = await certificateModel.query().findById(id);
+		return Boolean(row && !row.is_deleted && row.meta?.dns_challenge && !row.meta?.dns_provider_credentials);
+	} catch (err) {
+		logger.warn(`Could not look up certificate #${id}, keeping its DNS credentials file: ${err.message}`);
+		return true;
+	}
+};
+
+/**
+ * Removes credentials-<id> files left on disk by older versions, which wrote
+ * them at every start and kept them, and credentials-<id>.<pid>.<seq>.tmp files
+ * of a write interrupted before its rename. Files of a certbot run in progress
+ * stay, and so does a legacy file that is the only copy of the credentials.
+ *
+ * @returns {Promise<Number>} the number of removed files
+ */
+export const removeStaleCredentialsFiles = async () => {
+	let removed = 0;
+	const onlyOnDisk = new Map();
+	for (const dir of credentialsDirs()) {
+		let entries;
+		try {
+			entries = fs.readdirSync(dir);
+		} catch {
+			continue;
+		}
+		for (const entry of entries) {
+			const m = /^credentials-(\d+)(\.\d+\.\d+\.tmp)?$/.exec(entry);
+			if (!m) {
+				continue;
+			}
+			const id = Number(m[1]);
+			if (!m[2]) {
+				if (!onlyOnDisk.has(id)) {
+					onlyOnDisk.set(id, await credentialsOnlyOnDisk(id));
+				}
+				if (onlyOnDisk.get(id)) {
+					logger.warn(
+						`Keeping ${dir}/${entry}: certificate #${id} has no DNS credentials stored, this file is the only copy`,
+					);
+					continue;
+				}
+			}
+			// checked after the lookup: a certbot run may have started meanwhile
+			if (credentialsInUse.has(id)) {
+				continue;
+			}
+			try {
+				fs.rmSync(`${dir}/${entry}`, { force: true });
+				removed++;
+			} catch (err) {
+				logger.warn(`Could not remove stale DNS credentials ${dir}/${entry}: ${err.message}`);
+			}
+		}
+	}
+	return removed;
 };
 
 /**
@@ -219,12 +452,14 @@ const internalCertificate = {
 			if (certificate.provider === "letsencrypt") {
 				// Request a new Cert from LE. Let the fun begin.
 
+				// HTTP challenge:
 				// 1. Find out any hosts that are using any of the hostnames in this cert
 				// 2. Disable them in nginx temporarily
 				// 3. Generate the LE config
 				// 4. Request cert
 				// 5. Remove LE config
 				// 6. Re-instate previously disabled hosts
+				// DNS challenge: only 4.
 
 				// Validate the user email before touching any nginx configs, so a
 				// validation failure can't leave disabled hosts behind
@@ -235,30 +470,19 @@ const internalCertificate = {
 					);
 				}
 
-				// 1. Find out any hosts that are using any of the hostnames in this cert
-				const inUseResult = await internalHost.getHostsWithDomains(certificate.domain_names);
-
-				// 2. Disable them in nginx temporarily
-				await internalCertificate.disableInUseHosts(inUseResult);
-
-				// With DNS challenge no config is needed, so skip 3 and 5.
+				// With DNS challenge certbot never touches nginx: no hosts need to be
+				// disabled, no challenge config is written, and the new cert is not yet
+				// referenced by any host, so no reload is needed either.
 				if (certificate.meta?.dns_challenge) {
-					try {
-						await internalNginx.reload();
-						// 4. Request cert
-						await internalCertificate.requestLetsEncryptSslWithDnsChallenge(certificate, user.email);
-						// 6. Re-instate previously disabled hosts
-						await internalCertificate.enableInUseHosts(inUseResult);
-						await internalNginx.reload();
-					} catch (err) {
-						// In the event of failure, revert things and throw err back
-						await internalCertificate.enableInUseHosts(inUseResult);
-						await internalNginx.reload();
-						throw err;
-					}
+					// 4. Request cert
+					await internalCertificate.requestLetsEncryptSslWithDnsChallenge(certificate, user.email);
 				} else {
-					// 3. Generate the LE config
+					// 1. Find out any hosts that are using any of the hostnames in this cert
+					const inUseResult = await internalHost.getHostsWithDomains(certificate.domain_names);
+					// 2. Disable them in nginx temporarily (port-80 server_name clash with letsencrypt-request.conf)
+					await internalCertificate.disableInUseHosts(inUseResult);
 					try {
+						// 3. Generate the LE config
 						await internalNginx.generateLetsEncryptRequestConfig(certificate);
 						await internalNginx.reload();
 						// Give nginx a moment to finish activating the challenge config
@@ -269,7 +493,18 @@ const internalCertificate = {
 						await internalNginx.deleteLetsEncryptRequestConfig(certificate);
 						// 6. Re-instate previously disabled hosts
 						await internalCertificate.enableInUseHosts(inUseResult);
-						await internalNginx.reload();
+						// certbot succeeded: lineage npm-<id> is on disk. A failed reload here
+						// must NOT reach the outer catch (which hard-deletes the row and orphans
+						// the issued cert); the timer retries the reload (retryPendingReload).
+						try {
+							await internalNginx.reload();
+							internalCertificate.reloadPending = false;
+						} catch (reloadErr) {
+							internalCertificate.reloadPending = true;
+							logger.error(
+								`Certificate #${certificate.id} issued, but nginx reload failed — the temporarily disabled hosts stay offline until the next successful reload (retried every timer run): ${reloadErr.message}`,
+							);
+						}
 					} catch (err) {
 						// In the event of failure, revert things and throw err back
 						await internalNginx.deleteLetsEncryptRequestConfig(certificate);
@@ -280,36 +515,37 @@ const internalCertificate = {
 				}
 
 				// At this point, the letsencrypt cert should exist on disk.
-				// Lets get the expiry date from the file and update the row silently
-				try {
-					const certInfo = await internalCertificate.getCertificateInfoFromFile(
-						`${internalCertificate.getLiveCertPath(certificate.id)}/fullchain.pem`,
-					);
-					const savedRow = await certificateModel
-						.query()
-						.patchAndFetchById(certificate.id, {
-							expires_on: moment(certInfo.dates.to, "X").format("YYYY-MM-DD HH:mm:ss"),
-						})
-						.then(utils.omitRow(omissions()));
-
-					// Add cert data for audit log
-					savedRow.meta = _.assign({}, savedRow.meta, {
-						letsencrypt_certificate: certInfo,
-					});
-
-					await internalCertificate.addCreatedAuditLog(access, certificate.id, savedRow);
-
-					return savedRow;
-				} catch (err) {
-					// Delete the certificate from the database if it was not created successfully
-					await certificateModel.query().deleteById(certificate.id);
-					throw err;
-				}
 			}
 		} catch (err) {
-			// Delete the certificate here. This is a hard delete, since it never existed properly
+			// certbot failed: nothing was issued, so the row never existed properly. Hard delete.
 			await certificateModel.query().deleteById(certificate.id);
 			throw err;
+		}
+
+		if (certificate.provider === "letsencrypt") {
+			// certbot succeeded, lineage npm-<id> is on disk: from here on the row must
+			// survive, otherwise the issued cert is orphaned (never revoked, re-issued on
+			// retry, counts against the LE rate limit). If one of these steps fails the row
+			// keeps its default expires_on (now), so the hourly renewal timer records the
+			// real expiry on its next pass, or the user can trigger "renew" by hand.
+			const certInfo = await internalCertificate.getCertificateInfoFromFile(
+				`${internalCertificate.getLiveCertPath(certificate.id)}/fullchain.pem`,
+			);
+			const savedRow = await certificateModel
+				.query()
+				.patchAndFetchById(certificate.id, {
+					expires_on: moment(certInfo.dates.to, "X").format("YYYY-MM-DD HH:mm:ss"),
+				})
+				.then(utils.omitRow(omissions()));
+
+			// Add cert data for audit log
+			savedRow.meta = _.assign({}, savedRow.meta, {
+				letsencrypt_certificate: certInfo,
+			});
+
+			await internalCertificate.addCreatedAuditLog(access, certificate.id, savedRow);
+
+			return savedRow;
 		}
 
 		data.meta = _.assign({}, data.meta || {}, certificate.meta);
@@ -446,10 +682,17 @@ const internalCertificate = {
 				.filter((fn) => fn.endsWith(".pem"))
 				.map((fn) => fs.realpathSync(path.join(zipDirectory, fn)));
 
-			const downloadName = `npm-${data.id}-${Date.now()}.zip`;
-			const opName = `/tmp/${downloadName}`;
+			// Private 0700 temp dir: the zip holds the private key. The route
+			// removes the whole dir once the download finished.
+			const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "npm-cert-"));
+			const opName = path.join(tmpDir, `npm-${data.id}-${Date.now()}.zip`);
 
-			await internalCertificate.zipFiles(certFiles, opName);
+			try {
+				await internalCertificate.zipFiles(certFiles, opName);
+			} catch (err) {
+				fs.rmSync(tmpDir, { recursive: true, force: true });
+				throw err;
+			}
 			debug(logger, "zip completed : ", opName);
 			return {
 				fileName: opName,
@@ -465,7 +708,7 @@ const internalCertificate = {
 	 */
 	zipFiles: async (source, out) => {
 		const archive = new ZipArchive({ zlib: { level: 9 } });
-		const stream = fs.createWriteStream(out);
+		const stream = fs.createWriteStream(out, { mode: 0o600 });
 
 		return new Promise((resolve, reject) => {
 			source.map((fl) => {
@@ -613,9 +856,7 @@ const internalCertificate = {
 			}
 
 			try {
-				if (!fs.existsSync(dir)) {
-					fs.mkdirSync(dir);
-				}
+				fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
 			} catch (err) {
 				reject(err);
 				return;
@@ -630,12 +871,14 @@ const internalCertificate = {
 			});
 		}).then(() => {
 			return new Promise((resolve, reject) => {
-				fs.writeFile(`${dir}/privkey.pem`, certificate.meta.certificate_key, (err) => {
+				const keyFile = `${dir}/privkey.pem`;
+				// mode only applies on create; chmod covers re-uploads into an existing npm-<id> dir
+				fs.writeFile(keyFile, certificate.meta.certificate_key, { mode: 0o600 }, (err) => {
 					if (err) {
 						reject(err);
-					} else {
-						resolve();
+						return;
 					}
+					fs.chmod(keyFile, 0o600, (chmodErr) => (chmodErr ? reject(chmodErr) : resolve()));
 				});
 			});
 		});
@@ -716,6 +959,11 @@ const internalCertificate = {
 		if (typeof validations.certificate === "undefined") {
 			throw new error.ValidationError("Certificate file was not provided");
 		}
+		// A certificate-only re-upload is fine once a key is stored; without one
+		// writeCustomCert() would crash after the DB row was already updated.
+		if (typeof validations.certificate_key === "undefined" && !row.meta?.certificate_key) {
+			throw new error.ValidationError("Certificate key file was not provided");
+		}
 
 		_.map(data.files, (file, name) => {
 			if (internalCertificate.allowedSslFiles.indexOf(name) !== -1) {
@@ -726,7 +974,7 @@ const internalCertificate = {
 		const certificate = await internalCertificate.update(access, {
 			id: data.id,
 			expires_on: moment(validations.certificate.dates.to, "X").format("YYYY-MM-DD HH:mm:ss"),
-			domain_names: [validations.certificate.cn],
+			domain_names: validations.certificate.cn ? [validations.certificate.cn] : row.domain_names,
 			meta: _.clone(row.meta), // Prevent the update method from changing this value that we'll use later
 		});
 
@@ -798,52 +1046,71 @@ const internalCertificate = {
 		const certData = {};
 
 		try {
-			const result = await utils.execFile("openssl", ["x509", "-in", certificateFile, "-subject", "-noout"]);
-			// Examples:
-			// subject=CN = *.jc21.com
+			const result = await utils.execFile("openssl", [
+				"x509",
+				"-in",
+				certificateFile,
+				"-subject",
+				"-issuer",
+				"-dates",
+				"-ext",
+				"subjectAltName",
+				"-noout",
+			]);
+			// One openssl call, one line per field:
 			// subject=CN = something.example.com
-			const regex = /(?:subject=)?[^=]+=\s+(\S+)/gim;
-			const match = regex.exec(result);
-			if (match && typeof match[1] !== "undefined") {
-				certData.cn = match[1];
-			}
-
-			const result2 = await utils.execFile("openssl", ["x509", "-in", certificateFile, "-issuer", "-noout"]);
-			// Examples:
-			// issuer=C = US, O = Let's Encrypt, CN = Let's Encrypt Authority X3
 			// issuer=C = US, O = Let's Encrypt, CN = E5
-			// issuer=O = NginxProxyManager, CN = NginxProxyManager Intermediate CA","O = NginxProxyManager, CN = NginxProxyManager Intermediate CA
-			const regex2 = /^(?:issuer=)?(.*)$/gim;
-			const match2 = regex2.exec(result2);
-			if (match2 && typeof match2[1] !== "undefined") {
-				certData.issuer = match2[1];
-			}
-
-			const result3 = await utils.execFile("openssl", ["x509", "-in", certificateFile, "-dates", "-noout"]);
 			// notBefore=Jul 14 04:04:29 2018 GMT
 			// notAfter=Oct 12 04:04:29 2018 GMT
 			let validFrom = null;
 			let validTo = null;
+			const sans = [];
 
-			const lines = result3.split("\n");
-			lines.map((str) => {
-				const regex = /^(\S+)=(.*)$/gim;
-				const match = regex.exec(str.trim());
-
-				if (match && typeof match[2] !== "undefined") {
-					const date = Number.parseInt(moment(match[2], "MMM DD HH:mm:ss YYYY z").format("X"), 10);
-
-					if (match[1].toLowerCase() === "notbefore") {
+			for (const raw of result.split("\n")) {
+				const line = raw.trim();
+				// X509v3 Subject Alternative Name block: "DNS:a.example.com, DNS:b.example.com"
+				if (line.startsWith("DNS:") || line.includes(", DNS:")) {
+					for (const part of line.split(",")) {
+						const san = part.trim();
+						if (san.startsWith("DNS:")) {
+							sans.push(san.slice(4).trim());
+						}
+					}
+					continue;
+				}
+				const eq = line.indexOf("=");
+				if (eq < 0) {
+					continue;
+				}
+				const key = line.slice(0, eq).toLowerCase();
+				const value = line.slice(eq + 1).trim();
+				if (key === "subject") {
+					// Pick the CN attribute explicitly; openssl prints the RDNs in issuance order and,
+					// depending on the version, with ("CN = x", 1.1) or without ("CN=x", 3.x) spaces
+					// around "=", or in the legacy "/C=DE/CN=x" form (1.0).
+					const match = /(?:^|[,/+]\s*)CN\s*=\s*([^,/+]+)/i.exec(value);
+					const cn = match ? match[1].trim() : "";
+					if (cn) {
+						certData.cn = cn;
+					}
+				} else if (key === "issuer") {
+					certData.issuer = value;
+				} else if (key === "notbefore" || key === "notafter") {
+					const date = Number.parseInt(moment(value, "MMM DD HH:mm:ss YYYY z").format("X"), 10);
+					if (key === "notbefore") {
 						validFrom = date;
-					} else if (match[1].toLowerCase() === "notafter") {
+					} else {
 						validTo = date;
 					}
 				}
-				return true;
-			});
+			}
+
+			if (!certData.cn && sans.length) {
+				certData.cn = sans[0];
+			}
 
 			if (!validFrom || !validTo) {
-				throw new error.ValidationError(`Could not determine dates from certificate: ${result3}`);
+				throw new error.ValidationError(`Could not determine dates from certificate: ${result}`);
 			}
 
 			if (throw_expired && validTo < Number.parseInt(moment().format("X"), 10)) {
@@ -893,41 +1160,8 @@ const internalCertificate = {
 			`Requesting LetsEncrypt certificates for Cert #${certificate.id}: ${certificate.domain_names.join(", ")}`,
 		);
 
-		const args = [
-			"certonly",
-			"--config",
-			letsencryptConfig,
-			"--work-dir",
-			certbotWorkDir,
-			"--logs-dir",
-			certbotLogsDir,
-			"--cert-name",
-			`npm-${certificate.id}`,
-			"--agree-tos",
-			"--authenticator",
-			"webroot",
-			"--webroot-path",
-			"/data/letsencrypt-acme-challenge",
-			"--non-interactive",
-			"-m",
-			email,
-			"--preferred-challenges",
-			"http",
-			"--domains",
-			certificate.domain_names.join(","),
-		];
-
-		// Add key-type parameter if specified
-		if (certificate.meta?.key_type) {
-			args.push("--key-type", certificate.meta.key_type);
-		}
-
-		const adds = internalCertificate.getAdditionalCertbotArgs(certificate.id);
-		args.push(...adds.args);
-
-		logger.info(`Command: ${certbotCommand} ${args ? args.join(" ") : ""}`);
-
-		const result = await utils.execFile(certbotCommand, args, adds.opts);
+		const { args, opts } = buildCertbotArgs(certificate, { email, challenge: "http" });
+		const result = await utils.execFile(certbotCommand, args, opts);
 		logger.success(result);
 		return result;
 	},
@@ -940,70 +1174,25 @@ const internalCertificate = {
 	requestLetsEncryptSslWithDnsChallenge: async (certificate, email) => {
 		await installPlugin(certificate.meta.dns_provider);
 		const dnsPlugin = dnsPlugins[certificate.meta.dns_provider];
+		if (!dnsPlugin) {
+			throw Error(`Unknown DNS provider '${certificate.meta.dns_provider}'`);
+		}
 		logger.info(
 			`Requesting LetsEncrypt certificates via ${dnsPlugin.name} for Cert #${certificate.id}: ${certificate.domain_names.join(", ")}`,
 		);
 
-		const credentialsLocation = `${letsencryptRoot}/credentials/credentials-${certificate.id}`;
-		fs.mkdirSync(`${letsencryptRoot}/credentials`, { recursive: true });
-		writeCredentialsFile(
-			credentialsLocation,
-			certificate.meta.dns_provider,
-			certificate.meta.dns_provider_credentials,
-		);
-
-		// Whether the plugin has a --<name>-credentials argument
-		const hasConfigArg = certificate.meta.dns_provider !== "route53";
-
-		const args = [
-			"certonly",
-			"--config",
-			letsencryptConfig,
-			"--work-dir",
-			certbotWorkDir,
-			"--logs-dir",
-			certbotLogsDir,
-			"--cert-name",
-			`npm-${certificate.id}`,
-			"--agree-tos",
-			"-m",
-			email,
-			"--preferred-challenges",
-			"dns",
-			"--domains",
-			certificate.domain_names.join(","),
-			`--${dnsPlugin.full_plugin_name}`,
-		];
-
-		if (hasConfigArg) {
-			args.push(`--${dnsPlugin.full_plugin_name}-credentials`, credentialsLocation);
-		}
-		if (certificate.meta.propagation_seconds !== undefined) {
-			args.push(
-				`--${dnsPlugin.full_plugin_name}-propagation-seconds`,
-				certificate.meta.propagation_seconds.toString(),
-			);
-		}
-
-		// Add key-type parameter if specified
-		if (certificate.meta?.key_type) {
-			args.push("--key-type", certificate.meta.key_type);
-		}
-
-		const adds = internalCertificate.getAdditionalCertbotArgs(certificate.id, certificate.meta.dns_provider);
-		args.push(...adds.args);
-
-		logger.info(`Command: ${certbotCommand} ${args ? args.join(" ") : ""}`);
-
-		try {
-			const result = await utils.execFile(certbotCommand, args, adds.opts);
+		const credentials = certificate.meta.dns_provider_credentials;
+		return withDnsCredentials(certificate, credentials, async (credentialsLocation) => {
+			const { args, opts } = buildCertbotArgs(certificate, {
+				email,
+				challenge: "dns",
+				dnsPlugin,
+				credentialsLocation,
+			});
+			const result = await utils.execFile(certbotCommand, args, opts);
 			logger.info(result);
 			return result;
-		} catch (err) {
-			// Don't fail if file does not exist, so no need for action in the callback
-			fs.unlink(credentialsLocation, () => {});
-			throw err;
-		}
+		});
 	},
 
 	/**
@@ -1030,9 +1219,12 @@ const internalCertificate = {
 			// and valid. If nginx -t fails (often because of an unrelated host), the
 			// old order left expires_on untouched and the hourly timer re-issued the
 			// same certificate again and again (Let's Encrypt rate limit).
-			const updatedCertificate = await certificateModel.query().patchAndFetchById(certificate.id, {
-				expires_on: moment(certInfo.dates.to, "X").format("YYYY-MM-DD HH:mm:ss"),
-			});
+			const updatedCertificate = await certificateModel
+				.query()
+				.patchAndFetchById(certificate.id, {
+					expires_on: moment(certInfo.dates.to, "X").format("YYYY-MM-DD HH:mm:ss"),
+				})
+				.then(utils.omitRow(omissions()));
 
 			// Add to audit log
 			await internalAuditLog.add(access, {
@@ -1310,40 +1502,8 @@ const internalCertificate = {
 			`Renewing LetsEncrypt certificates for Cert #${certificate.id}: ${certificate.domain_names.join(", ")}`,
 		);
 
-		const args = [
-			"certonly",
-			"--force-renewal",
-			"--config",
-			letsencryptConfig,
-			"--work-dir",
-			certbotWorkDir,
-			"--logs-dir",
-			certbotLogsDir,
-			"--cert-name",
-			`npm-${certificate.id}`,
-			"--agree-tos",
-			"--authenticator",
-			"webroot",
-			"--webroot-path",
-			"/data/letsencrypt-acme-challenge",
-			"--non-interactive",
-			"--preferred-challenges",
-			"http",
-			"--domains",
-			certificate.domain_names.join(","),
-		];
-
-		// Add key-type parameter if specified
-		if (certificate.meta?.key_type) {
-			args.push("--key-type", certificate.meta.key_type);
-		}
-
-		const adds = internalCertificate.getAdditionalCertbotArgs(certificate.id, certificate.meta.dns_provider);
-		args.push(...adds.args);
-
-		logger.info(`Command: ${certbotCommand} ${args ? args.join(" ") : ""}`);
-
-		const result = await internalCertificate.runCertbotRenewal(certificate.id, args, adds.opts);
+		const { args, opts } = buildCertbotArgs(certificate, { renew: true, challenge: "http" });
+		const result = await internalCertificate.runCertbotRenewal(certificate.id, args, opts);
 		logger.info(result);
 		return result;
 	},
@@ -1371,59 +1531,17 @@ const internalCertificate = {
 			throw new error.ValidationError("DNS provider credentials not found for this certificate");
 		}
 
-		const credentialsLocation = `${letsencryptRoot}/credentials/credentials-${certificate.id}`;
-		fs.mkdirSync(`${letsencryptRoot}/credentials`, { recursive: true });
-		writeCredentialsFile(credentialsLocation, certificate.meta.dns_provider, dnsCredentials);
-
-		const hasConfigArg = certificate.meta.dns_provider !== "route53";
-
-		const args = [
-			"certonly",
-			"--force-renewal",
-			"--config",
-			letsencryptConfig,
-			"--work-dir",
-			certbotWorkDir,
-			"--logs-dir",
-			certbotLogsDir,
-			"--cert-name",
-			`npm-${certificate.id}`,
-			"--agree-tos",
-			"--preferred-challenges",
-			"dns",
-			"--domains",
-			certificate.domain_names.join(","),
-			`--${dnsPlugin.full_plugin_name}`,
-		];
-
-		if (hasConfigArg) {
-			args.push(`--${dnsPlugin.full_plugin_name}-credentials`, credentialsLocation);
-		}
-		if (certificate.meta.propagation_seconds !== undefined) {
-			args.push(
-				`--${dnsPlugin.full_plugin_name}-propagation-seconds`,
-				certificate.meta.propagation_seconds.toString(),
-			);
-		}
-
-		// Add key-type parameter if specified
-		if (certificate.meta?.key_type) {
-			args.push("--key-type", certificate.meta.key_type);
-		}
-
-		const adds = internalCertificate.getAdditionalCertbotArgs(certificate.id, certificate.meta.dns_provider);
-		args.push(...adds.args);
-
-		logger.info(`Command: ${certbotCommand} ${args ? args.join(" ") : ""}`);
-
-		try {
-			const result = await internalCertificate.runCertbotRenewal(certificate.id, args, adds.opts);
+		return withDnsCredentials(certificate, dnsCredentials, async (credentialsLocation) => {
+			const { args, opts } = buildCertbotArgs(certificate, {
+				renew: true,
+				challenge: "dns",
+				dnsPlugin,
+				credentialsLocation,
+			});
+			const result = await internalCertificate.runCertbotRenewal(certificate.id, args, opts);
 			logger.info(result);
 			return result;
-		} catch (err) {
-			fs.unlink(credentialsLocation, () => {});
-			throw err;
-		}
+		});
 	},
 
 	/**
@@ -1453,12 +1571,16 @@ const internalCertificate = {
 		args.push(...adds.args);
 
 		logger.info(`Command: ${certbotCommand} ${args ? args.join(" ") : ""}`);
+		// resolved before --delete-after-revoke removes the renewal conf
+		const credentialsLocation = credentialsLocationFor(certificate.id);
 
 		try {
 			const result = await utils.execFile(certbotCommand, args, adds.opts);
-			await utils
-				.execFile("rm", ["-f", `${letsencryptRoot}/credentials/credentials-${certificate.id}`])
-				.catch(() => {});
+			// Normally gone already (only on disk during a certbot run); a file
+			// left by an older version must not outlive the certificate.
+			if (!credentialsInUse.has(Number(certificate.id))) {
+				fs.rmSync(credentialsLocation, { force: true });
+			}
 			logger.info(result);
 			return result;
 		} catch (err) {
@@ -1467,15 +1589,6 @@ const internalCertificate = {
 				throw err;
 			}
 		}
-	},
-
-	/**
-	 * @param   {Object}  certificate
-	 * @returns {Boolean}
-	 */
-	hasLetsEncryptSslCerts: (certificate) => {
-		const letsencryptPath = internalCertificate.getLiveCertPath(certificate.id);
-		return fs.existsSync(`${letsencryptPath}/fullchain.pem`) && fs.existsSync(`${letsencryptPath}/privkey.pem`);
 	},
 
 	/**
@@ -1662,7 +1775,7 @@ const internalCertificate = {
 		return `other:${result.responsecode}`;
 	},
 
-	getAdditionalCertbotArgs: (certificate_id, dns_provider) => {
+	getAdditionalCertbotArgs: (certificate_id, dns_provider, credentialsLocation = null) => {
 		const args = [];
 		if (useLetsencryptServer() !== null) {
 			args.push("--server", useLetsencryptServer());
@@ -1679,7 +1792,8 @@ const internalCertificate = {
 			opts.env = {
 				...process.env,
 				AWS_CONFIG_FILE: "/dev/null",
-				AWS_SHARED_CREDENTIALS_FILE: `${letsencryptRoot}/credentials/credentials-${certificate_id}`,
+				AWS_SHARED_CREDENTIALS_FILE:
+					credentialsLocation || `${letsencryptRoot}/credentials/credentials-${certificate_id}`,
 			};
 		}
 

@@ -15,6 +15,8 @@ import { intl, T } from "src/locale";
 import { POPPER_FIXED } from "src/modules/Dropdown";
 import { DEAD_HOSTS, MANAGE } from "src/modules/Permissions";
 
+const columnHelper = createColumnHelper<DeadHost>();
+
 interface Props {
 	data: DeadHost[];
 	isFiltered?: boolean;
@@ -25,7 +27,6 @@ interface Props {
 	onNew?: () => void;
 }
 export default function Table({ data, isFetching, onEdit, onDelete, onDisableToggle, onNew, isFiltered }: Props) {
-	const columnHelper = createColumnHelper<DeadHost>();
 	const columns = useMemo(
 		() => [
 			columnHelper.accessor((row: any) => row.owner, {
@@ -127,7 +128,7 @@ export default function Table({ data, isFetching, onEdit, onDelete, onDisableTog
 				},
 			}),
 		],
-		[columnHelper, onDelete, onEdit, onDisableToggle],
+		[onDelete, onEdit, onDisableToggle],
 	);
 
 	const tableInstance = useReactTable<DeadHost>({

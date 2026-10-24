@@ -1,6 +1,6 @@
 import { IconHelp, IconSearch } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import Alert from "react-bootstrap/Alert";
 import { deleteDeadHost, toggleDeadHost } from "src/api/backend";
 import { Button, HasPermission, LoadingPage } from "src/components";
@@ -8,13 +8,42 @@ import { useDeadHosts } from "src/hooks";
 import { T } from "src/locale";
 import { showDeadHostModal, showDeleteConfirmModal, showHelpModal } from "src/modals";
 import { DEAD_HOSTS, MANAGE } from "src/modules/Permissions";
-import { showObjectSuccess } from "src/notifications";
+import { showError, showObjectSuccess } from "src/notifications";
 import Table from "./Table";
 
 export default function TableWrapper() {
 	const queryClient = useQueryClient();
 	const [search, setSearch] = useState("");
 	const { isFetching, isLoading, isError, error, data } = useDeadHosts(["owner", "certificate"]);
+
+	const handleDelete = useCallback(
+		(id: number) =>
+			showDeleteConfirmModal({
+				title: <T id="object.delete" tData={{ object: "dead-host" }} />,
+				onConfirm: async () => {
+					await deleteDeadHost(id);
+					showObjectSuccess("dead-host", "deleted");
+				},
+				invalidations: [["dead-hosts"], ["dead-host", id]],
+				children: <T id="object.delete.content" tData={{ object: "dead-host" }} />,
+			}),
+		[],
+	);
+
+	const handleDisableToggle = useCallback(
+		async (id: number, enabled: boolean) => {
+			try {
+				await toggleDeadHost(id, enabled);
+				showObjectSuccess("dead-host", enabled ? "enabled" : "disabled");
+			} catch (err) {
+				showError(err instanceof Error ? err.message : String(err));
+			} finally {
+				queryClient.invalidateQueries({ queryKey: ["dead-hosts"] });
+				queryClient.invalidateQueries({ queryKey: ["dead-host", id] });
+			}
+		},
+		[queryClient],
+	);
 
 	if (isLoading) {
 		return <LoadingPage />;
@@ -24,25 +53,13 @@ export default function TableWrapper() {
 		return <Alert variant="danger">{error?.message || "Unknown error"}</Alert>;
 	}
 
-	const handleDelete = async (id: number) => {
-		await deleteDeadHost(id);
-		showObjectSuccess("dead-host", "deleted");
-	};
-
-	const handleDisableToggle = async (id: number, enabled: boolean) => {
-		await toggleDeadHost(id, enabled);
-		queryClient.invalidateQueries({ queryKey: ["dead-hosts"] });
-		queryClient.invalidateQueries({ queryKey: ["dead-host", id] });
-		showObjectSuccess("dead-host", enabled ? "enabled" : "disabled");
-	};
-
 	let filtered = null;
-	if (search && data) {
+	if (search && data?.length) {
 		filtered = data?.filter((item) => {
 			return item.domainNames.some((domain: string) => domain.toLowerCase().includes(search));
 		});
 	} else if (search !== "") {
-		// this can happen if someone deletes the last item while searching
+		// list became empty (e.g. last matching item deleted) - drop the stale filter
 		setSearch("");
 	}
 
@@ -90,15 +107,8 @@ export default function TableWrapper() {
 					data={filtered ?? data ?? []}
 					isFiltered={!!search}
 					isFetching={isFetching}
-					onEdit={(id: number) => showDeadHostModal(id)}
-					onDelete={(id: number) =>
-						showDeleteConfirmModal({
-							title: <T id="object.delete" tData={{ object: "dead-host" }} />,
-							onConfirm: () => handleDelete(id),
-							invalidations: [["dead-hosts"], ["dead-host", id]],
-							children: <T id="object.delete.content" tData={{ object: "dead-host" }} />,
-						})
-					}
+					onEdit={showDeadHostModal}
+					onDelete={handleDelete}
 					onDisableToggle={handleDisableToggle}
 					onNew={() => showDeadHostModal("new")}
 				/>

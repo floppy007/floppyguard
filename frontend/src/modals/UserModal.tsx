@@ -3,9 +3,9 @@ import { Field, Form, Formik } from "formik";
 import { useState } from "react";
 import { Alert } from "react-bootstrap";
 import Modal from "react-bootstrap/Modal";
-import { Button, Loading } from "src/components";
+import { Button, FloatingTextField, Loading } from "src/components";
 import { useSetUser, useUser } from "src/hooks";
-import { intl, T } from "src/locale";
+import { T } from "src/locale";
 import { validateEmail, validateString } from "src/modules/Validations";
 import { showObjectSuccess } from "src/notifications";
 
@@ -93,81 +93,30 @@ const UserModal = EasyModal.create(({ id, visible, remove }: Props) => {
 								<div className="row">
 									<div className="col-lg-6">
 										<div className="mb-3">
-											<Field name="name" validate={validateString(1, 50)}>
-												{({ field, form }: any) => (
-													<div className="form-floating mb-3">
-														<input
-															id="name"
-															className={`form-control ${form.errors.name && form.touched.name ? "is-invalid" : ""}`}
-															placeholder={intl.formatMessage({ id: "user.full-name" })}
-															{...field}
-														/>
-														<label htmlFor="name">
-															<T id="user.full-name" />
-														</label>
-														{form.errors.name ? (
-															<div className="invalid-feedback">
-																{form.errors.name && form.touched.name
-																	? form.errors.name
-																	: null}
-															</div>
-														) : null}
-													</div>
-												)}
-											</Field>
+											<FloatingTextField
+												name="name"
+												labelId="user.full-name"
+												validate={validateString(1, 50)}
+											/>
 										</div>
 									</div>
 									<div className="col-lg-6">
 										<div className="mb-3">
-											<Field name="nickname" validate={validateString(1, 30)}>
-												{({ field, form }: any) => (
-													<div className="form-floating mb-3">
-														<input
-															id="nickname"
-															className={`form-control ${form.errors.nickname && form.touched.nickname ? "is-invalid" : ""}`}
-															placeholder={intl.formatMessage({ id: "user.nickname" })}
-															{...field}
-														/>
-														<label htmlFor="nickname">
-															<T id="user.nickname" />
-														</label>
-														{form.errors.nickname ? (
-															<div className="invalid-feedback">
-																{form.errors.nickname && form.touched.nickname
-																	? form.errors.nickname
-																	: null}
-															</div>
-														) : null}
-													</div>
-												)}
-											</Field>
+											<FloatingTextField
+												name="nickname"
+												labelId="user.nickname"
+												validate={validateString(1, 30)}
+											/>
 										</div>
 									</div>
 								</div>
 								<div className="mb-3">
-									<Field name="email" validate={validateEmail()}>
-										{({ field, form }: any) => (
-											<div className="form-floating mb-3">
-												<input
-													id="email"
-													type="email"
-													className={`form-control ${form.errors.email && form.touched.email ? "is-invalid" : ""}`}
-													placeholder={intl.formatMessage({ id: "email-address" })}
-													{...field}
-												/>
-												<label htmlFor="email">
-													<T id="email-address" />
-												</label>
-												{form.errors.email ? (
-													<div className="invalid-feedback">
-														{form.errors.email && form.touched.email
-															? form.errors.email
-															: null}
-													</div>
-												) : null}
-											</div>
-										)}
-									</Field>
+									<FloatingTextField
+										name="email"
+										labelId="email-address"
+										type="email"
+										validate={validateEmail()}
+									/>
 								</div>
 								{currentUser && data && currentUser?.id !== data?.id ? (
 									<div className="my-3">
@@ -222,13 +171,12 @@ const UserModal = EasyModal.create(({ id, visible, remove }: Props) => {
 								) : null}
 							</Modal.Body>
 							<Modal.Footer>
-								<Button data-bs-dismiss="modal" onClick={remove} disabled={isSubmitting}>
+								<Button onClick={remove} disabled={isSubmitting}>
 									<T id="cancel" />
 								</Button>
 								<Button
 									type="submit"
 									className="ms-auto btn-orange"
-									data-bs-dismiss="modal"
 									isLoading={isSubmitting}
 									disabled={isSubmitting}
 								>

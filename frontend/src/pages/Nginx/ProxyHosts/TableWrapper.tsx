@@ -1,6 +1,6 @@
 import { IconHelp, IconSearch } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import Alert from "react-bootstrap/Alert";
 import { deleteProxyHost, toggleProxyHost } from "src/api/backend";
 import { Button, HasPermission, LoadingPage } from "src/components";
@@ -8,13 +8,42 @@ import { useProxyHosts } from "src/hooks";
 import { T } from "src/locale";
 import { showDeleteConfirmModal, showHelpModal, showProxyHostModal } from "src/modals";
 import { MANAGE, PROXY_HOSTS } from "src/modules/Permissions";
-import { showObjectSuccess } from "src/notifications";
+import { showError, showObjectSuccess } from "src/notifications";
 import Table from "./Table";
 
 export default function TableWrapper() {
 	const queryClient = useQueryClient();
 	const [search, setSearch] = useState("");
 	const { isFetching, isLoading, isError, error, data } = useProxyHosts(["owner", "access_list", "certificate"]);
+
+	const handleDelete = useCallback(
+		(id: number) =>
+			showDeleteConfirmModal({
+				title: <T id="object.delete" tData={{ object: "proxy-host" }} />,
+				onConfirm: async () => {
+					await deleteProxyHost(id);
+					showObjectSuccess("proxy-host", "deleted");
+				},
+				invalidations: [["proxy-hosts"], ["proxy-host", id]],
+				children: <T id="object.delete.content" tData={{ object: "proxy-host" }} />,
+			}),
+		[],
+	);
+
+	const handleDisableToggle = useCallback(
+		async (id: number, enabled: boolean) => {
+			try {
+				await toggleProxyHost(id, enabled);
+				showObjectSuccess("proxy-host", enabled ? "enabled" : "disabled");
+			} catch (err) {
+				showError(err instanceof Error ? err.message : String(err));
+			} finally {
+				queryClient.invalidateQueries({ queryKey: ["proxy-hosts"] });
+				queryClient.invalidateQueries({ queryKey: ["proxy-host", id] });
+			}
+		},
+		[queryClient],
+	);
 
 	if (isLoading) {
 		return <LoadingPage />;
@@ -24,20 +53,8 @@ export default function TableWrapper() {
 		return <Alert variant="danger">{error?.message || "Unknown error"}</Alert>;
 	}
 
-	const handleDelete = async (id: number) => {
-		await deleteProxyHost(id);
-		showObjectSuccess("proxy-host", "deleted");
-	};
-
-	const handleDisableToggle = async (id: number, enabled: boolean) => {
-		await toggleProxyHost(id, enabled);
-		queryClient.invalidateQueries({ queryKey: ["proxy-hosts"] });
-		queryClient.invalidateQueries({ queryKey: ["proxy-host", id] });
-		showObjectSuccess("proxy-host", enabled ? "enabled" : "disabled");
-	};
-
 	let filtered = null;
-	if (search && data) {
+	if (search && data?.length) {
 		filtered = data?.filter(
 			(item) =>
 				item.domainNames.some((domain: string) => domain.toLowerCase().includes(search)) ||
@@ -45,7 +62,7 @@ export default function TableWrapper() {
 				`${item.forwardPort}`.includes(search),
 		);
 	} else if (search !== "") {
-		// this can happen if someone deletes the last item while searching
+		// list became empty (e.g. last matching item deleted) - drop the stale filter
 		setSearch("");
 	}
 
@@ -92,15 +109,8 @@ export default function TableWrapper() {
 					data={filtered ?? data ?? []}
 					isFiltered={!!search}
 					isFetching={isFetching}
-					onEdit={(id: number) => showProxyHostModal(id)}
-					onDelete={(id: number) =>
-						showDeleteConfirmModal({
-							title: <T id="object.delete" tData={{ object: "proxy-host" }} />,
-							onConfirm: () => handleDelete(id),
-							invalidations: [["proxy-hosts"], ["proxy-host", id]],
-							children: <T id="object.delete.content" tData={{ object: "proxy-host" }} />,
-						})
-					}
+					onEdit={showProxyHostModal}
+					onDelete={handleDelete}
 					onDisableToggle={handleDisableToggle}
 					onNew={() => showProxyHostModal("new")}
 				/>

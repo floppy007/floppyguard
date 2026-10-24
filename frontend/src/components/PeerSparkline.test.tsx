@@ -22,3 +22,17 @@ describe("PeerSparkline", () => {
 		expect(line).toContain("L 200.0,");
 	});
 });
+
+describe("PeerSparkline gradient id", () => {
+	afterEach(() => cleanup());
+
+	it("keeps the same gradient id across re-renders", () => {
+		const { container, rerender } = render(<PeerSparkline data={[0, 1024]} />);
+		const first = container.querySelector("linearGradient")?.getAttribute("id");
+		rerender(<PeerSparkline data={[0, 1024, 2048]} />);
+		const second = container.querySelector("linearGradient")?.getAttribute("id");
+		expect(first).toBeTruthy();
+		expect(second).toBe(first);
+		expect(container.querySelector("path")?.getAttribute("fill")).toBe(`url(#${first})`);
+	});
+});

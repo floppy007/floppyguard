@@ -6,7 +6,8 @@ vi.mock("./base", () => ({ del: (...args: unknown[]) => del(...args), get: vi.fn
 const { deleteAgentGuarded, isAgentGone, AGENT_FORCE_DELETE_OFFLINE_S } = await import("./agents");
 const { hostNginxError } = await import("src/components/Table/Formatter/HostStatusFormatter");
 
-const GUARD = "Agent filtert noch („nur Freigaben“): erst auf „offen“ umstellen und warten, bis der Agent den Filter als gesetzt meldet";
+const GUARD =
+	"Agent filtert noch („nur Freigaben“): erst auf „offen“ umstellen und warten, bis der Agent den Filter als gesetzt meldet";
 const now = () => Math.floor(Date.now() / 1000);
 
 describe("deleteAgentGuarded", () => {

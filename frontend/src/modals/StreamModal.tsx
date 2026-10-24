@@ -57,9 +57,9 @@ const StreamModal = EasyModal.create(({ id, visible, remove }: Props) => {
 				<Formik
 					initialValues={
 						{
-							incomingPort: data?.incomingPort,
-							forwardingHost: data?.forwardingHost,
-							forwardingPort: data?.forwardingPort,
+							incomingPort: data?.incomingPort ?? "",
+							forwardingHost: data?.forwardingHost ?? "",
+							forwardingPort: data?.forwardingPort ?? "",
 							tcpForwarding: data?.tcpForwarding,
 							udpForwarding: data?.udpForwarding,
 							certificateId: data?.certificateId,
@@ -304,14 +304,13 @@ const StreamModal = EasyModal.create(({ id, visible, remove }: Props) => {
 								</div>
 							</Modal.Body>
 							<Modal.Footer>
-								<Button data-bs-dismiss="modal" onClick={remove} disabled={isSubmitting}>
+								<Button onClick={remove} disabled={isSubmitting}>
 									<T id="cancel" />
 								</Button>
 								<Button
 									type="submit"
 									actionType="primary"
 									className="ms-auto"
-									data-bs-dismiss="modal"
 									isLoading={isSubmitting}
 									disabled={isSubmitting}
 								>

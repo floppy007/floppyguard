@@ -9,14 +9,11 @@ interface Props {
 	name?: string;
 }
 export function BasicAuthFields({ initialValues, name = "items" }: Props) {
-	const [values, setValues] = useState<AccessListItem[]>(initialValues || []);
 	const { setFieldValue } = useFormikContext();
 
 	const blankItem: AccessListItem = { username: "", password: "" };
 
-	if (values?.length === 0) {
-		setValues([blankItem]);
-	}
+	const [values, setValues] = useState<AccessListItem[]>(() => (initialValues?.length ? initialValues : [blankItem]));
 
 	const handleAdd = () => {
 		setValues([...values, blankItem]);
@@ -82,8 +79,8 @@ export function BasicAuthFields({ initialValues, name = "items" }: Props) {
 						/>
 					</div>
 					<div className="col-1">
-						<a
-							role="button"
+						<button
+							type="button"
 							className="btn btn-ghost btn-danger p-0"
 							onClick={(e) => {
 								e.preventDefault();
@@ -91,7 +88,7 @@ export function BasicAuthFields({ initialValues, name = "items" }: Props) {
 							}}
 						>
 							<IconX size={16} />
-						</a>
+						</button>
 					</div>
 				</div>
 			))}

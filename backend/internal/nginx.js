@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import fs from "node:fs";
+import net from "node:net";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import _ from "lodash";
@@ -221,11 +222,51 @@ const assertSafeForwardField = (value, fieldName) => {
 	}
 };
 
+/**
+ * Stream proxy_pass target: an IPv6 literal must be wrapped in [...] before
+ * stream.conf appends ":<port>", otherwise nginx rejects the upstream
+ * ("invalid port in upstream") and the stream never goes live (upstream #5741).
+ *
+ * @param   {String} forwardingHost
+ * @returns {String}
+ */
+const streamUpstreamHost = (forwardingHost) =>
+	typeof forwardingHost === "string" && net.isIPv6(forwardingHost) ? `[${forwardingHost}]` : forwardingHost;
+
+/**
+ * Fail loud when a host row reaches the renderer without the relations the
+ * templates need. A row with certificate_id but no loaded `certificate` renders
+ * without `listen 443`/ssl_certificate, and an access_list without clients/items
+ * renders `deny all;` without auth_basic. Both pass `nginx -t`, so they would go
+ * live silently. A relation that was fetched but has no match (e.g. soft-deleted
+ * certificate) is `null` and allowed; only `undefined` (= never loaded) rejects.
+ *
+ * @param   {String}  niceHostType
+ * @param   {Object}  host
+ * @throws  {errs.ConfigurationError}
+ */
+const assertHostRelationsLoaded = (niceHostType, host) => {
+	if (niceHostType === "default") {
+		return;
+	}
+	if (Number(host.certificate_id) > 0 && host.certificate === undefined) {
+		throw new errs.ConfigurationError(`${niceHostType} #${host.id} has certificate_id but no certificate loaded`);
+	}
+	if (niceHostType === "proxy_host" && Number(host.access_list_id) > 0) {
+		const list = host.access_list;
+		if (list === undefined || (list && (!Array.isArray(list.items) || !Array.isArray(list.clients)))) {
+			throw new errs.ConfigurationError(
+				`${niceHostType} #${host.id} has access_list_id but no access list clients/items loaded`,
+			);
+		}
+	}
+};
+
 // Every conf mutation + `nginx -t` + reload runs behind one module-level
 // lock: configure() and bulkGenerateConfigs() put untested confs live and keep
 // the previous one in a fixed <conf>.bak, so two overlapping calls could test
 // against each other's half-written state or consume each other's backup.
-// Re-entrant (configure -> reload -> test) via AsyncLocalStorage.
+// Re-entrant (configure -> test / reloadTested) via AsyncLocalStorage.
 const configLockContext = new AsyncLocalStorage();
 let configLockTail = Promise.resolve();
 const withConfigLock = (fn) => {
@@ -398,7 +439,9 @@ const internalNginx = {
 					});
 			})
 			.then(() => {
-				return internalNginx.reload();
+				// No third `nginx -t`: the live set was just tested (step 2 on
+				// success, or the step-1 baseline after restore/delete).
+				return internalNginx.reloadTested();
 			})
 			.then(() => {
 				if (rejectedOutput !== null) {
@@ -511,11 +554,17 @@ const internalNginx = {
 	/**
 	 * @returns {Promise}
 	 */
-	reload: () => {
-		return internalNginx.test().then(() => {
-			logger.info("Reloading Nginx");
-			return utils.execFile("/usr/sbin/nginx", ["-s", "reload"]);
-		});
+	reload: () => internalNginx.test().then(() => internalNginx.reloadTested()),
+
+	/**
+	 * `nginx -s reload` WITHOUT a preceding `nginx -t`. Only for callers that
+	 * have just run test() against the exact live state they are reloading
+	 * (configure(), bulkGenerateConfigs()). Everyone else uses reload().
+	 * @returns {Promise}
+	 */
+	reloadTested: () => {
+		logger.info("Reloading Nginx");
+		return utils.execFile("/usr/sbin/nginx", ["-s", "reload"]);
 	},
 
 	/**
@@ -638,11 +687,14 @@ const internalNginx = {
 			// assertSafeAdvancedConfig entirely).
 			try {
 				assertSafeAdvancedConfig(host.advanced_config);
+				assertHostRelationsLoaded(nice_host_type, host);
 				if (nice_host_type === "redirection_host") {
 					assertSafeForwardField(host.forward_domain_name, "forward_domain_name");
 				}
 				if (nice_host_type === "stream") {
 					assertSafeForwardField(host.forwarding_host, "forwarding_host");
+					// host is a deep copy: the stored row keeps the bare address
+					host.forwarding_host = streamUpstreamHost(host.forwarding_host);
 				}
 			} catch (err) {
 				reject(err);
@@ -886,7 +938,13 @@ const internalNginx = {
 
 		let firstOutput;
 		try {
-			await Promise.all(list.map((host) => internalNginx.generateConfig(hostType, host)));
+			// Wait for EVERY render before testing or putting confs back: with
+			// Promise.all an early rejection (e.g. a forbidden legacy
+			// advanced_config) would leave the other renders running, and they
+			// would write their confs over the restored ones below.
+			const results = await Promise.allSettled(list.map((host) => internalNginx.generateConfig(hostType, host)));
+			const failed = results.find((r) => r.status === "rejected");
+			if (failed) throw failed.reason;
 			await internalNginx.test();
 			await dropBackups();
 			await internalNginx.clearHostErrors(hostType, list);
@@ -938,7 +996,7 @@ const internalNginx = {
 		// The accepted confs are valid; make them live now instead of leaving
 		// them for whatever reload comes next.
 		try {
-			await internalNginx.reload();
+			await internalNginx.reloadTested();
 		} catch (err) {
 			logger.error(`Reload after regenerating ${hostType} configs failed: ${err.message}`);
 		}
@@ -1024,21 +1082,6 @@ const internalNginx = {
 	},
 
 	/**
-	 * @param   {String}  host_type
-	 * @param   {Array}   hosts
-	 * @returns {Promise}
-	 */
-	bulkDeleteConfigs: (host_type, hosts) => {
-		const promises = [];
-		hosts.map((host) => {
-			promises.push(internalNginx.deleteConfig(host_type, host, true));
-			return true;
-		});
-
-		return Promise.all(promises);
-	},
-
-	/**
 	 * @param   {string}  config
 	 * @returns {boolean}
 	 */
@@ -1066,7 +1109,6 @@ for (const name of [
 	"configure",
 	"bulkGenerateConfigs",
 	"bulkStashConfigs",
-	"bulkDeleteConfigs",
 	"stashConfig",
 	"backupConfig",
 	"restoreConfigBackup",
@@ -1078,6 +1120,7 @@ for (const name of [
 	"deleteLetsEncryptRequestConfig",
 	"test",
 	"reload",
+	"reloadTested",
 ]) {
 	const impl = internalNginx[name];
 	internalNginx[name] = (...args) => withConfigLock(() => impl(...args));
@@ -1091,5 +1134,7 @@ export const _testExports = {
 	assertSafeLocationPath,
 	tokenizeNginxStatements,
 	assertSafeForwardField,
+	assertHostRelationsLoaded,
+	streamUpstreamHost,
 	withConfigLock,
 };

@@ -81,14 +81,13 @@ const DeleteConfirmModal = EasyModal.create(
 					<div className="text-center mb-3 platform-modal-copy">{children}</div>
 				</Modal.Body>
 				<Modal.Footer>
-					<Button data-bs-dismiss="modal" onClick={remove} disabled={isSubmitting}>
+					<Button onClick={remove} disabled={isSubmitting}>
 						<T id="cancel" />
 					</Button>
 					<Button
 						type="submit"
 						actionType="primary"
 						className="ms-auto btn-red"
-						data-bs-dismiss="modal"
 						isLoading={isSubmitting}
 						disabled={isSubmitting}
 						onClick={onSubmit}

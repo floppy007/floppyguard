@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import Ajv from "ajv/dist/2020.js";
 import _ from "lodash";
 import { access as logger } from "../logger.js";
-import proxyHostModel from "../models/proxy_host.js";
+import authModel from "../models/auth.js";
 import TokenModel from "../models/token.js";
 import userModel from "../models/user.js";
 import permsSchema from "./access/permissions.json" with { type: "json" };
@@ -21,6 +21,48 @@ import errs from "./error.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+// The permission files and the role/permission schemas are static, so they are parsed and
+// compiled once per process. Only the users-* permissions reference the per-token `objects#`
+// schema (enum of the caller's own ids) and still need a fresh Ajv per call.
+const AJV_OPTS = { verbose: true, allErrors: true, breakOnError: true, coerceTypes: true };
+const staticAjv = new Ajv({ ...AJV_OPTS, schemas: [roleSchema, permsSchema] });
+const permissionJsonCache = new Map();
+const staticValidatorCache = new Map();
+
+const loadPermissionJson = (permission) => {
+	let entry = permissionJsonCache.get(permission);
+	if (!entry) {
+		const raw = fs.readFileSync(`${__dirname}/access/${permission.replace(/:/gim, "-")}.json`, {
+			encoding: "utf8",
+		});
+		// Unknown permissions throw here (and are not cached), exactly as before
+		const json = JSON.parse(raw);
+		entry = { json, needsObjects: JSON.stringify(json).includes('"objects#') };
+		permissionJsonCache.set(permission, entry);
+	}
+	return entry;
+};
+
+/**
+ * Refuse a token minted before the user's password last changed: taking an account back
+ * from whoever knows the old password has to end the sessions that password opened.
+ * Both sides are whole seconds from the app clock: setPassword() stamps
+ * meta.password_changed_at with Date.now(), jsonwebtoken stamps `iat`. A token from the
+ * same second as the change is kept. Accounts without a password row (SSO only) or
+ * without the marker (password unchanged since this check exists) are not affected.
+ *
+ * @param   {number} userId
+ * @param   {number} iat     token issued-at, seconds
+ * @returns {Promise<void>}
+ */
+export const assertTokenNotRevoked = async (userId, iat) => {
+	const auth = await authModel.query().where("user_id", userId).andWhere("type", "password").first();
+	const changedAt = Number(auth?.meta?.password_changed_at);
+	if (changedAt > 0 && typeof iat === "number" && iat < changedAt) {
+		throw new errs.TokenRevokedError("Token was issued before the password was changed");
+	}
+};
 
 export default function (tokenString) {
 	const Token = TokenModel();
@@ -45,7 +87,10 @@ export default function (tokenString) {
 			throw new errs.PermissionError("Permission Denied");
 		}
 
-		tokenData = await Token.load(tokenString);
+		// jwtdecode() already verified the token via load(); don't RSA-verify it twice
+		if (!tokenData) {
+			tokenData = await Token.load(tokenString);
+		}
 
 		// At this point we need to load the user from the DB and make sure they:
 		// - exist (and not soft deleted)
@@ -78,22 +123,25 @@ export default function (tokenString) {
 				});
 
 				if (!ok) {
-					throw new errs.AuthError("Invalid token scope for User");
+					throw new errs.UnauthorizedError("Invalid token scope for User");
 				}
+
+				await assertTokenNotRevoked(user.id, tokenData.iat);
+
 				initialised = true;
 				userRoles = user.roles;
 				permissions = user.permissions;
 			} else {
-				throw new errs.AuthError("User cannot be loaded for Token");
+				throw new errs.UnauthorizedError("User cannot be loaded for Token");
 			}
 		}
 		initialised = true;
 	};
 
 	/**
-	 * Fetches the object ids from the database, only once per object type, for this token.
-	 * This only applies to USER token scopes, as all other tokens are not really bound
-	 * by object scopes
+	 * Fetches the object ids for this token, only once per object type. This only applies
+	 * to USER token scopes, as all other tokens are not really bound by object scopes.
+	 * The only object type referenced via `objects#` is "users" (users-get/-update/-password).
 	 *
 	 * @param   {String} objectType
 	 * @returns {Promise}
@@ -106,37 +154,14 @@ export default function (tokenString) {
 				throw new errs.AuthError("User Token supplied without a User ID");
 			}
 
-			const tokenUserId = tokenData.attrs.id ? tokenData.attrs.id : 0;
+			const tokenUserId = tokenData.attrs.id;
 
 			if (typeof objectCache[objectType] !== "undefined") {
 				objects = objectCache[objectType];
 			} else {
-				switch (objectType) {
-					// USERS - should only return yourself
-					case "users":
-						objects = tokenUserId ? [tokenUserId] : [];
-						break;
-
-					// Proxy Hosts
-					case "proxy_hosts": {
-						const query = proxyHostModel.query().select("id").andWhere("is_deleted", 0);
-
-						if (permissions.visibility === "user") {
-							query.andWhere("owner_user_id", tokenUserId);
-						}
-
-						const rows = await query;
-						objects = [];
-						_.forEach(rows, (ruleRow) => {
-							objects.push(ruleRow.id);
-						});
-
-						// enum should not have less than 1 item
-						if (!objects.length) {
-							objects.push(0);
-						}
-						break;
-					}
+				// USERS - should only return yourself
+				if (objectType === "users") {
+					objects = [tokenUserId];
 				}
 				objectCache[objectType] = objects;
 			}
@@ -158,20 +183,7 @@ export default function (tokenString) {
 			description: "Actor Properties",
 			type: "object",
 			additionalProperties: false,
-			properties: {
-				user_id: {
-					anyOf: [
-						{
-							type: "number",
-							enum: [Token.get("attrs").id],
-						},
-					],
-				},
-				scope: {
-					type: "string",
-					pattern: `^${Token.get("scope")}$`,
-				},
-			},
+			properties: {},
 		};
 
 		const result = await this.loadObjects(baseObjectType);
@@ -203,13 +215,12 @@ export default function (tokenString) {
 		 */
 		load: async (allowInternal) => {
 			if (tokenString) {
-				return await Token.load(tokenString);
+				tokenData = await Token.load(tokenString);
+				return tokenData;
 			}
 			allowInternalAccess = allowInternal;
 			return allowInternal || null;
 		},
-
-		reloadObjects: this.loadObjects,
 
 		/**
 		 *
@@ -224,7 +235,7 @@ export default function (tokenString) {
 
 			try {
 				await this.init();
-				const objectSchema = await this.getObjectSchema(permission);
+				const { json: permJson, needsObjects } = loadPermissionJson(permission);
 
 				const dataSchema = {
 					[permission]: {
@@ -241,34 +252,45 @@ export default function (tokenString) {
 					},
 				};
 
-				const permissionSchema = {
-					$async: true,
-					$id: "permissions",
-					type: "object",
-					additionalProperties: false,
-					properties: {},
-				};
-
-				const rawData = fs.readFileSync(`${__dirname}/access/${permission.replace(/:/gim, "-")}.json`, {
-					encoding: "utf8",
-				});
-				permissionSchema.properties[permission] = JSON.parse(rawData);
-
-				const ajv = new Ajv({
-					verbose: true,
-					allErrors: true,
-					breakOnError: true,
-					coerceTypes: true,
-					schemas: [roleSchema, permsSchema, objectSchema, permissionSchema],
-				});
-
-				const valid = await ajv.validate("permissions", dataSchema);
+				let valid;
+				if (needsObjects) {
+					// users:get / users:update / users:password: the enum depends on the token,
+					// so these keep a per-call Ajv with the dynamic objects schema
+					const objectSchema = await this.getObjectSchema(permission);
+					const permissionSchema = {
+						$async: true,
+						$id: "permissions",
+						type: "object",
+						additionalProperties: false,
+						properties: { [permission]: permJson },
+					};
+					const ajv = new Ajv({
+						...AJV_OPTS,
+						schemas: [roleSchema, permsSchema, objectSchema, permissionSchema],
+					});
+					valid = await ajv.validate("permissions", dataSchema);
+				} else {
+					let validate = staticValidatorCache.get(permission);
+					if (!validate) {
+						// No $id: a second compile with $id "permissions" would collide in the shared Ajv
+						validate = staticAjv.compile({
+							$async: true,
+							type: "object",
+							additionalProperties: false,
+							properties: { [permission]: permJson },
+						});
+						staticValidatorCache.set(permission, validate);
+					}
+					valid = await validate(dataSchema);
+				}
 				return valid && dataSchema[permission];
 			} catch (err) {
+				// Token/account no longer valid: keep the 401 so the SPA logs out
+				if (err instanceof errs.UnauthorizedError || err instanceof errs.TokenRevokedError) throw err;
 				err.permission = permission;
 				err.permission_data = data;
 				logger.error(permission, data, err.message);
-				throw errs.PermissionError("Permission Denied", err);
+				throw new errs.PermissionError("Permission Denied", err);
 			}
 		},
 	};

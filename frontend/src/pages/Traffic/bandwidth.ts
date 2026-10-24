@@ -1,4 +1,5 @@
-import type { PeerBandwidth } from "src/api/backend";
+import type { PeerBandwidth, WireGuardLink } from "src/api/backend";
+import { ACTIVE_HANDSHAKE_WINDOW_S } from "src/pages/WireGuard/topology";
 
 /** Current RX/TX rate = sum of every peer's newest live sample. */
 export const currentRates = (peers: PeerBandwidth[]): { rx: number; tx: number } =>
@@ -9,6 +10,16 @@ export const currentRates = (peers: PeerBandwidth[]): { rx: number; tx: number }
 		},
 		{ rx: 0, tx: 0 },
 	);
+
+/**
+ * Traffic/Dashboard "live" test: the hub flagged the peer active AND the handshake
+ * is still inside the window by the browser clock (guards against stale poll data).
+ * Stricter than linkStatus() in topology.ts, which trusts `active` alone for the map.
+ */
+export const isLinkActive = (
+	link: Pick<WireGuardLink, "active" | "latestHandshake">,
+	now: number = Date.now() / 1000,
+): boolean => link.active && link.latestHandshake > 0 && now - link.latestHandshake < ACTIVE_HANDSHAKE_WINDOW_S;
 
 const volume = (p: PeerBandwidth) => p.history.reduce((s, h) => s + h.rx + h.tx, 0);
 

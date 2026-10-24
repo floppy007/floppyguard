@@ -51,6 +51,8 @@ export interface TwoFactorStatusResponse {
 export interface TwoFactorSetupResponse {
 	secret: string;
 	otpauthUrl: string;
+	/** Backend-rendered QR of otpauthUrl (data:image/png;base64,...); the secret never leaves the server */
+	qrDataUrl: string;
 }
 
 export interface TwoFactorEnableResponse {

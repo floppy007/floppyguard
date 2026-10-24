@@ -1,11 +1,10 @@
 import { useQueryClient } from "@tanstack/react-query";
 import EasyModal, { type InnerModalProps } from "ez-modal-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Alert } from "react-bootstrap";
 import Modal from "react-bootstrap/Modal";
 import { renewCertificate } from "src/api/backend";
-import { Button, Loading } from "src/components";
-import { useCertificate } from "src/hooks";
+import { Button } from "src/components";
 import { T } from "src/locale";
 import { showObjectSuccess } from "src/notifications";
 
@@ -19,14 +18,15 @@ const showRenewCertificateModal = (id: number) => {
 
 const RenewCertificateModal = EasyModal.create(({ id, visible, remove }: Props) => {
 	const queryClient = useQueryClient();
-	const { data, isLoading, error } = useCertificate(id);
 	const [errorMsg, setErrorMsg] = useState<ReactNode | null>(null);
-	const [isFresh, setIsFresh] = useState(true);
 	const [isSubmitting, setIsSubmitting] = useState(false);
+	// Ref, not state, as the guard: under StrictMode the mount effect runs twice with
+	// the same closure and would otherwise POST /renew twice.
+	const startedRef = useRef(false);
 
 	useEffect(() => {
-		if (!data || !isFresh || isSubmitting) return;
-		setIsFresh(false);
+		if (startedRef.current) return;
+		startedRef.current = true;
 		setIsSubmitting(true);
 
 		renewCertificate(id)
@@ -41,7 +41,7 @@ const RenewCertificateModal = EasyModal.create(({ id, visible, remove }: Props) 
 			.finally(() => {
 				setIsSubmitting(false);
 			});
-	}, [id, data, isFresh, isSubmitting, remove, queryClient]);
+	}, [id, remove, queryClient]);
 
 	return (
 		<Modal show={visible} onHide={isSubmitting ? undefined : remove}>
@@ -54,16 +54,10 @@ const RenewCertificateModal = EasyModal.create(({ id, visible, remove }: Props) 
 				<Alert variant="danger" show={!!errorMsg}>
 					{errorMsg}
 				</Alert>
-				{isLoading && <Loading noLogo />}
-				{!isLoading && error && (
-					<Alert variant="danger" className="m-3">
-						{error?.message || "Unknown error"}
-					</Alert>
-				)}
-				{data && isSubmitting && !errorMsg ? <p className="text-center mt-3">Please wait ...</p> : null}
+				{isSubmitting && !errorMsg ? <p className="text-center mt-3">Please wait ...</p> : null}
 			</Modal.Body>
 			<Modal.Footer>
-				<Button data-bs-dismiss="modal" onClick={remove} disabled={isSubmitting}>
+				<Button onClick={remove} disabled={isSubmitting}>
 					<T id="action.close" />
 				</Button>
 			</Modal.Footer>

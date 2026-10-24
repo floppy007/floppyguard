@@ -236,6 +236,18 @@ The apply result panel in the UI shows which peers were updated and which agents
 
 Certificates are renewed automatically by the backend's built-in renewal timer (runs daily).
 
+Since 2.4.0 the DNS-challenge credentials (`credentials/credentials-<id>`) exist on disk only while FloppyGuard runs certbot for that certificate (mode 0600, removed afterwards). On startup the backend deletes leftover `credentials-<id>` files, except when a file is the only copy (DNS certificate without credentials in the database; a warning is logged). Consequences:
+
+- The distribution's `certbot.timer` can no longer renew the FloppyGuard `npm-*` DNS certificates. Limit it to certificates FloppyGuard does not manage. On the hub this is done with a `certbot.service` drop-in, for example:
+  ```ini
+  # /etc/systemd/system/certbot.service.d/override.conf
+  [Service]
+  ExecStart=
+  ExecStart=/usr/bin/certbot -q renew --no-random-sleep-on-renew --cert-name sso-comnic-it-de
+  ```
+  then `systemctl daemon-reload`.
+- To renew a FloppyGuard certificate by hand, use **Renew** in the UI, not `certbot renew` on the shell.
+
 If certbot plugin is missing:
 ```bash
 . /opt/certbot/bin/activate

@@ -1,4 +1,5 @@
-import _ from "lodash";
+import bcrypt from "bcrypt";
+import { assertTokenNotRevoked } from "../lib/access.js";
 import errs from "../lib/error.js";
 import { parseDatePeriod } from "../lib/helpers.js";
 import authModel from "../models/auth.js";
@@ -11,12 +12,16 @@ const ERROR_MESSAGE_INVALID_AUTH_I18N = "error.invalid-auth";
 const ERROR_MESSAGE_INVALID_2FA = "Invalid verification code";
 const ERROR_MESSAGE_INVALID_2FA_I18N = "error.invalid-2fa";
 
+// Pre-computed cost-13 hash (same cost as models/auth.js). Compared against on the
+// unknown-e-mail / no-password-auth paths so a failed login takes the same time
+// whether or not the account exists (prevents e-mail enumeration via timing).
+const TIMING_PAD_HASH = "$2b$13$XzHj/zG5qzDEi4lRIQKUZeOo..YPEnbsquiFUgxBeBf5PGBm4fO6.";
+
 export default {
 	/**
 	 * @param   {Object} data
 	 * @param   {String} data.identity
 	 * @param   {String} data.secret
-	 * @param   {String} [data.scope]
 	 * @param   {String} [data.expiry]
 	 * @param   {String} [issuer]
 	 * @returns {Promise}
@@ -24,7 +29,6 @@ export default {
 	getTokenFromEmail: async (data, issuer) => {
 		const Token = TokenModel();
 
-		data.scope = data.scope || "user";
 		data.expiry = data.expiry || "1d";
 
 		const user = await userModel
@@ -35,13 +39,15 @@ export default {
 			.first();
 
 		if (!user) {
-			throw new errs.AuthError(ERROR_MESSAGE_INVALID_AUTH);
+			await bcrypt.compare(String(data.secret ?? ""), TIMING_PAD_HASH);
+			throw new errs.AuthError(ERROR_MESSAGE_INVALID_AUTH, ERROR_MESSAGE_INVALID_AUTH_I18N);
 		}
 
 		const auth = await authModel.query().where("user_id", "=", user.id).where("type", "=", "password").first();
 
 		if (!auth) {
-			throw new errs.AuthError(ERROR_MESSAGE_INVALID_AUTH);
+			await bcrypt.compare(String(data.secret ?? ""), TIMING_PAD_HASH);
+			throw new errs.AuthError(ERROR_MESSAGE_INVALID_AUTH, ERROR_MESSAGE_INVALID_AUTH_I18N);
 		}
 
 		const valid = await auth.verifyPassword(data.secret);
@@ -49,15 +55,8 @@ export default {
 			throw new errs.AuthError(ERROR_MESSAGE_INVALID_AUTH, ERROR_MESSAGE_INVALID_AUTH_I18N);
 		}
 
-		if (data.scope !== "user" && _.indexOf(user.roles, data.scope) === -1) {
-			// The scope requested doesn't exist as a role against the user,
-			// you shall not pass.
-			throw new errs.AuthError(`Invalid scope: ${data.scope}`);
-		}
-
-		// Check if 2FA is enabled
-		const has2FA = await twoFactor.isEnabled(user.id);
-		if (has2FA) {
+		// Check if 2FA is enabled (the auth row is already loaded, no second lookup)
+		if (auth.meta?.totp_enabled === true) {
 			// Return challenge token instead of full token
 			const challengeToken = await Token.create({
 				iss: issuer || "api",
@@ -85,7 +84,7 @@ export default {
 			attrs: {
 				id: user.id,
 			},
-			scope: [data.scope],
+			scope: ["user"],
 			expiresIn: data.expiry,
 		});
 
@@ -99,7 +98,6 @@ export default {
 	 * @param {Access} access
 	 * @param {Object} [data]
 	 * @param {String} [data.expiry]
-	 * @param {String} [data.scope]   Only considered if existing token scope is admin
 	 * @returns {Promise}
 	 */
 	getFreshToken: async (access, data) => {
@@ -112,10 +110,7 @@ export default {
 			// Only real login sessions may be refreshed. A 2FA challenge token
 			// (scope "2fa-challenge", 5 minutes) must never be re-minted into a
 			// long-lived token.
-			if (
-				access.token.hasScope("2fa-challenge") ||
-				(!access.token.hasScope("user") && !access.token.hasScope("admin"))
-			) {
+			if (access.token.hasScope("2fa-challenge") || !access.token.hasScope("user")) {
 				throw new errs.AuthError("Invalid token");
 			}
 
@@ -129,8 +124,11 @@ export default {
 				.andWhere("is_disabled", 0)
 				.first();
 			if (!user) {
-				throw new errs.AuthError("Invalid token");
+				// 401: the SPA drops the token and sends the user to /login
+				throw new errs.UnauthorizedError("Invalid token");
 			}
+			// A token revoked by a password change must not be re-minted into a valid one
+			await assertTokenNotRevoked(userId, access.token.get("iat"));
 
 			// Create a moment of the expiry expression
 			let expiry = parseDatePeriod(thisData.expiry);
@@ -166,15 +164,7 @@ export default {
 				}
 			}
 
-			// Only admins can request otherwise scoped tokens
-			let scope = access.token.get("scope");
-			if (thisData.scope && access.token.hasScope("admin")) {
-				scope = [thisData.scope];
-
-				if (thisData.scope === "job-board" || thisData.scope === "worker") {
-					token_attrs.id = 0;
-				}
-			}
+			const scope = access.token.get("scope");
 
 			const signed = await Token.create({
 				iss: "api",
@@ -211,13 +201,23 @@ export default {
 		}
 
 		// Check scope
-		if (!tokenData.scope || tokenData.scope[0] !== "2fa-challenge") {
+		if (tokenData.scope?.[0] !== "2fa-challenge") {
 			throw new errs.AuthError("Invalid challenge token");
 		}
 
 		const userId = tokenData.attrs?.id;
 		if (!userId) {
 			throw new errs.AuthError("Invalid challenge token");
+		}
+
+		// The challenge was earned with the password: a password change since then voids it
+		try {
+			await assertTokenNotRevoked(userId, tokenData.iat);
+		} catch (err) {
+			if (err instanceof errs.TokenRevokedError) {
+				throw new errs.AuthError("Invalid or expired challenge token");
+			}
+			throw err;
 		}
 
 		// Verify 2FA code

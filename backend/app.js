@@ -68,9 +68,20 @@ app.use("/", mainRoutes);
 // production error handler
 // no stacktraces leaked to user
 app.use((err, _req, res, _) => {
+	// objection ValidationError (bad ?expand= relation / eager expression, model validation)
+	// exposes `statusCode` (400) instead of `status`/`public`; treat 4xx as a public client error.
+	if (
+		typeof err.status === "undefined" &&
+		Number.isInteger(err.statusCode) &&
+		err.statusCode >= 400 &&
+		err.statusCode < 500
+	) {
+		err.status = err.statusCode;
+		err.public = true;
+	}
 	const payload = {
 		error: {
-			code: err.status,
+			code: err.status || 500,
 			message: err.public ? err.message : "Internal Error",
 		},
 	};

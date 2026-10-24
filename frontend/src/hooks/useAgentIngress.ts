@@ -82,6 +82,18 @@ const useAgentIngress = (agentId: number, options = {}) => {
 	});
 };
 
+/**
+ * Enabled-rule count of one agent. Normally from the shared check (no full
+ * ingress fetch per agent, N+1), but the check only lists agents bound to a
+ * WireGuard link: for an unbound agent (or an older backend without the count)
+ * fall back to its own ingress state once the check has settled.
+ */
+const useAgentIngressActiveRules = (agentId: number, fromCheck: number | null, checkSettled: boolean) => {
+	const fallback = useAgentIngress(agentId, { enabled: checkSettled && fromCheck === null });
+	if (fromCheck !== null) return fromCheck;
+	return fallback.data ? fallback.data.rules.filter((r) => r.enabled).length : null;
+};
+
 const useAgentIngressPreview = (agentId: number, options = {}) => {
 	return useQuery<AgentIngressPreview, Error>({
 		queryKey: ["agent-ingress-preview", agentId],
@@ -167,6 +179,7 @@ const useDisableAgentIngressRules = (agentId: number, { prune = false }: { prune
 export {
 	invalidateAgentIngress,
 	useAgentIngress,
+	useAgentIngressActiveRules,
 	useAgentIngressCatalog,
 	useAgentIngressCheck,
 	useAgentIngressPreview,

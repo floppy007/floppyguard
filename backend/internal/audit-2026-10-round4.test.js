@@ -55,9 +55,9 @@ describe("forced agent delete", () => {
 				return q;
 			},
 			first: async () => row,
-			patchAndFetchById: async (_id, p) => {
+			patch(p) {
 				patches.push(p);
-				return { ...row, ...p };
+				return q;
 			},
 			delete: async () => 0,
 		};
@@ -129,7 +129,7 @@ describe("agent reinstall token pickup (FILE_TOKEN)", () => {
 		try {
 			return runBash(
 				[
-					"log() { echo \"LOG $*\" >&2; }",
+					'log() { echo "LOG $*" >&2; }',
 					// the hub accepts only the new token
 					'fg_curl() { [ "$FGTOKEN" = "newtoken" ] && echo "{\\"ok\\":1}"; }',
 					`FGTOKEN="${current}"`,
@@ -192,9 +192,9 @@ describe("uploadConfig resync", () => {
 				return q;
 			},
 			first: async () => row,
-			patchAndFetchById: async (_id, p) => {
+			patch(p) {
 				patches.push(p);
-				return { ...row, ...p };
+				return q;
 			},
 		};
 		Agent.query = () => q;
@@ -232,7 +232,9 @@ describe("uploadConfig resync", () => {
 				return q;
 			},
 			first: async () => row,
-			patchAndFetchById: async (_id, p) => ({ ...row, ...p }),
+			patch() {
+				return q;
+			},
 		};
 		Agent.query = () => q;
 		internalAgent.syncAgentConfigs = async () => {
@@ -245,6 +247,38 @@ describe("uploadConfig resync", () => {
 		} finally {
 			Agent.query = orig.query;
 			internalAgent.syncAgentConfigs = orig.sync;
+		}
+	});
+
+	it("a non-string config_text is a 400, a missing one stays empty-config", async () => {
+		const row = { id: 11, name: "typed", wg_link_name: null, wg_interface: "wg0", config_text: null };
+		const orig = Agent.query;
+		const patches = [];
+		const q = {
+			where() {
+				return q;
+			},
+			first: async () => row,
+			patch(p) {
+				patches.push(p);
+				return q;
+			},
+		};
+		Agent.query = () => q;
+		try {
+			for (const bad of [5, ["x"], { a: 1 }, true]) {
+				await assert.rejects(() => internalAgent.uploadConfig(TOKEN, { config_text: bad }), /must be a string/);
+			}
+			for (const empty of [{}, { config_text: null }, { config_text: "  " }]) {
+				assert.deepEqual(await internalAgent.uploadConfig(TOKEN, empty), {
+					ok: true,
+					stored: false,
+					reason: "empty-config",
+				});
+			}
+			assert.equal(patches.length, 0);
+		} finally {
+			Agent.query = orig;
 		}
 	});
 });

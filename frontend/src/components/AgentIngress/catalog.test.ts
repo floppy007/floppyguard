@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
 	collapseCidrs,
 	describeRule,
-	entryById,
 	entryLabel,
 	expandEntries,
 	flatEntries,
@@ -121,7 +120,7 @@ const catalogFixture: AgentIngressCatalog = {
 
 const cat = catalogFixture;
 const byId = (id: string) => {
-	const e = entryById(cat).get(id);
+	const e = flatEntries(cat).find((x) => x.id === id);
 	if (!e) throw new Error(id);
 	return e;
 };
@@ -250,9 +249,7 @@ describe("catalog labels", () => {
 		]);
 		const expanded = expandEntries(cat.sources, cat);
 		// the site's nets already have entries: only its tunnel address is split off
-		expect(expanded.filter((e) => e.id.startsWith("site:wg0:H#")).map((e) => e.cidrs)).toEqual([
-			["10.10.0.5/32"],
-		]);
+		expect(expanded.filter((e) => e.id.startsWith("site:wg0:H#")).map((e) => e.cidrs)).toEqual([["10.10.0.5/32"]]);
 		expect(expanded.every((e) => e.cidrs.length === 1)).toBe(true);
 	});
 });

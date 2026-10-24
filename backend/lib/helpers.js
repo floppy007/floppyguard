@@ -21,7 +21,7 @@ import { isPostgres } from "./config.js";
  * @returns {Object}
  */
 const parseDatePeriod = (expression) => {
-	const matches = expression.match(/^([0-9]+)(y|Q|M|w|d|h|m|s|ms)$/m);
+	const matches = typeof expression === "string" ? expression.match(/^([0-9]+)(y|Q|M|w|d|h|m|s|ms)$/) : null;
 	if (matches) {
 		return moment().add(matches[1], matches[2]);
 	}

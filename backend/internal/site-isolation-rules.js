@@ -26,7 +26,7 @@
 
 import { createHash } from "node:crypto";
 import error from "../lib/error.js";
-import { canonicalCidr, cidrContains } from "./agent-ingress-rules.js";
+import { canonicalCidr, cidrContains, echoValue as echo } from "./agent-ingress-rules.js";
 
 export const SITE_TABLE = "floppyguard_sites";
 export const SITE_CHAIN = "forward";
@@ -35,11 +35,6 @@ export const SITE_LINK_TYPES = new Set(["site-to-site", "hub-link"]);
 export const MAX_PAIRS = 200;
 const LINK_ID_RE = /^wg\d{1,3}:[A-Za-z0-9+/=]{1,64}$/;
 const NAME_MAX = 48;
-
-const echo = (v) => {
-	const s = String(v ?? "");
-	return s.length > 64 ? `${s.slice(0, 64)}…` : s;
-};
 
 const ipInt = (cidr) => {
 	const [addr] = cidr.split("/");

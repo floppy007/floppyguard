@@ -345,8 +345,16 @@ export interface WireGuardStatus {
 	};
 	capabilities?: WireGuardCapabilities;
 	summary: WireGuardSummary | null;
-	warnings: string[];
+	warnings: (string | WireGuardStructuredWarning)[];
 	nextActions?: string[];
+}
+
+/** Structured global warning emitted by the hub status (e.g. allowedips-conflict). */
+export interface WireGuardStructuredWarning {
+	code: "allowedips-conflict" | string;
+	subnet: string;
+	peers: string[];
+	message: string;
 }
 
 export interface WireGuardMetadataLinkPatch {
@@ -360,6 +368,7 @@ export interface WireGuardMetadataLinkPatch {
 	planState?: string;
 	dns?: string[];
 	fullTunnel?: boolean;
+	platform?: "desktop" | "mobile" | null;
 	notes?: string[];
 }
 
@@ -376,13 +385,6 @@ export interface WireGuardMetadataInterfacePatch {
 export interface WireGuardMetadataPatch {
 	interfaces?: Record<string, WireGuardMetadataInterfacePatch>;
 	links?: Record<string, WireGuardMetadataLinkPatch>;
-}
-
-export interface WireGuardMetadataResponse {
-	available: boolean;
-	mode: WireGuardRuntimeMode;
-	interfaces: Record<string, WireGuardMetadataInterfacePatch>;
-	links: Record<string, WireGuardMetadataLinkPatch>;
 }
 
 export interface WireGuardMetadataDiffEntry<TPatch> {
@@ -442,6 +444,11 @@ export interface WireGuardAgentSyncResult {
 	error?: string;
 }
 
+/** Hub conf sync: per interface ({ wg0: {...} }), or one { synced:false, reason } if the sync itself threw. */
+export type WireGuardHubSyncOutcome = Record<string, WireGuardHubSyncResult> | WireGuardHubSyncResult | null;
+/** Agent fleet sync: per agent, or { error } if the fleet sync itself threw. */
+export type WireGuardAgentSyncOutcome = WireGuardAgentSyncResult[] | { error: string } | null;
+
 /** Result of carrying agent bindings along with renamed links. */
 export interface WireGuardRenameCascade {
 	renames: Array<{ oldName: string; newName: string }>;
@@ -455,8 +462,8 @@ export interface WireGuardApplyMetadataResponse {
 	backupPath: string;
 	auditEntry: WireGuardApplyAuditEntry;
 	apply: WireGuardPlanPreviewResponse["apply"];
-	hubSync: WireGuardHubSyncResult | null;
-	agentSync: WireGuardAgentSyncResult[] | null;
+	hubSync: WireGuardHubSyncOutcome;
+	agentSync: WireGuardAgentSyncOutcome;
 	renameCascade?: WireGuardRenameCascade;
 	metadata: {
 		interfaces: Record<string, WireGuardMetadataInterfacePatch>;
@@ -492,10 +499,8 @@ export interface WireGuardRestoreMetadataResponse {
 	restoredFrom: string;
 	backupPath: string;
 	auditEntry: WireGuardApplyAuditEntry;
-	/** Per interface ({ wg0: {...} }), or { synced: false, reason } if the hub sync itself failed */
-	hubSync: Record<string, WireGuardHubSyncResult> | WireGuardHubSyncResult | null;
-	/** Per agent, or { error } if the fleet sync failed */
-	agentSync: WireGuardAgentSyncResult[] | { error: string } | null;
+	hubSync: WireGuardHubSyncOutcome;
+	agentSync: WireGuardAgentSyncOutcome;
 	renameCascade?: WireGuardRenameCascade;
 	metadata: {
 		interfaces: Record<string, WireGuardMetadataInterfacePatch>;
@@ -528,7 +533,7 @@ export interface Agent {
 	allowedNetworks: string[] | null;
 	/** Per-agent site ACL — link names whose networks are allowed (null = no restriction) */
 	allowedSites: string[] | null;
-	/** Site gateways: exempt the local LAN from MASQUERADE so VPN clients keep their real source IP (needs a return route). Default true. */
+	/** Site gateways: exempt the local LAN from MASQUERADE so VPN clients keep their real source IP (needs a return route). Default false (OFF) — enabling it without a return route on the LAN router breaks LAN hosts. */
 	preserveLanSourceIp: boolean;
 	/** Ingress filter for traffic arriving through the tunnel into the site LAN */
 	ingressMode?: AgentIngressMode;
@@ -558,7 +563,7 @@ export interface AgentUpdateData {
 	allowedNetworks?: string[];
 	/** Per-agent site ACL — link names whose networks are allowed */
 	allowedSites?: string[];
-	/** Site gateways: exempt the local LAN from MASQUERADE so VPN clients keep their real source IP (needs a return route). */
+	/** Site gateways: exempt the local LAN from MASQUERADE so VPN clients keep their real source IP (needs a return route). Default false (OFF). */
 	preserveLanSourceIp?: boolean;
 }
 
@@ -668,6 +673,9 @@ export interface AgentIngressCheck {
 	unusedHubRules: Array<{ id: number; name: string; unused: string[] }>;
 	broadHubRules?: AgentIngressBroadHubRule[];
 	applied?: AgentIngressApplied;
+	/** all / enabled rules of the agent (older backend: absent) */
+	ruleCount?: number;
+	activeRuleCount?: number;
 }
 
 /** What a catalog entry stands for (sources: hub … tunnel; destinations: proxy-host … network). */

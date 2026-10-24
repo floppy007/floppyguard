@@ -1,6 +1,6 @@
 import { IconHelp, IconSearch } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import Alert from "react-bootstrap/Alert";
 import { deleteRedirectionHost, toggleRedirectionHost } from "src/api/backend";
 import { Button, HasPermission, LoadingPage } from "src/components";
@@ -8,13 +8,42 @@ import { useRedirectionHosts } from "src/hooks";
 import { T } from "src/locale";
 import { showDeleteConfirmModal, showHelpModal, showRedirectionHostModal } from "src/modals";
 import { MANAGE, REDIRECTION_HOSTS } from "src/modules/Permissions";
-import { showObjectSuccess } from "src/notifications";
+import { showError, showObjectSuccess } from "src/notifications";
 import Table from "./Table";
 
 export default function TableWrapper() {
 	const queryClient = useQueryClient();
 	const [search, setSearch] = useState("");
 	const { isFetching, isLoading, isError, error, data } = useRedirectionHosts(["owner", "certificate"]);
+
+	const handleDelete = useCallback(
+		(id: number) =>
+			showDeleteConfirmModal({
+				title: <T id="object.delete" tData={{ object: "redirection-host" }} />,
+				onConfirm: async () => {
+					await deleteRedirectionHost(id);
+					showObjectSuccess("redirection-host", "deleted");
+				},
+				invalidations: [["redirection-hosts"], ["redirection-host", id]],
+				children: <T id="object.delete.content" tData={{ object: "redirection-host" }} />,
+			}),
+		[],
+	);
+
+	const handleDisableToggle = useCallback(
+		async (id: number, enabled: boolean) => {
+			try {
+				await toggleRedirectionHost(id, enabled);
+				showObjectSuccess("redirection-host", enabled ? "enabled" : "disabled");
+			} catch (err) {
+				showError(err instanceof Error ? err.message : String(err));
+			} finally {
+				queryClient.invalidateQueries({ queryKey: ["redirection-hosts"] });
+				queryClient.invalidateQueries({ queryKey: ["redirection-host", id] });
+			}
+		},
+		[queryClient],
+	);
 
 	if (isLoading) {
 		return <LoadingPage />;
@@ -24,20 +53,8 @@ export default function TableWrapper() {
 		return <Alert variant="danger">{error?.message || "Unknown error"}</Alert>;
 	}
 
-	const handleDelete = async (id: number) => {
-		await deleteRedirectionHost(id);
-		showObjectSuccess("redirection-host", "deleted");
-	};
-
-	const handleDisableToggle = async (id: number, enabled: boolean) => {
-		await toggleRedirectionHost(id, enabled);
-		queryClient.invalidateQueries({ queryKey: ["redirection-hosts"] });
-		queryClient.invalidateQueries({ queryKey: ["redirection-host", id] });
-		showObjectSuccess("redirection-host", enabled ? "enabled" : "disabled");
-	};
-
 	let filtered = null;
-	if (search && data) {
+	if (search && data?.length) {
 		filtered = data?.filter((item) => {
 			return (
 				item.domainNames.some((domain: string) => domain.toLowerCase().includes(search)) ||
@@ -45,7 +62,7 @@ export default function TableWrapper() {
 			);
 		});
 	} else if (search !== "") {
-		// this can happen if someone deletes the last item while searching
+		// list became empty (e.g. last matching item deleted) - drop the stale filter
 		setSearch("");
 	}
 
@@ -96,15 +113,8 @@ export default function TableWrapper() {
 					data={filtered ?? data ?? []}
 					isFiltered={!!search}
 					isFetching={isFetching}
-					onEdit={(id: number) => showRedirectionHostModal(id)}
-					onDelete={(id: number) =>
-						showDeleteConfirmModal({
-							title: <T id="object.delete" tData={{ object: "redirection-host" }} />,
-							onConfirm: () => handleDelete(id),
-							invalidations: [["redirection-hosts"], ["redirection-host", id]],
-							children: <T id="object.delete.content" tData={{ object: "redirection-host" }} />,
-						})
-					}
+					onEdit={showRedirectionHostModal}
+					onDelete={handleDelete}
 					onDisableToggle={handleDisableToggle}
 					onNew={() => showRedirectionHostModal("new")}
 				/>

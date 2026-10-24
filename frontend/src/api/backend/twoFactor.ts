@@ -21,11 +21,10 @@ export async function enable2FA(userId: number | "me", code: string): Promise<Tw
 }
 
 export async function disable2FA(userId: number | "me", code: string): Promise<boolean> {
+	// Code in the body, not the query string: URLs end up in access logs and browser history
 	return await api.del({
 		url: `/users/${userId}/2fa`,
-		params: {
-			code,
-		},
+		data: { code },
 	});
 }
 

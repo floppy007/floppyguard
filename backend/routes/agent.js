@@ -3,10 +3,8 @@ import internalAgent from "../internal/agent.js";
 import internalAgentIngress from "../internal/agent-ingress.js";
 import { auditOnSuccess, describeAgentRequest } from "../internal/audit-route.js";
 import error from "../lib/error.js";
-import jwtdecode from "../lib/express/jwt-decode.js";
-import requireAdmin from "../lib/express/require-admin.js";
 import rateLimit from "../lib/express/rate-limit.js";
-import { debug, express as logger } from "../logger.js";
+import createRoute from "../lib/express/route.js";
 
 const agentLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, bucket: "agent" });
 
@@ -24,62 +22,14 @@ function extractBearerToken(req) {
 	return match ? match[1] : null;
 }
 
-// ─── Admin routes (JWT-authenticated) ────────────────────────────────────────
+// Shared options/auth/try-catch scaffolding (lib/express/route.js).
+const route = createRoute(router);
 
-/**
- * GET /api/agents
- * List all agents
- */
-router
-	.route("/agents")
-	.options((_, res) => {
-		res.sendStatus(204);
-	})
-	.all(jwtdecode())
-	.all(requireAdmin())
-	.all(auditAgent())
-	.get(async (req, res, next) => {
-		try {
-			const agents = await internalAgent.getAll();
-			res.status(200).send(agents);
-		} catch (err) {
-			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
-			next(err);
-		}
-	})
-	.post(async (req, res, next) => {
-		try {
-			const agent = await internalAgent.create(req.body || {});
-			res.status(201).send(agent);
-		} catch (err) {
-			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
-			next(err);
-		}
-	});
-
-// ─── Ingress filter ("Freigaben") per agent ──────────────────────────────────
-
-// opts.status overrides the default status per method ({ post: 200 } for a
-// read-only POST such as the flow tester).
-const ingressRoute = (path, handlers, opts = {}) => {
-	const r = router
-		.route(path)
-		.options((_, res) => {
-			res.sendStatus(204);
-		})
-		.all(jwtdecode())
-		.all(requireAdmin());
-	for (const [method, fn] of Object.entries(handlers)) {
-		r[method](async (req, res, next) => {
-			try {
-				const out = await fn(req, res);
-				res.status(opts.status?.[method] ?? (method === "post" ? 201 : 200)).send(out);
-			} catch (err) {
-				debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
-				next(err);
-			}
-		});
-	}
+// Agent-token routes: Bearer token once, then fn(token, req, res).
+const withAgentToken = (fn) => (req, res) => {
+	const token = extractBearerToken(req);
+	if (!token) throw new error.AuthError("Bearer token required", "error.auth");
+	return fn(token, req, res);
 };
 
 const idParam = (v) => {
@@ -88,12 +38,29 @@ const idParam = (v) => {
 	return n;
 };
 
+// ─── Admin routes (JWT-authenticated) ────────────────────────────────────────
+
+/**
+ * GET /api/agents
+ * List all agents
+ */
+route(
+	"/agents",
+	{
+		get: () => internalAgent.getAll(),
+		post: (req) => internalAgent.create(req.body || {}),
+	},
+	{ audit: auditAgent() },
+);
+
+// ─── Ingress filter ("Freigaben") per agent ──────────────────────────────────
+
 /**
  * GET /api/agent-ingress/check
  * Proxy hosts / streams whose upstream a restricted agent would drop, and
  * hub-sourced rules no upstream uses anymore.
  */
-ingressRoute("/agent-ingress/check", {
+route("/agent-ingress/check", {
 	get: () => internalAgentIngress.proxyCheck(),
 });
 
@@ -101,18 +68,18 @@ ingressRoute("/agent-ingress/check", {
  * GET /api/agents/:id/ingress   → { ingress_mode, rules }
  * PUT /api/agents/:id/ingress   → { ingress_mode } switch open/restricted
  */
-ingressRoute("/agents/:id/ingress", {
+route("/agents/:id/ingress", {
 	get: (req) => internalAgentIngress.list(idParam(req.params.id)),
 	put: (req, res) => internalAgentIngress.setMode(res.locals.access, idParam(req.params.id), req.body?.ingress_mode),
 });
 
 /** GET /api/agents/:id/ingress/preview → generated iptables-restore text */
-ingressRoute("/agents/:id/ingress/preview", {
+route("/agents/:id/ingress/preview", {
 	get: (req) => internalAgentIngress.preview(idParam(req.params.id)),
 });
 
 /** POST /api/agents/:id/ingress/rules */
-ingressRoute("/agents/:id/ingress/rules", {
+route("/agents/:id/ingress/rules", {
 	post: (req, res) => internalAgentIngress.create(res.locals.access, idParam(req.params.id), req.body || {}),
 });
 
@@ -120,7 +87,7 @@ ingressRoute("/agents/:id/ingress/rules", {
  * GET /api/agents/:id/ingress/catalog → known sources/destinations, port presets,
  * rules that look unused (pickers and wizards)
  */
-ingressRoute("/agents/:id/ingress/catalog", {
+route("/agents/:id/ingress/catalog", {
 	get: (req) => internalAgentIngress.catalog(idParam(req.params.id)),
 });
 
@@ -128,7 +95,7 @@ ingressRoute("/agents/:id/ingress/catalog", {
  * POST /api/agents/:id/ingress/test → what the agent's filter does with one flow
  * Body: { source, destination, port?, proto? } — read-only, hence 200 and no audit.
  */
-ingressRoute(
+route(
 	"/agents/:id/ingress/test",
 	{
 		post: (req) => internalAgentIngress.testFlow(idParam(req.params.id), req.body || {}),
@@ -140,7 +107,7 @@ ingressRoute(
 // through that route's middleware as a rule id.
 
 /** POST /api/agents/:id/ingress/rules/bulk  Body: { rules: [rule, …] } (1..100) */
-ingressRoute("/agents/:id/ingress/rules/bulk", {
+route("/agents/:id/ingress/rules/bulk", {
 	post: (req, res) => internalAgentIngress.createBulk(res.locals.access, idParam(req.params.id), req.body?.rules),
 });
 
@@ -149,7 +116,7 @@ ingressRoute("/agents/:id/ingress/rules/bulk", {
  * prune = the "switch off unused" action: the ids are re-checked against the
  * current prune candidates.
  */
-ingressRoute(
+route(
 	"/agents/:id/ingress/rules/bulk-disable",
 	{
 		post: (req, res) =>
@@ -161,7 +128,7 @@ ingressRoute(
 );
 
 /** PUT|DELETE /api/agents/:id/ingress/rules/:ruleId */
-ingressRoute("/agents/:id/ingress/rules/:ruleId", {
+route("/agents/:id/ingress/rules/:ruleId", {
 	put: (req, res) =>
 		internalAgentIngress.update(
 			res.locals.access,
@@ -178,96 +145,50 @@ ingressRoute("/agents/:id/ingress/rules/:ruleId", {
  * PUT /api/agents/:id
  * DELETE /api/agents/:id
  */
-router
-	.route("/agents/:id")
-	.options((_, res) => {
-		res.sendStatus(204);
-	})
-	.all(jwtdecode())
-	.all(requireAdmin())
-	.all(auditAgent())
-	.get(async (req, res, next) => {
-		try {
-			const agent = await internalAgent.getById(Number.parseInt(req.params.id, 10));
-			res.status(200).send(agent);
-		} catch (err) {
-			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
-			next(err);
-		}
-	})
-	.put(async (req, res, next) => {
-		try {
-			const agent = await internalAgent.update(Number.parseInt(req.params.id, 10), req.body || {});
-			res.status(200).send(agent);
-		} catch (err) {
-			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
-			next(err);
-		}
-	})
-	.delete(async (req, res, next) => {
-		try {
+route(
+	"/agents/:id",
+	{
+		get: (req) => internalAgent.getById(idParam(req.params.id)),
+		put: (req) => internalAgent.update(idParam(req.params.id), req.body || {}),
+		delete: async (req) => {
 			// ?force=1: gateway gone/offline for good (see internalAgent.delete).
 			const force = req.query?.force === "1" || req.query?.force === "true";
-			await internalAgent.delete(Number.parseInt(req.params.id, 10), { force });
-			res.status(200).send({ deleted: true });
-		} catch (err) {
-			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
-			next(err);
-		}
-	});
+			await internalAgent.delete(idParam(req.params.id), { force });
+			return { deleted: true };
+		},
+	},
+	{ audit: auditAgent() },
+);
 
 /**
  * POST /api/agents/:id/reset-token
  * Generates a new reg_token so the agent can be reinstalled
  */
-router
-	.route("/agents/:id/reset-token")
-	.options((_, res) => {
-		res.sendStatus(204);
-	})
-	.all(jwtdecode())
-	.all(requireAdmin())
-	.all(auditAgent())
-	.post(async (req, res, next) => {
-		try {
-			const result = await internalAgent.resetToken(Number.parseInt(req.params.id, 10));
-			res.status(200).send(result);
-		} catch (err) {
-			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
-			next(err);
-		}
-	});
+route(
+	"/agents/:id/reset-token",
+	{
+		post: (req) => internalAgent.resetToken(idParam(req.params.id)),
+	},
+	{ audit: auditAgent(), status: { post: 200 } },
+);
 
 /**
  * GET /api/agents/:id/install
  * Returns the install script as text/plain
  * Query params: ?public_url=...&tunnel_url=...
  */
-router
-	.route("/agents/:id/install")
-	.options((_, res) => {
-		res.sendStatus(204);
-	})
-	.all(jwtdecode())
-	.all(requireAdmin())
-	.all(auditAgent())
-	.get(async (req, res, next) => {
-		try {
-			const id = Number.parseInt(req.params.id, 10);
+route(
+	"/agents/:id/install",
+	{
+		get: (req) => {
+			const id = idParam(req.params.id);
 			const publicUrl = req.query.public_url;
-			const tunnelUrl = req.query.tunnel_url || publicUrl;
-
-			if (!publicUrl) {
-				return next(new error.ValidationError("public_url query param is required"));
-			}
-
-			const script = await internalAgent.getInstallScript(id, publicUrl, tunnelUrl);
-			res.status(200).type("text/plain").send(script);
-		} catch (err) {
-			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
-			next(err);
-		}
-	});
+			if (!publicUrl) throw new error.ValidationError("public_url query param is required");
+			return internalAgent.getInstallScript(id, publicUrl, req.query.tunnel_url || publicUrl);
+		},
+	},
+	{ audit: auditAgent(), type: "text/plain" },
+);
 
 // ─── Agent routes (agent-token-authenticated, no JWT) ────────────────────────
 
@@ -276,121 +197,76 @@ router
  * Public endpoint — authenticated via reg_token only, no JWT required.
  * Returns the install script as text/plain.
  */
-router
-	.route("/agent/install")
-	.options((_, res) => {
-		res.sendStatus(204);
-	})
-	.get(agentLimiter, async (req, res, next) => {
-		try {
+route(
+	"/agent/install",
+	{
+		get: (req) => {
 			const { reg_token, public_url, tunnel_url } = req.query;
-			if (!reg_token) {
-				return next(new error.ValidationError("reg_token is required"));
-			}
-			if (!public_url) {
-				return next(new error.ValidationError("public_url is required"));
-			}
-			const tunnelUrl = tunnel_url || public_url;
-			const script = await internalAgent.getInstallScriptByToken(reg_token, public_url, tunnelUrl);
-			res.status(200).type("text/plain").send(script);
-		} catch (err) {
-			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
-			next(err);
-		}
-	});
+			if (!reg_token) throw new error.ValidationError("reg_token is required");
+			if (!public_url) throw new error.ValidationError("public_url is required");
+			return internalAgent.getInstallScriptByToken(reg_token, public_url, tunnel_url || public_url);
+		},
+	},
+	{ admin: false, limiter: agentLimiter, type: "text/plain" },
+);
 
 /**
  * GET /api/agent/loop-script
  * Authorization: Bearer <agent_token>
  * Returns the current loop script for the agent (used for self-update).
  */
-router
-	.route("/agent/loop-script")
-	.options((_, res) => {
-		res.sendStatus(204);
-	})
-	.get(async (req, res, next) => {
-		try {
-			const agentToken = extractBearerToken(req);
-			if (!agentToken) return next(new error.AuthError("Bearer token required", "error.auth"));
-			const { script, signature } = await internalAgent.getLoopScript(agentToken);
+route(
+	"/agent/loop-script",
+	{
+		get: withAgentToken(async (token, _req, res) => {
+			const { script, signature } = await internalAgent.getLoopScript(token);
 			res.setHeader("X-Script-Signature", signature);
-			res.status(200).type("text/plain").send(script);
-		} catch (err) {
-			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
-			next(err);
-		}
-	});
+			return script;
+		}),
+	},
+	{ admin: false, type: "text/plain" },
+);
 
 /**
  * POST /api/agent/register
  * Body: { reg_token: string }
  */
-router
-	.route("/agent/register")
-	.options((_, res) => {
-		res.sendStatus(204);
-	})
-	.post(agentLimiter, async (req, res, next) => {
-		try {
+route(
+	"/agent/register",
+	{
+		post: (req) => {
 			const { reg_token } = req.body || {};
-			if (!reg_token) {
-				return next(new error.ValidationError("reg_token is required"));
-			}
-			const result = await internalAgent.register(reg_token);
-			res.status(200).send(result);
-		} catch (err) {
-			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
-			next(err);
-		}
-	});
+			if (!reg_token) throw new error.ValidationError("reg_token is required");
+			return internalAgent.register(reg_token);
+		},
+	},
+	{ admin: false, limiter: agentLimiter, status: { post: 200 } },
+);
 
 /**
  * GET /api/agent/config
  * Authorization: Bearer <agent_token>
  */
-router
-	.route("/agent/config")
-	.options((_, res) => {
-		res.sendStatus(204);
-	})
-	.get(async (req, res, next) => {
-		try {
-			const agentToken = extractBearerToken(req);
-			if (!agentToken) {
-				return next(new error.AuthError("Bearer token required", "error.auth"));
-			}
-			const config = await internalAgent.getConfig(agentToken);
-			res.status(200).send(config);
-		} catch (err) {
-			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
-			next(err);
-		}
-	});
+route(
+	"/agent/config",
+	{
+		get: withAgentToken((token) => internalAgent.getConfig(token)),
+	},
+	{ admin: false },
+);
 
 /**
  * POST /api/agent/heartbeat
  * Authorization: Bearer <agent_token>
  * Body: { hash: string, server: string }
  */
-router
-	.route("/agent/heartbeat")
-	.options((_, res) => {
-		res.sendStatus(204);
-	})
-	.post(async (req, res, next) => {
-		try {
-			const agentToken = extractBearerToken(req);
-			if (!agentToken) {
-				return next(new error.AuthError("Bearer token required", "error.auth"));
-			}
-			const result = await internalAgent.heartbeat(agentToken, req.body || {});
-			res.status(200).send(result);
-		} catch (err) {
-			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
-			next(err);
-		}
-	});
+route(
+	"/agent/heartbeat",
+	{
+		post: withAgentToken((token, req) => internalAgent.heartbeat(token, req.body || {})),
+	},
+	{ admin: false, status: { post: 200 } },
+);
 
 /**
  * POST /api/agent/upload-config
@@ -398,23 +274,12 @@ router
  * Body: { config_text: string }
  * Agents upload their local WG config when the server has none.
  */
-router
-	.route("/agent/upload-config")
-	.options((_, res) => {
-		res.sendStatus(204);
-	})
-	.post(agentLimiter, async (req, res, next) => {
-		try {
-			const agentToken = extractBearerToken(req);
-			if (!agentToken) {
-				return next(new error.AuthError("Bearer token required", "error.auth"));
-			}
-			const result = await internalAgent.uploadConfig(agentToken, req.body || {});
-			res.status(200).send(result);
-		} catch (err) {
-			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
-			next(err);
-		}
-	});
+route(
+	"/agent/upload-config",
+	{
+		post: withAgentToken((token, req) => internalAgent.uploadConfig(token, req.body || {})),
+	},
+	{ admin: false, limiter: agentLimiter, status: { post: 200 } },
+);
 
 export default router;

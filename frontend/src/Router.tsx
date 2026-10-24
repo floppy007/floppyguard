@@ -75,7 +75,13 @@ function Router() {
 
 	if (!healthData?.setup) {
 		hideBootSplash();
-		return <Setup />;
+		return (
+			<ChunkErrorBoundary>
+				<Suspense fallback={null}>
+					<Setup />
+				</Suspense>
+			</ChunkErrorBoundary>
+		);
 	}
 
 	if (!authenticated) {

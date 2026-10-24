@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { AgentIngressCatalog, AgentIngressTestResult } from "src/api/backend";
 import { useTestAgentIngress } from "src/hooks";
 import { intl } from "src/locale/IntlProvider";
@@ -52,6 +52,9 @@ export function IngressTester({ agentId, catalog, onFocusRule }: Props) {
 	const [tested, setTested] = useState<{ src: string; dst: string; port: string; proto: string } | null>(null);
 	const test = useTestAgentIngress(agentId);
 	const idp = `ingress-${agentId}-tester`;
+	// stable per catalog, so CatalogPicker's option memo hits
+	const sourceEntries = useMemo(() => expandEntries(catalog?.sources ?? [], catalog), [catalog]);
+	const destinationEntries = useMemo(() => expandEntries(catalog?.destinations ?? [], catalog), [catalog]);
 
 	const src = splitList(source)[0] ?? "";
 	const dst = splitList(destination)[0] ?? "";
@@ -93,7 +96,7 @@ export function IngressTester({ agentId, catalog, onFocusRule }: Props) {
 							id={`${idp}-source`}
 							value={source}
 							onChange={setSource}
-							entries={expandEntries(catalog?.sources ?? [], catalog)}
+							entries={sourceEntries}
 							catalog={catalog}
 							multi={false}
 							placeholder={ti("picker.placeholder.sources")}
@@ -107,7 +110,7 @@ export function IngressTester({ agentId, catalog, onFocusRule }: Props) {
 							id={`${idp}-destination`}
 							value={destination}
 							onChange={setDestination}
-							entries={expandEntries(catalog?.destinations ?? [], catalog)}
+							entries={destinationEntries}
 							catalog={catalog}
 							multi={false}
 							placeholder={ti("picker.placeholder.destinations-required")}
@@ -143,12 +146,7 @@ export function IngressTester({ agentId, catalog, onFocusRule }: Props) {
 						</select>
 					</div>
 					<div className="col-12 col-md-auto">
-						<button
-							type="button"
-							className="btn btn-sm btn-primary w-100"
-							disabled={!canRun}
-							onClick={run}
-						>
+						<button type="button" className="btn btn-sm btn-primary w-100" disabled={!canRun} onClick={run}>
 							{ti("tester.run")}
 						</button>
 					</div>
@@ -157,7 +155,10 @@ export function IngressTester({ agentId, catalog, onFocusRule }: Props) {
 				{test.error && <div className="small text-danger mt-2">{test.error.message}</div>}
 
 				{result && tested && result.linkFound === false && result.reason !== "link-not-found" && (
-					<div className="alert d-block alert-warning py-2 px-3 small mt-2 mb-0" data-testid="ingress-tester-no-link">
+					<div
+						className="alert d-block alert-warning py-2 px-3 small mt-2 mb-0"
+						data-testid="ingress-tester-no-link"
+					>
 						{ti("tester.reason.link-not-found")}
 					</div>
 				)}
@@ -169,22 +170,24 @@ export function IngressTester({ agentId, catalog, onFocusRule }: Props) {
 						role="status"
 					>
 						<div className="fw-medium">
-							{result.reason === "rule" && result.rule ? (
-								intl.formatMessage(
-									{ id: "wireguard.agent.ingress.tester.reason.rule" },
-									{ name: ruleButton(result.rule) },
-								)
-							) : result.reason === "site-isolation" && !result.siteIsolation && result.siteIsolationManual ? (
-								ti("tester.reason.site-isolation-manual", {
-									rule:
-										result.siteIsolationManual.comment ||
-										`${result.siteIsolationManual.family} ${result.siteIsolationManual.table} ${result.siteIsolationManual.chain}`,
-								})
-							) : result.reason === "site-isolation" ? (
-								ti("tester.reason.site-isolation", { pair: siteIsolationPairLabel(result.siteIsolation) })
-							) : (
-								ti(`tester.reason.${result.reason}`)
-							)}
+							{result.reason === "rule" && result.rule
+								? intl.formatMessage(
+										{ id: "wireguard.agent.ingress.tester.reason.rule" },
+										{ name: ruleButton(result.rule) },
+									)
+								: result.reason === "site-isolation" &&
+										!result.siteIsolation &&
+										result.siteIsolationManual
+									? ti("tester.reason.site-isolation-manual", {
+											rule:
+												result.siteIsolationManual.comment ||
+												`${result.siteIsolationManual.family} ${result.siteIsolationManual.table} ${result.siteIsolationManual.chain}`,
+										})
+									: result.reason === "site-isolation"
+										? ti("tester.reason.site-isolation", {
+												pair: siteIsolationPairLabel(result.siteIsolation),
+											})
+										: ti(`tester.reason.${result.reason}`)}
 						</div>
 						{result.reason === "open-mode" && result.rule && (
 							<div className="small">
@@ -207,9 +210,7 @@ export function IngressTester({ agentId, catalog, onFocusRule }: Props) {
 								{ti("tester.disabled-match", { name: result.disabledMatch.name })}
 							</div>
 						)}
-						{result.portUnknown && (
-							<div className="small text-secondary">{ti("tester.port-unknown")}</div>
-						)}
+						{result.portUnknown && <div className="small text-secondary">{ti("tester.port-unknown")}</div>}
 						{result.notes
 							.filter((n) => SHOWN_NOTES.includes(n))
 							.map((n) => (

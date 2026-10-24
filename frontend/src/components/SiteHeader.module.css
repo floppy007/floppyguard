@@ -101,24 +101,6 @@
 	color: var(--tblr-secondary);
 }
 
-.btnIcon {
-	width: 32px;
-	height: 32px;
-	border: 1px solid rgba(var(--tblr-border-color-rgb), 0.72);
-	background: var(--tblr-bg-surface);
-	border-radius: 6px;
-	display: grid;
-	place-items: center;
-	cursor: pointer;
-	color: var(--tblr-secondary);
-	transition: border-color 120ms ease, color 120ms ease;
-}
-
-.btnIcon:hover {
-	border-color: var(--tblr-primary);
-	color: var(--tblr-primary);
-}
-
 @media (max-width: 767.98px) {
 	.topRow {
 		flex-wrap: wrap;

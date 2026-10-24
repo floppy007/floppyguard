@@ -9,10 +9,22 @@ import accessListAuthModel from "../models/access_list_auth.js";
 import accessListClientModel from "../models/access_list_client.js";
 import proxyHostModel from "../models/proxy_host.js";
 import internalAuditLog from "./audit-log.js";
+import internalHost from "./host.js";
 import internalNginx from "./nginx.js";
 
 const omissions = () => {
 	return ["is_deleted"];
+};
+
+// htpasswd: nginx ends the login at the first ':' and a line at '\n', so such a
+// username would lock the user out or inject a second htpasswd entry.
+const assertValidUsernames = (items) => {
+	for (const item of items || []) {
+		const name = item?.username;
+		if (typeof name !== "string" || !name || name.includes(":") || [...name].some((c) => c.charCodeAt(0) < 0x20)) {
+			throw new errs.ValidationError("Invalid username");
+		}
+	}
 };
 
 const internalAccessList = {
@@ -23,6 +35,7 @@ const internalAccessList = {
 	 */
 	create: async (access, data) => {
 		await access.can("access_lists:create", data);
+		assertValidUsernames(data.items);
 		const row = await accessListModel
 			.query()
 			.insertAndFetch({
@@ -35,41 +48,35 @@ const internalAccessList = {
 
 		data.id = row.id;
 
-		const promises = [];
+		// Inserted one after another: the client rules render in id order, and
+		// nginx evaluates allow/deny top-down, so the order must be the one the
+		// user entered (Promise.all inserted in random order, upstream #5421).
 		// Items
-		data.items.map((item) => {
+		for (const item of data.items || []) {
 			if (item.password) {
-				promises.push(
-					accessListAuthModel.query().insert({
-						access_list_id: row.id,
-						username: item.username,
-						password: item.password,
-					}),
-				);
+				await accessListAuthModel.query().insert({
+					access_list_id: row.id,
+					username: item.username,
+					password: item.password,
+				});
 			}
-			return true;
-		});
+		}
 
 		// Clients
-		data.clients?.map((client) => {
-			promises.push(
-				accessListClientModel.query().insert({
-					access_list_id: row.id,
-					address: client.address,
-					directive: client.directive,
-				}),
-			);
-			return true;
-		});
-
-		await Promise.all(promises);
+		for (const client of data.clients || []) {
+			await accessListClientModel.query().insert({
+				access_list_id: row.id,
+				address: client.address,
+				directive: client.directive,
+			});
+		}
 
 		// re-fetch with expansions
 		const freshRow = await internalAccessList.get(
 			access,
 			{
 				id: data.id,
-				expand: ["owner", "items", "clients", "proxy_hosts.access_list.[clients,items]"],
+				expand: ["owner", "items", "clients", "proxy_hosts.[certificate,access_list.[clients,items]]"],
 			},
 			true, // skip masking
 		);
@@ -103,6 +110,7 @@ const internalAccessList = {
 	 */
 	update: async (access, data) => {
 		await access.can("access_lists:update", data.id);
+		assertValidUsernames(data.items);
 		const row = await internalAccessList.get(access, { id: data.id });
 		if (row.id !== data.id) {
 			// Sanity check that something crazy hasn't happened
@@ -111,35 +119,16 @@ const internalAccessList = {
 			);
 		}
 
-		// patch name if specified
-		if (typeof data.name !== "undefined" && data.name) {
-			await accessListModel.query().where({ id: data.id }).patch({
-				name: data.name,
-				satisfy_any: data.satisfy_any,
-				pass_auth: data.pass_auth,
-			});
+		// patch only the scalar fields that were actually sent (schema allows any subset)
+		const patch = _.pick(data, ["name", "satisfy_any", "pass_auth"]);
+		if (Object.keys(patch).length) {
+			await accessListModel.query().where({ id: data.id }).patch(patch);
 		}
 
 		// Check for items and add/update/remove them
 		if (typeof data.items !== "undefined" && data.items) {
-			const promises = [];
-			const itemsToKeep = [];
-
-			data.items.map((item) => {
-				if (item.password) {
-					promises.push(
-						accessListAuthModel.query().insert({
-							access_list_id: data.id,
-							username: item.username,
-							password: item.password,
-						}),
-					);
-				} else {
-					// This was supplied with an empty password, which means keep it but don't change the password
-					itemsToKeep.push(item.username);
-				}
-				return true;
-			});
+			// Empty password: keep the user, don't change the password
+			const itemsToKeep = data.items.filter((item) => !item.password).map((item) => item.username);
 
 			const query = accessListAuthModel.query().delete().where("access_list_id", data.id);
 
@@ -148,33 +137,30 @@ const internalAccessList = {
 			}
 
 			await query;
-			// Add new items
-			if (promises.length) {
-				await Promise.all(promises);
+			// Add new items, one after another (see create())
+			for (const item of data.items) {
+				if (item.password) {
+					await accessListAuthModel.query().insert({
+						access_list_id: data.id,
+						username: item.username,
+						password: item.password,
+					});
+				}
 			}
 		}
 
 		// Check for clients and add/update/remove them
 		if (typeof data.clients !== "undefined" && data.clients) {
-			const clientPromises = [];
-			data.clients.map((client) => {
+			await accessListClientModel.query().delete().where("access_list_id", data.id);
+			// Add new clients in the order given: nginx evaluates allow/deny top-down
+			for (const client of data.clients) {
 				if (client.address) {
-					clientPromises.push(
-						accessListClientModel.query().insert({
-							access_list_id: data.id,
-							address: client.address,
-							directive: client.directive,
-						}),
-					);
+					await accessListClientModel.query().insert({
+						access_list_id: data.id,
+						address: client.address,
+						directive: client.directive,
+					});
 				}
-				return true;
-			});
-
-			const query = accessListClientModel.query().delete().where("access_list_id", data.id);
-			await query;
-			// Add new clitens
-			if (clientPromises.length) {
-				await Promise.all(clientPromises);
 			}
 		}
 
@@ -263,7 +249,7 @@ const internalAccessList = {
 		await access.can("access_lists:delete", data.id);
 		const row = await internalAccessList.get(access, {
 			id: data.id,
-			expand: ["proxy_hosts", "items", "clients"],
+			expand: ["proxy_hosts.[certificate,access_list.[clients,items]]", "items", "clients"],
 		});
 
 		if (!row?.id) {
@@ -386,19 +372,16 @@ const internalAccessList = {
 	 */
 	maskItems: (list) => {
 		if (list && typeof list.items !== "undefined") {
-			list.items.map((val, idx) => {
-				let repeatFor = 8;
-				let firstChar = "*";
-
-				if (typeof val.password !== "undefined" && val.password) {
-					repeatFor = val.password.length - 1;
-					firstChar = val.password.charAt(0);
-				}
-
-				list.items[idx].hint = firstChar + "*".repeat(repeatFor);
+			list.items.forEach((_val, idx) => {
+				// constant hint: deriving it from the stored password leaked its first
+				// character and exact length to every reader of the list
+				list.items[idx].hint = "********";
 				list.items[idx].password = "";
-				return true;
 			});
+		}
+		// expand=proxy_hosts.access_list.items carries the same plaintext passwords
+		if (list && Array.isArray(list.proxy_hosts)) {
+			for (const host of list.proxy_hosts) internalHost.cleanRowAccessListPasswords(host);
 		}
 		return list;
 	},
@@ -424,17 +407,10 @@ const internalAccessList = {
 
 		const htpasswdFile = internalAccessList.getFilename(list);
 
-		// 1. remove any existing access file
-		try {
-			fs.unlinkSync(htpasswdFile);
-		} catch (_err) {
-			// do nothing
-		}
-
-		// 2. create empty access file
-		fs.writeFileSync(htpasswdFile, "", { encoding: "utf8" });
-
-		// 3. generate password for each user
+		// Hash every user first and write the file once at the end: a failing
+		// openssl call used to leave a half-written htpasswd behind that locked
+		// out every user after the failing one. On failure the old file stays.
+		const lines = [];
 		if (list.items.length) {
 			await new Promise((resolve, reject) => {
 				batchflow(list.items)
@@ -443,16 +419,11 @@ const internalAccessList = {
 						if (item.password?.length) {
 							logger.info(`Adding: ${item.username}`);
 
+							// "--": a password starting with "-" must not be parsed as an openssl option
 							utils
-								.execFile("openssl", ["passwd", "-apr1", item.password])
+								.execFile("openssl", ["passwd", "-apr1", "--", item.password])
 								.then((res) => {
-									try {
-										fs.appendFileSync(htpasswdFile, `${item.username}:${res}\n`, {
-											encoding: "utf8",
-										});
-									} catch (err) {
-										reject(err);
-									}
+									lines.push(`${item.username}:${res}`);
 									next();
 								})
 								.catch((err) => {
@@ -469,11 +440,13 @@ const internalAccessList = {
 						reject(err);
 					})
 					.end((results) => {
-						logger.success(`Built Access file #${list.id} for: ${list.name}`);
 						resolve(results);
 					});
 			});
 		}
+
+		fs.writeFileSync(htpasswdFile, lines.length ? `${lines.join("\n")}\n` : "", { encoding: "utf8" });
+		logger.success(`Built Access file #${list.id} for: ${list.name}`);
 	},
 };
 

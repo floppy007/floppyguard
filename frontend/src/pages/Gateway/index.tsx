@@ -3,58 +3,8 @@ import type { WireGuardLink } from "src/api/backend";
 import { Loading } from "src/components";
 import { useWireGuardStatus } from "src/hooks";
 import { intl } from "src/locale/IntlProvider";
-
-const KNOWN_WARNINGS = new Set([
-	"remote-endpoint-missing",
-	"imported-network-missing-live-route",
-	"nat-likely-needed",
-	"exported-networks-missing",
-	"return-path-mode-undefined",
-	"remote-management-mode-undefined",
-	"link-not-currently-active",
-]);
-const fmtWarning = (w: string) => (KNOWN_WARNINGS.has(w) ? intl.formatMessage({ id: `wireguard.warning.${w}` }) : w);
-
-const KNOWN_NEXT_ACTIONS = new Set([
-	"verify-return-path",
-	"model-exported-networks",
-	"define-remote-management-mode",
-	"fix-return-path",
-	"decide-nat-or-static-route",
-	"define-return-path-mode",
-	"verify-live-tunnel-state",
-	"mount-wireguard-config-directory",
-]);
-const fmtNextAction = (a: string) =>
-	KNOWN_NEXT_ACTIONS.has(a) ? intl.formatMessage({ id: `wireguard.next.${a}` }) : a;
-
-const byteFmt = (value?: number) => {
-	const bytes = Number(value) || 0;
-	if (bytes < 1024) return `${bytes} B`;
-	const units = ["KB", "MB", "GB", "TB"];
-	let current = bytes;
-	let idx = -1;
-	do {
-		current /= 1024;
-		idx += 1;
-	} while (current >= 1024 && idx < units.length - 1);
-	return `${current < 10 ? current.toFixed(2) : current < 100 ? current.toFixed(1) : Math.round(current)} ${units[idx]}`;
-};
-
-const getPlanBadge = (link: WireGuardLink) => {
-	switch (link.planState) {
-		case "ready":
-			return { labelId: "platform.plan.ready", className: "bg-green-lt text-green" };
-		case "validate":
-			return { labelId: "platform.plan.validate", className: "bg-yellow-lt text-yellow" };
-		case "shape":
-			return { labelId: "platform.plan.shaping", className: "bg-blue-lt text-blue" };
-		case "discover":
-			return { labelId: "platform.plan.discover", className: "bg-secondary-lt text-secondary" };
-		default:
-			return { labelId: "platform.plan.unplanned", className: "bg-secondary-lt text-secondary" };
-	}
-};
+import { byteFmt } from "src/pages/WireGuard/topology";
+import { fmtNextAction, fmtWarning, getLinkTypeBadge, getPlanBadge } from "src/pages/WireGuard/linkLabels";
 
 const hasRouteHintForLink = (link: WireGuardLink, networks: { network: string }[]) =>
 	networks.some((item) => link.importedNetworks.includes(item.network));
@@ -69,19 +19,6 @@ const getReachabilityBadge = (
 	if (hasRouteHintForLink(link, natCandidates))
 		return { labelId: "gateway.reach.check-nat", className: "bg-yellow-lt text-yellow" };
 	return { labelId: "gateway.reach.reachable", className: "bg-green-lt text-green" };
-};
-
-const getLinkTypeBadge = (link: WireGuardLink) => {
-	switch (link.type) {
-		case "client":
-			return { labelId: "platform.link-type.client", className: "bg-green-lt text-green" };
-		case "site-to-site":
-			return { labelId: "platform.link-type.site", className: "bg-blue-lt text-blue" };
-		case "hub-link":
-			return { labelId: "platform.link-type.hub", className: "bg-cyan-lt text-cyan" };
-		default:
-			return { labelId: "platform.link-type.other", className: "bg-secondary-lt text-secondary" };
-	}
 };
 
 const getGatewayGaps = (
@@ -121,8 +58,8 @@ const Gateway = () => {
 	}
 
 	const summary = data.summary;
-	const routeRows = data.routes.privateRoutes.slice(0, 20);
-	const linkRows = (data.links || []).slice(0, 12);
+	const routeRows = data.routes.privateRoutes;
+	const linkRows = data.links || [];
 	const missingReturnRoutes = data.routes.missingReturnRoutes || [];
 	const natCandidates = data.routes.natCandidates || [];
 	const observations = data.routes.observations || [];
@@ -145,7 +82,7 @@ const Gateway = () => {
 			<div className="platform-page-header">
 				<div>
 					<div className="platform-kicker">{intl.formatMessage({ id: "gateway.kicker" })}</div>
-					<h1 className="platform-title">Gateway</h1>
+					<h1 className="platform-title">{intl.formatMessage({ id: "gateway" })}</h1>
 					<p className="platform-subtitle">{intl.formatMessage({ id: "gateway.subtitle" })}</p>
 				</div>
 			</div>
@@ -214,9 +151,15 @@ const Gateway = () => {
 			</div>
 
 			<div className="d-flex gap-2 flex-wrap mb-4">
-				<span className="badge bg-emerald-lt text-emerald">client {summary.clientLinkCount}</span>
-				<span className="badge bg-indigo-lt text-indigo">site {summary.siteLinkCount}</span>
-				<span className="badge bg-cyan-lt text-cyan">hub {summary.hubLinkCount}</span>
+				<span className="badge bg-emerald-lt text-emerald">
+					{intl.formatMessage({ id: "platform.link-type.client" })} {summary.clientLinkCount}
+				</span>
+				<span className="badge bg-indigo-lt text-indigo">
+					{intl.formatMessage({ id: "platform.link-type.site" })} {summary.siteLinkCount}
+				</span>
+				<span className="badge bg-cyan-lt text-cyan">
+					{intl.formatMessage({ id: "platform.link-type.hub" })} {summary.hubLinkCount}
+				</span>
 			</div>
 
 			<div className="card platform-elevated-card mb-4">
@@ -262,20 +205,20 @@ const Gateway = () => {
 										<span className="badge bg-indigo-lt text-indigo">
 											intent {link.planIntent || link.type}
 										</span>
-										{link.exportedNetworks.slice(0, 4).map((network) => (
+										{link.exportedNetworks.map((network) => (
 											<span
 												key={`${link.id}-export-${network}`}
 												className="badge bg-azure-lt text-azure"
 											>
-												export {network}
+												{intl.formatMessage({ id: "wireguard.link.export" })} {network}
 											</span>
 										))}
-										{link.importedNetworks.slice(0, 4).map((network) => (
+										{link.importedNetworks.map((network) => (
 											<span
 												key={`${link.id}-import-${network}`}
 												className="badge bg-blue-lt text-blue"
 											>
-												import {network}
+												{intl.formatMessage({ id: "wireguard.link.import" })} {network}
 											</span>
 										))}
 										<span className="badge bg-secondary-lt text-secondary">
@@ -287,27 +230,28 @@ const Gateway = () => {
 									</div>
 
 									<div className="small text-secondary d-flex flex-column gap-1 mt-3">
-										{gaps.slice(0, 3).map((id) => (
+										{gaps.map((id) => (
 											<div key={id}>• {intl.formatMessage({ id })}</div>
 										))}
 									</div>
 									{link.warnings.length ? (
 										<div className="small text-secondary d-flex flex-column gap-1 mt-2">
-											{link.warnings.slice(0, 3).map((w) => (
+											{link.warnings.map((w) => (
 												<div key={w}>⚠ {fmtWarning(w)}</div>
 											))}
 										</div>
 									) : null}
 									{link.nextActions.length ? (
 										<div className="small text-secondary d-flex flex-column gap-1 mt-2">
-											{link.nextActions.slice(0, 3).map((a) => (
+											{link.nextActions.map((a) => (
 												<div key={a}>• {fmtNextAction(a)}</div>
 											))}
 										</div>
 									) : null}
 
 									<div className="small text-secondary mt-3">
-										Traffic: {byteFmt(link.rxBytes)} / {byteFmt(link.txBytes)}
+										{intl.formatMessage({ id: "wireguard.link.traffic" })}: {byteFmt(link.rxBytes)}{" "}
+										/ {byteFmt(link.txBytes)}
 									</div>
 								</div>
 							);
@@ -421,7 +365,7 @@ const Gateway = () => {
 									{intl.formatMessage({ id: "gateway.missing-return.title" })}
 								</div>
 								{missingReturnRoutes.length ? (
-									missingReturnRoutes.slice(0, 6).map((hint) => (
+									missingReturnRoutes.map((hint) => (
 										<div key={`${hint.network}-${hint.reason}`} className="small mb-2">
 											<div className="fw-medium">{hint.network}</div>
 											<div className="text-secondary">{hint.reason}</div>
@@ -438,7 +382,7 @@ const Gateway = () => {
 									{intl.formatMessage({ id: "gateway.nat-candidates.title" })}
 								</div>
 								{natCandidates.length ? (
-									natCandidates.slice(0, 6).map((hint) => (
+									natCandidates.map((hint) => (
 										<div key={`${hint.network}-${hint.reason}`} className="small mb-2">
 											<div className="fw-medium">{hint.network}</div>
 											<div className="text-secondary">{hint.reason}</div>
@@ -460,7 +404,7 @@ const Gateway = () => {
 						</div>
 						<div className="card-body d-flex flex-column gap-2">
 							{observations.length ? (
-								observations.slice(0, 8).map((item) => (
+								observations.map((item) => (
 									<div key={item} className="small text-secondary">
 										• {item}
 									</div>

@@ -575,3 +575,149 @@ test("diffLinkRenames follows a link whose name falls back to the conf/generated
 	});
 	assert.deepEqual(bindings, { "client-abc12345": "agent-x" }, "binding follows the effective name");
 });
+
+test("buildPlanPreview counts a cleared field as a change (removal only shows up in `before`)", () => {
+	const linkMeta = { type: "site-to-site", name: "Site-A", importedNetworks: ["192.168.10.0/24"] };
+	const status = {
+		available: true,
+		mode: "metadata-write",
+		metadata: { interfaces: {}, links: { "wg0:peer-a": { ...linkMeta } } },
+		interfaces: [
+			{
+				name: "wg0",
+				active: true,
+				configExists: true,
+				privateKeyPresent: true,
+				peerCount: 1,
+				activePeerCount: 1,
+				rxBytes: 0,
+				txBytes: 0,
+				peerNetworks: ["192.168.10.0/24"],
+				importedNetworks: ["192.168.10.0/24"],
+				exportedNetworks: [],
+				routeTargets: [],
+				notes: [],
+			},
+		],
+		links: [
+			{
+				id: "wg0:peer-a",
+				interfaceName: "wg0",
+				type: "site-to-site",
+				name: "Site-A",
+				allowedIps: ["192.168.10.0/24"],
+				tunnelAddresses: [],
+				importedNetworks: ["192.168.10.0/24"],
+				exportedNetworks: [],
+				active: true,
+				hasMetadata: true,
+				warnings: [],
+				nextActions: [],
+				notes: [],
+			},
+		],
+		routes: { all: [], wireguard: [], privateRoutes: [] },
+	};
+
+	const cleared = buildPlanPreview(status, { links: { "wg0:peer-a": { name: "" } } });
+	assert.equal(cleared.valid, true);
+	assert.deepEqual(cleared.diff.links[0].changedFields, ["name"]);
+	assert.equal(Object.hasOwn(cleared.diff.links[0].after, "name"), false);
+	assert.equal(cleared.apply.canApply, true);
+	assert.equal(cleared.apply.changeScope, "metadata-with-config-intent");
+
+	// Clearing a field that was never stored stays a no-op.
+	const noop = buildPlanPreview(status, { links: { "wg0:peer-a": { platform: null } } });
+	assert.equal(noop.apply.changeCount, 0);
+	assert.equal(noop.apply.canApply, false);
+});
+
+test("buildPlanPreview projects a revoked net / cleared name instead of the old live value", () => {
+	const linkRecord = (id, name, nets, pk) => ({
+		id,
+		interfaceName: "wg0",
+		type: "site-to-site",
+		name,
+		peerPublicKey: pk,
+		allowedIps: nets,
+		tunnelAddresses: [],
+		importedNetworks: nets,
+		exportedNetworks: [],
+		active: true,
+		hasMetadata: true,
+		warnings: [],
+		nextActions: [],
+		notes: [],
+	});
+	const status = {
+		available: true,
+		mode: "metadata-write",
+		metadata: {
+			interfaces: {},
+			links: {
+				"wg0:pkA": { type: "site-to-site", name: "Site-A", importedNetworks: ["10.1.0.0/24"] },
+				"wg0:pkB": { type: "site-to-site", name: "Site-B", importedNetworks: [] },
+			},
+		},
+		interfaces: [
+			{
+				name: "wg0",
+				active: true,
+				configExists: true,
+				privateKeyPresent: true,
+				peerCount: 2,
+				activePeerCount: 2,
+				rxBytes: 0,
+				txBytes: 0,
+				peerNetworks: ["10.1.0.0/24"],
+				importedNetworks: ["10.1.0.0/24"],
+				exportedNetworks: [],
+				routeTargets: [],
+				notes: [],
+			},
+		],
+		links: [
+			linkRecord("wg0:pkA", "Site-A", ["10.1.0.0/24"], "pkA12345xyz"),
+			linkRecord("wg0:pkB", "Site-B", [], "pkB12345xyz"),
+		],
+		routes: { all: [], wireguard: [], privateRoutes: [] },
+	};
+
+	// Moving a net from A to B in ONE apply: A's explicit [] revokes it (hasOwn,
+	// not `?.length`), so no false "Subnet conflict".
+	const moved = buildPlanPreview(status, {
+		links: { "wg0:pkA": { importedNetworks: [] }, "wg0:pkB": { importedNetworks: ["10.1.0.0/24"] } },
+	});
+	assert.equal(moved.valid, true, moved.errors.join("; "));
+	assert.deepEqual(moved.projected.links.find((l) => l.id === "wg0:pkA").importedNetworks, []);
+
+	// Clearing A's name while B takes it over: A projects its generated name.
+	const renamed = buildPlanPreview(status, {
+		links: { "wg0:pkA": { name: "" }, "wg0:pkB": { name: "Site-A" } },
+	});
+	assert.equal(renamed.valid, true, renamed.errors.join("; "));
+	assert.equal(renamed.projected.links.find((l) => l.id === "wg0:pkA").name, "site-to-site-pkA12345");
+});
+
+test("restoreMetadataBackup maps a corrupt .bak to restore-invalid-backup (not a SyntaxError)", async (t) => {
+	const tempRoot = await mkdtemp(path.join(os.tmpdir(), "wg-plan-corrupt-"));
+	t.after(() => rm(tempRoot, { recursive: true, force: true }));
+	const confDir = path.join(tempRoot, "conf");
+	const metadataFile = path.join(tempRoot, "wireguard-metadata.json");
+	await mkdir(confDir, { recursive: true });
+	await writeFile(path.join(confDir, "wg1.conf"), "[Interface]\nAddress = 10.1.0.1/24\nPrivateKey = k\n", "utf8");
+	await writeFile(metadataFile, `${JSON.stringify({ interfaces: {}, links: {} })}\n`, "utf8");
+	const backupPath = `${metadataFile}.2026-04-19T23-00-00-000Z.bak`;
+	await writeFile(backupPath, '{"links":', "utf8"); // truncated mid-write
+
+	await withPlanEnv(
+		{ WG_CONF_DIR: confDir, WG_BIN: "/bin/false", IP_BIN: "/bin/false", WG_METADATA_FILE: metadataFile },
+		`corrupt-${Date.now()}`,
+		async (planModule) => {
+			await assert.rejects(
+				planModule.default.restoreMetadataBackup(backupPath),
+				(err) => err.code === "restore-invalid-backup" && /is corrupt/.test(err.message),
+			);
+		},
+	);
+});

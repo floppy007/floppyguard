@@ -15,6 +15,8 @@ import { intl, T } from "src/locale";
 import { POPPER_FIXED } from "src/modules/Dropdown";
 import { MANAGE, STREAMS } from "src/modules/Permissions";
 
+const columnHelper = createColumnHelper<Stream>();
+
 interface Props {
 	data: Stream[];
 	isFiltered?: boolean;
@@ -25,7 +27,6 @@ interface Props {
 	onNew?: () => void;
 }
 export default function Table({ data, isFetching, isFiltered, onEdit, onDelete, onDisableToggle, onNew }: Props) {
-	const columnHelper = createColumnHelper<Stream>();
 	const columns = useMemo(
 		() => [
 			columnHelper.accessor((row: any) => row.owner, {
@@ -132,7 +133,7 @@ export default function Table({ data, isFetching, isFiltered, onEdit, onDelete, 
 										}}
 									>
 										<IconPower size={16} />
-										<T id="action.disable" />
+										<T id={info.row.original.enabled ? "action.disable" : "action.enable"} />
 									</a>
 									<div className="dropdown-divider" />
 									<a
@@ -156,7 +157,7 @@ export default function Table({ data, isFetching, isFiltered, onEdit, onDelete, 
 				},
 			}),
 		],
-		[columnHelper, onEdit, onDisableToggle, onDelete],
+		[onEdit, onDisableToggle, onDelete],
 	);
 
 	const tableInstance = useReactTable<Stream>({

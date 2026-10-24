@@ -4,6 +4,7 @@ import internalUser from "../internal/user.js";
 import Access from "../lib/access.js";
 import errs from "../lib/error.js";
 import jwtdecode from "../lib/express/jwt-decode.js";
+import rateLimit from "../lib/express/rate-limit.js";
 import requireAdmin from "../lib/express/require-admin.js";
 import userIdFromMe from "../lib/express/user-id-from-me.js";
 import apiValidator from "../lib/validator/api.js";
@@ -17,6 +18,27 @@ const router = express.Router({
 	strict: true,
 	mergeParams: true,
 });
+
+// 2FA enable/disable/backup codes and the current-password check accept guesses from a
+// session holder: throttle per IP in its own bucket so a mistyped code can't lock out login
+const twoFaLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, bucket: "2fa" });
+
+// Hoisted so Ajv compiles each schema once (it caches compiled validators by object identity)
+const LIST_SCHEMA = {
+	additionalProperties: false,
+	properties: {
+		expand: { $ref: "common#/properties/expand" },
+		query: { $ref: "common#/properties/query" },
+	},
+};
+const GET_SCHEMA = {
+	required: ["user_id"],
+	additionalProperties: false,
+	properties: {
+		user_id: { $ref: "common#/properties/id" },
+		expand: { $ref: "common#/properties/expand" },
+	},
+};
 
 /**
  * /api/users
@@ -35,23 +57,10 @@ router
 	 */
 	.get(requireAdmin(), async (req, res, next) => {
 		try {
-			const data = await validator(
-				{
-					additionalProperties: false,
-					properties: {
-						expand: {
-							$ref: "common#/properties/expand",
-						},
-						query: {
-							$ref: "common#/properties/query",
-						},
-					},
-				},
-				{
-					expand: typeof req.query.expand === "string" ? req.query.expand.split(",") : null,
-					query: typeof req.query.query === "string" ? req.query.query : null,
-				},
-			);
+			const data = await validator(LIST_SCHEMA, {
+				expand: typeof req.query.expand === "string" ? req.query.expand.split(",") : null,
+				query: typeof req.query.query === "string" ? req.query.query : null,
+			});
 			const users = await internalUser.getAll(res.locals.access, data.expand, data.query);
 			res.status(200).send(users);
 		} catch (err) {
@@ -80,7 +89,7 @@ router
 				// We are in setup mode, set some defaults for this first new user, such as making
 				// them an admin.
 				body.is_disabled = false;
-				if (typeof body.roles !== "object" || body.roles === null) {
+				if (!Array.isArray(body.roles)) {
 					body.roles = [];
 				}
 				if (body.roles.indexOf("admin") === -1) {
@@ -89,6 +98,10 @@ router
 			}
 
 			const payload = await apiValidator(getValidationSchema("/users", "post"), body);
+			if (!setup && !payload.auth) {
+				// First admin must have a password, otherwise isSetup() flips to true and nobody can ever log in
+				throw new errs.ValidationError("Initial admin user requires auth credentials (password)");
+			}
 			const user = await internalUser.create(res.locals.access, payload);
 			res.status(201).send(user);
 		} catch (err) {
@@ -125,29 +138,14 @@ router
 	 */
 	.get(async (req, res, next) => {
 		try {
-			const data = await validator(
-				{
-					required: ["user_id"],
-					additionalProperties: false,
-					properties: {
-						user_id: {
-							$ref: "common#/properties/id",
-						},
-						expand: {
-							$ref: "common#/properties/expand",
-						},
-					},
-				},
-				{
-					user_id: req.params.user_id,
-					expand: typeof req.query.expand === "string" ? req.query.expand.split(",") : null,
-				},
-			);
+			const data = await validator(GET_SCHEMA, {
+				user_id: req.params.user_id,
+				expand: typeof req.query.expand === "string" ? req.query.expand.split(",") : null,
+			});
 
 			const user = await internalUser.get(res.locals.access, {
 				id: data.user_id,
 				expand: data.expand,
-				omit: internalUser.getUserOmisionsByAccess(res.locals.access, data.user_id),
 			});
 			res.status(200).send(user);
 		} catch (err) {
@@ -208,7 +206,7 @@ router
 	 *
 	 * Update password for a user
 	 */
-	.put(async (req, res, next) => {
+	.put(twoFaLimiter, async (req, res, next) => {
 		try {
 			const payload = await apiValidator(getValidationSchema("/users/{userID}/auth", "put"), req.body);
 			payload.id = req.params.user_id;
@@ -261,6 +259,7 @@ router
 		res.sendStatus(204);
 	})
 	.all(jwtdecode())
+	.all(userIdFromMe)
 
 	/**
 	 * POST /api/users/123/login
@@ -270,7 +269,7 @@ router
 	.post(async (req, res, next) => {
 		try {
 			const result = await internalUser.loginAs(res.locals.access, {
-				id: Number.parseInt(req.params.user_id, 10),
+				id: req.params.user_id,
 			});
 			res.status(200).send(result);
 		} catch (err) {
@@ -323,13 +322,19 @@ router
 	})
 
 	/**
-	 * DELETE /api/users/123/2fa?code=XXXXXX
+	 * DELETE /api/users/123/2fa  {"code": "XXXXXX"}
 	 *
-	 * Disable 2FA for a user
+	 * Disable 2FA for a user. The code travels in the body so it doesn't end up in
+	 * access logs; ?code= is still read for older clients.
 	 */
-	.delete(async (req, res, next) => {
+	.delete(twoFaLimiter, async (req, res, next) => {
 		try {
-			const code = typeof req.query.code === "string" ? req.query.code : null;
+			let code = null;
+			if (req.body && typeof req.body === "object" && typeof req.body.code !== "undefined") {
+				({ code } = await apiValidator(getValidationSchema("/users/{userID}/2fa", "delete"), req.body));
+			} else if (typeof req.query.code === "string") {
+				code = req.query.code;
+			}
 			if (!code) {
 				throw new errs.ValidationError("Missing required parameter: code");
 			}
@@ -359,7 +364,7 @@ router
 	 *
 	 * Verify code and enable 2FA
 	 */
-	.post(async (req, res, next) => {
+	.post(twoFaLimiter, async (req, res, next) => {
 		try {
 			const { code } = await apiValidator(getValidationSchema("/users/{userID}/2fa/enable", "post"), req.body);
 			const result = await internal2FA.enable(res.locals.access, req.params.user_id, code);
@@ -388,7 +393,7 @@ router
 	 *
 	 * Regenerate backup codes
 	 */
-	.post(async (req, res, next) => {
+	.post(twoFaLimiter, async (req, res, next) => {
 		try {
 			const { code } = await apiValidator(
 				getValidationSchema("/users/{userID}/2fa/backup-codes", "post"),

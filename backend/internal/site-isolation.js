@@ -23,10 +23,11 @@
 // apply; overview() reports that as warning `boot-include-missing`.
 //
 // Fail-safe: a missing/unreadable view of the links never lifts a separation.
-// Tunnel /32s fall back to the last known ones when the live status is missing,
-// a link that vanished keeps its last sets for one more apply, and when stored
-// pairs exist but NONE of them resolves to current site links the previous table
-// is kept (error `links-unresolved`).
+// The live-derived view (type, networks, tunnel /32s) falls back to the last
+// known one when the live status is missing, a link that vanished keeps its last
+// sets for one more apply, and when stored pairs exist but NONE of them resolves
+// to current site links — or a pair would be dropped while one of its links has
+// no live view at all — the previous table is kept (error `links-unresolved`).
 //
 // Foreign drops: rules someone added by hand to other forward chains (e.g. the
 // pre-FloppyGuard `ip saddr @site_x ip daddr @site_y drop` in inet filter) are
@@ -39,12 +40,12 @@ import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import error from "../lib/error.js";
 import { wireguard as logger } from "../logger.js";
 import Agent from "../models/agent.js";
 import AuditLog from "../models/audit-log.js";
 import SiteIsolation from "../models/site_isolation.js";
-import { canonicalCidr } from "./agent-ingress-rules.js";
+import { sanitizeFlowQuery } from "./agent-ingress-catalog.js";
+import { parseJsonArray } from "./agent-ingress-rules.js";
 import internalAuditLog from "./audit-log.js";
 import {
 	bootIncludesFile,
@@ -81,30 +82,22 @@ const APPLIER_WARNING_CODES = new Set(["persist-failed", "link-missing-held"]);
 
 const execFileP = promisify(execFileCb);
 
-const parseJsonList = (raw) => {
-	if (Array.isArray(raw)) return raw;
-	if (!raw) return null;
-	try {
-		const v = JSON.parse(raw);
-		return Array.isArray(v) ? v : null;
-	} catch {
-		return null;
-	}
-};
-
 /**
- * Link loader with a fail-safe tunnel cache. Returns links in one shape:
- * { id, name, type, importedNetworks, tunnelAddresses, active }.
+ * Link loader with a fail-safe live cache. Returns links in one shape:
+ * { id, name, type, importedNetworks, tunnelAddresses, active, live }.
  * The metadata store is authoritative for ids, names, types and networks (it
  * survives a downed interface); the live status adds tunnel /32s, online state,
  * the effective type of untyped peers and peers without metadata. A corrupt or
  * unreadable store THROWS — applying with an empty link list would silently lift
  * every isolation.
  *
- * Tunnel /32s exist only in the live status. When it is unavailable (throws,
- * `available: false`, wg0 not up yet at boot) or a known link is missing from it,
- * the last tunnel addresses seen for that link are used instead of [] — a
- * transient read error must not drop 10.10.0.x/32 out of a site's set.
+ * Tunnel /32s exist only in the live status, and so do the type / networks of a
+ * link whose metadata entry lacks them (inferred from AllowedIPs). When the
+ * status is unavailable (throws, `available: false`, wg0 not up yet at boot) or
+ * a known link is missing from it, the whole last live-derived view of that link
+ * (type, networks, tunnel /32s) is used instead of null/[] — a transient read
+ * error must not drop a site out of its pairs. `live: false` = no live record
+ * now and none cached: type/networks may be incomplete (see applyOnce).
  */
 export function createLinkLoader(deps = {}) {
 	const d = {
@@ -113,38 +106,43 @@ export function createLinkLoader(deps = {}) {
 		log: logger,
 		...deps,
 	};
-	const tunnelCache = new Map();
+	const liveCache = new Map(); // id → { type, importedNetworks, tunnelAddresses } from the last live view
 	return async function loadLinks() {
 		const metadata = await d.readMetadataStore();
 		let status = null;
 		try {
 			status = await d.getStatus();
 		} catch (err) {
-			d.log.warn(
-				`Site isolation: WireGuard status unavailable (${err.message}) — last known tunnel addresses used`,
-			);
+			d.log.warn(`Site isolation: WireGuard status unavailable (${err.message}) — last known live view used`);
 		}
 		const statusOk = Boolean(status?.available);
 		const live = new Map((statusOk ? status.links || [] : []).map((l) => [l.id, l]));
-		const tunnelOf = (id, l) => {
+		const liveOf = (id, l) => {
 			if (l) {
-				const t = l.tunnelAddresses || [];
-				tunnelCache.set(id, t);
-				return t;
+				const rec = {
+					type: l.type || null,
+					importedNetworks: l.importedNetworks || [],
+					tunnelAddresses: l.tunnelAddresses || [],
+				};
+				liveCache.set(id, rec);
+				return rec;
 			}
-			return tunnelCache.get(id) || [];
+			return liveCache.get(id) || { type: null, importedNetworks: [], tunnelAddresses: [] };
 		};
 		const out = [];
 		for (const [id, m] of Object.entries(metadata.links || {})) {
 			const l = live.get(id);
 			live.delete(id);
+			const v = liveOf(id, l);
 			out.push({
 				id,
 				name: m?.name || l?.name || id,
-				type: m?.type || l?.type || null,
-				importedNetworks: m?.importedNetworks?.length ? m.importedNetworks : l?.importedNetworks || [],
-				tunnelAddresses: tunnelOf(id, l),
+				type: m?.type || v.type,
+				importedNetworks: m?.importedNetworks?.length ? m.importedNetworks : v.importedNetworks,
+				tunnelAddresses: v.tunnelAddresses,
 				active: Boolean(l?.active),
+				// false = no live record now and none cached: type/networks may be incomplete
+				live: Boolean(l) || liveCache.has(id),
 			});
 		}
 		for (const l of live.values()) {
@@ -153,8 +151,9 @@ export function createLinkLoader(deps = {}) {
 				name: l.name || l.id,
 				type: l.type || null,
 				importedNetworks: l.importedNetworks || [],
-				tunnelAddresses: tunnelOf(l.id, l),
+				tunnelAddresses: liveOf(l.id, l).tunnelAddresses,
 				active: Boolean(l.active),
+				live: true,
 			});
 		}
 		return out;
@@ -271,13 +270,13 @@ export function createSiteIsolationApplier(deps = {}) {
 		return { links: [...input.links, ...held], warnings };
 	}
 
-	async function applyOnce({ force = false } = {}) {
+	async function applyOnce({ force = false, input: preloaded = null } = {}) {
 		let input;
 		let script;
 		let plan;
 		let heldWarnings;
 		try {
-			const raw = await d.loadInput();
+			const raw = preloaded || (await d.loadInput());
 			const held = withHeldLinks(raw);
 			heldWarnings = held.warnings;
 			input = { pairs: raw.pairs, links: held.links };
@@ -292,15 +291,23 @@ export function createSiteIsolationApplier(deps = {}) {
 		// Fail closed: stored pairs, but none resolves to current site links (empty
 		// or missing metadata store, links re-created under new keys …). Applying
 		// would lift every separation on a pure input problem — keep the old table.
+		// Likewise when the plan drops a pair while one of its links has no live view
+		// (wg down, `wg show` failed): its type/networks may just be unreadable now.
 		if (input.pairs.length) {
 			const byId = new Map(input.links.map((l) => [l.id, l]));
+			const planned = new Set(plan.pairs.map(pairKey));
 			const unresolved = input.pairs.filter((p) => ![p.a, p.b].every((id) => isSiteLink(byId.get(id))));
-			if (!input.links.some(isSiteLink) || unresolved.length === input.pairs.length) {
+			const blind = input.pairs.filter(
+				(p) => !planned.has(pairKey(p)) && [p.a, p.b].some((id) => byId.get(id)?.live === false),
+			);
+			if (!input.links.some(isSiteLink) || unresolved.length === input.pairs.length || blind.length) {
 				state.planWarnings = plan.warnings;
 				state.heldWarnings = heldWarnings;
 				const res = fail(
 					"links-unresolved",
-					"Keine gespeicherte Trennung passt zu einer vorhandenen Standort-Verbindung (WireGuard-Metadaten leer oder Verbindungen neu angelegt) — die bisherigen Regeln bleiben aktiv",
+					blind.length
+						? "WireGuard-Status nicht lesbar und mindestens eine Trennung ließe sich daraus nicht mehr ableiten — die bisherigen Regeln bleiben aktiv"
+						: "Keine gespeicherte Trennung passt zu einer vorhandenen Standort-Verbindung (WireGuard-Metadaten leer oder Verbindungen neu angelegt) — die bisherigen Regeln bleiben aktiv",
 				);
 				d.log.error(`Site isolation: not applied, previous table kept — ${state.error}`);
 				return res;
@@ -413,6 +420,7 @@ export function createSiteIsolationApplier(deps = {}) {
 const applier = createSiteIsolationApplier();
 let scheduled = null;
 let started = false;
+const isDisabled = () => process.env.SITE_ISOLATION_DISABLED === "true";
 
 function schedule(reason) {
 	if (!started || scheduled) return;
@@ -466,7 +474,7 @@ async function lastChange() {
 const internalSiteIsolation = {
 	/** Server entrypoint: apply once now and re-apply whenever syncAgentConfigs runs. */
 	start() {
-		if (process.env.SITE_ISOLATION_DISABLED === "true") {
+		if (isDisabled()) {
 			logger.info("Site isolation disabled by SITE_ISOLATION_DISABLED=true");
 			return Promise.resolve(null);
 		}
@@ -482,9 +490,9 @@ const internalSiteIsolation = {
 		return applier.apply(opts);
 	},
 
-	/** GET /api/site-isolation */
-	async overview() {
-		const [links, pairs] = await Promise.all([loadLinks(), loadPairs()]);
+	/** GET /api/site-isolation (replace() passes the links/pairs it already loaded) */
+	async overview({ links: preLinks, pairs: prePairs } = {}) {
+		const [links, pairs] = await Promise.all([preLinks || loadLinks(), prePairs || loadPairs()]);
 		const byId = new Map(links.map((l) => [l.id, l]));
 		const sites = links
 			.filter(isSiteLink)
@@ -512,8 +520,8 @@ const internalSiteIsolation = {
 			id: a.id,
 			name: a.name,
 			wg_link_name: a.wg_link_name,
-			allowed_networks: parseJsonList(a.allowed_networks),
-			allowed_sites: parseJsonList(a.allowed_sites),
+			allowed_networks: parseJsonArray(a.allowed_networks, null),
+			allowed_sites: parseJsonArray(a.allowed_sites, null),
 		}));
 		const st = applier.state();
 		// Enforced = the pair is in the table the hub actually runs: part of the last
@@ -543,9 +551,13 @@ const internalSiteIsolation = {
 			};
 		});
 		const manualPairs = drops ? manualSitePairs({ drops, sites }) : [];
+		const applierWarnings = st.warnings.filter((w) => APPLIER_WARNING_CODES.has(w.code));
+		// A link the applier still holds (link-missing-held) is NOT skipped yet — the fresh
+		// plan's "link-missing … wird übersprungen" for the same link would contradict it.
+		const heldIds = new Set(applierWarnings.filter((w) => w.code === "link-missing-held").map((w) => w.link_id));
 		const warnings = [
-			...plan.warnings,
-			...st.warnings.filter((w) => APPLIER_WARNING_CODES.has(w.code)),
+			...plan.warnings.filter((w) => !(w.code === "link-missing" && heldIds.has(w.link_id))),
+			...applierWarnings,
 			...routeWarnings({ pairs: plan.pairs, links, agents }),
 		];
 		if (drops?.length) {
@@ -583,6 +595,7 @@ const internalSiteIsolation = {
 				error_at: st.error_at,
 				file: st.persisted,
 				table_present: table.present,
+				disabled: isDisabled(),
 			},
 			last_change: changed,
 			warnings,
@@ -591,7 +604,7 @@ const internalSiteIsolation = {
 
 	/** PUT /api/site-isolation — replace the full pair set, then apply. */
 	async replace(access, body) {
-		await withReplaceLock(async () => {
+		return withReplaceLock(async () => {
 			const links = await loadLinks();
 			const clean = sanitizePairs(body?.pairs, links);
 			const nameOf = (id) => links.find((l) => l.id === id)?.name || id;
@@ -618,18 +631,20 @@ const internalSiteIsolation = {
 					logger.warn(`site isolation audit log failed: ${err.message}`);
 				}
 			}
-			await applier.apply({ force: true });
+			if (isDisabled()) {
+				logger.info("Site isolation: pairs stored but not applied (SITE_ISOLATION_DISABLED=true)");
+			} else {
+				await applier.apply({ force: true, input: { pairs: clean, links } });
+			}
+			// one link view per save; pairs re-read only for their row ids
+			return this.overview({ links, pairs: await loadPairs() });
 		});
-		return this.overview();
 	},
 
 	/** POST /api/site-isolation/test {source, destination} — read-only verdict. */
 	async test(body) {
-		const b = body || {};
-		const src = canonicalCidr(b.source);
-		if (!src) throw new error.ValidationError("source: invalid IPv4 address/CIDR");
-		const dst = canonicalCidr(b.destination);
-		if (!dst) throw new error.ValidationError("destination: invalid IPv4 address/CIDR");
+		// same shape as the Freigaben tester; port/proto are validated but irrelevant for L3 isolation
+		const { src, dst } = sanitizeFlowQuery(body);
 		return this.verdict(src, dst);
 	},
 

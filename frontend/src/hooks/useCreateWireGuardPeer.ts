@@ -4,15 +4,13 @@ import {
 	type CreateWireGuardPeerResponse,
 	createWireGuardPeer,
 } from "src/api/backend";
+import { invalidateWireGuard } from "./wireguardKeys";
 
 const useCreateWireGuardPeer = () => {
 	const queryClient = useQueryClient();
 	return useMutation<CreateWireGuardPeerResponse, Error, CreateWireGuardPeerRequest>({
 		mutationFn: createWireGuardPeer,
-		onSuccess: () => {
-			queryClient.invalidateQueries({ queryKey: ["wireguard-status"] });
-			queryClient.invalidateQueries({ queryKey: ["wireguard-bandwidth"] });
-		},
+		onSuccess: () => invalidateWireGuard(queryClient),
 	});
 };
 

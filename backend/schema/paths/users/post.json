@@ -34,10 +34,21 @@
 						},
 						"auth": {
 							"type": "object",
-							"description": "Auth Credentials",
-							"example": {
-								"type": "password",
-								"secret": "bigredhorsebanana"
+							"description": "Auth Credentials (password only; OIDC rows are created by the SSO login flow)",
+							"required": ["type", "secret"],
+							"additionalProperties": false,
+							"properties": {
+								"type": {
+									"type": "string",
+									"pattern": "^password$",
+									"example": "password"
+								},
+								"secret": {
+									"type": "string",
+									"minLength": 8,
+									"maxLength": 64,
+									"example": "bigredhorsebanana"
+								}
 							}
 						}
 					}

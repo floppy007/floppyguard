@@ -9,12 +9,14 @@ import type {
 	WireGuardLink,
 	WireGuardLinkType,
 	WireGuardManagementMode,
+	WireGuardMetadataLinkPatch,
 	WireGuardMetadataPatch,
 	WireGuardPlanPreviewResponse,
 	WireGuardRemoteManagementMode,
 	WireGuardRestoreMetadataResponse,
 	WireGuardReturnPathMode,
 	WireGuardRouteHint,
+	WireGuardStructuredWarning,
 } from "src/api/backend";
 import {
 	buildInstallOneliner,
@@ -25,6 +27,7 @@ import {
 	deleteWithBoundAgents,
 	downloadWireGuardLinkConfig,
 	resetAgentToken,
+	saveBlob,
 } from "src/api/backend";
 import { Loading } from "src/components";
 import {
@@ -40,57 +43,33 @@ import {
 	useWireGuardApplyState,
 	useWireGuardStatus,
 } from "src/hooks";
+import { agentInvalidations, invalidateWireGuard, wireGuardInvalidations } from "src/hooks/wireguardKeys";
 import { intl } from "src/locale/IntlProvider";
 import { showDeleteConfirmModal, showWireGuardQrModal } from "src/modals";
 import { AgentIngressSummary } from "./AgentIngressSummary";
 import styles from "./index.module.css";
+import { fmtNextAction, fmtWarning, getLinkTypeBadge, getPlanBadge } from "./linkLabels";
 import { hubChangeCount, renameCascadeProblems, restoreSyncProblems } from "./restoreSync";
 import { TopologyMap } from "./TopologyMap";
-import { byteFmt, matchLinkAgent } from "./topology";
+import { agoFmt, byteFmt, matchLinkAgent } from "./topology";
 
 // ── Utilities ──────────────────────────────────────────────────────────────────
 
-const KNOWN_NEXT_ACTIONS = new Set([
-	"verify-return-path",
-	"model-exported-networks",
-	"define-remote-management-mode",
-	"fix-return-path",
-	"decide-nat-or-static-route",
-	"define-return-path-mode",
-	"verify-live-tunnel-state",
-	"mount-wireguard-config-directory",
-]);
-
-const fmtNextAction = (a: string) =>
-	KNOWN_NEXT_ACTIONS.has(a) ? intl.formatMessage({ id: `wireguard.next.${a}` }) : a;
-
-const KNOWN_WARNINGS = new Set([
-	"remote-endpoint-missing",
-	"imported-network-missing-live-route",
-	"nat-likely-needed",
-	"exported-networks-missing",
-	"return-path-mode-undefined",
-	"remote-management-mode-undefined",
-	"link-not-currently-active",
-	"allowedips-conflict",
-]);
-
-const fmtWarning = (w: string) => (KNOWN_WARNINGS.has(w) ? intl.formatMessage({ id: `wireguard.warning.${w}` }) : w);
-
 // Structured warning from the backend (e.g. allowedips-conflict)
-type StructuredWarning = { code: string; subnet: string; peers: string[]; message: string };
-const isStructuredWarning = (w: unknown): w is StructuredWarning => typeof w === "object" && w !== null && "code" in w;
+const isStructuredWarning = (w: string | WireGuardStructuredWarning): w is WireGuardStructuredWarning =>
+	typeof w === "object" && w !== null && "code" in w;
 
-const fmtGlobalWarning = (w: string | StructuredWarning): string => {
-	if (isStructuredWarning(w)) {
-		if (w.code === "allowedips-conflict") {
-			return intl.formatMessage(
-				{ id: "wireguard.warning.allowedips-conflict" },
-				{ subnet: w.subnet, peers: w.peers.join(", ") },
-			);
-		}
-		return w.message;
+const isConflictWarning = (w: string | WireGuardStructuredWarning): w is WireGuardStructuredWarning =>
+	isStructuredWarning(w) && w.code === "allowedips-conflict";
+
+const fmtGlobalWarning = (w: string | WireGuardStructuredWarning): string => {
+	if (isConflictWarning(w)) {
+		return intl.formatMessage(
+			{ id: "wireguard.warning.allowedips-conflict" },
+			{ subnet: w.subnet, peers: w.peers.join(", ") },
+		);
 	}
+	if (isStructuredWarning(w)) return w.message;
 	return fmtWarning(w);
 };
 
@@ -100,6 +79,15 @@ const splitCsv = (value: string) =>
 		.split(",")
 		.map((s) => s.trim())
 		.filter(Boolean);
+// Free-text lists (interface notes) may contain commas — one entry per line instead.
+const splitLines = (value: string) =>
+	value
+		.split(/\r?\n/)
+		.map((s) => s.trim())
+		.filter(Boolean);
+// Both sides normalised through splitCsv so whitespace/empty entries never produce a spurious patch.
+const csvChanged = (draft: string, base: readonly string[] | string | undefined) =>
+	splitCsv(draft).join(",") !== splitCsv(Array.isArray(base) ? base.join(",") : ((base as string) ?? "")).join(",");
 
 // Agent-reported service URLs cross a trust boundary (heartbeat payload from
 // the remote box) — only render plain http(s) URLs as clickable links.
@@ -118,42 +106,9 @@ const parseIfaceRole = (v: string): WireGuardInterfaceRole =>
 const parseIfaceMgmt = (v: string): WireGuardManagementMode =>
 	(["local", "imported", "unknown"] as const).includes(v as never) ? (v as WireGuardManagementMode) : "unknown";
 
-const timeAgo = (ts: number) => {
-	if (!ts) return intl.formatMessage({ id: "wireguard.time.never" });
-	const s = Math.floor(Date.now() / 1000 - ts);
-	if (s < 60) return `${s}s ago`;
-	if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-	return `${Math.floor(s / 3600)}h ago`;
-};
-
-const typeBadge = (type: WireGuardLink["type"]) => {
-	switch (type) {
-		case "site-to-site":
-			return { label: "site-to-site", cls: "bg-indigo-lt text-indigo" };
-		case "hub-link":
-			return { label: "hub-link", cls: "bg-cyan-lt text-cyan" };
-		case "client":
-			return { label: "client", cls: "bg-emerald-lt text-emerald" };
-		default:
-			return { label: type || "unknown", cls: "bg-secondary-lt text-secondary" };
-	}
-};
-
-const planBadge = (state?: string | null) => {
-	switch (state) {
-		case "ready":
-			return { label: intl.formatMessage({ id: "wireguard.plan.ready" }), cls: "bg-green-lt text-green" };
-		case "validate":
-			return { label: intl.formatMessage({ id: "wireguard.plan.check" }), cls: "bg-yellow-lt text-yellow" };
-		case "shape":
-			return { label: intl.formatMessage({ id: "wireguard.plan.design" }), cls: "bg-blue-lt text-blue" };
-		default:
-			return {
-				label: intl.formatMessage({ id: "wireguard.plan.unplanned" }),
-				cls: "bg-secondary-lt text-secondary",
-			};
-	}
-};
+/** "never" (localized) or the same short age the topology map shows ("40 s", "6 min", "3 h", "2 d"). */
+const timeAgo = (ts: number) =>
+	ts ? agoFmt(Date.now() / 1000 - ts) : intl.formatMessage({ id: "wireguard.time.never" });
 
 const ifaceHealthBadge = (health?: string) => {
 	switch (health) {
@@ -168,6 +123,24 @@ const ifaceHealthBadge = (health?: string) => {
 
 const hasRouteHint = (link: WireGuardLink, hints: WireGuardRouteHint[]) =>
 	hints.some((h) => link.importedNetworks.includes(h.network));
+
+/** Error alert for a failed mutation (title + raw backend message). */
+function MutationError({
+	error,
+	titleId,
+	testId,
+}: {
+	error: Error | null | undefined;
+	titleId: string;
+	testId?: string;
+}) {
+	return (
+		<div className="alert alert-danger mt-2 mb-0 py-2 small" data-testid={testId}>
+			{intl.formatMessage({ id: titleId })}
+			{error?.message && <div className="font-monospace mt-1">{error.message}</div>}
+		</div>
+	);
+}
 
 // ── Apply sync result banner ────────────────────────────────────────────────────
 
@@ -198,8 +171,6 @@ function ApplySyncResult({ data, onDismiss }: { data: WireGuardApplyMetadataResp
 			</div>
 		);
 	}
-	// hubSync is keyed by interface (or one failure object), agentSync may be a
-	// fleet-wide {error} — restoreSyncProblems already handles both shapes.
 	const { hub, agentError, agentsSkipped, agentsFailed, renameErrors } = restoreSyncProblems(data);
 	const hubChanges = hubChangeCount(data.hubSync);
 	const agentChanges = Array.isArray(data.agentSync) ? data.agentSync.filter((a) => a.changed) : [];
@@ -357,6 +328,47 @@ export function hubTunnelUrl(address: string | undefined): string {
 	return ip.includes(":") ? `http://[${ip}]:3300` : `http://${ip}:3300`;
 }
 
+/** Second confirmation before a forced delete of an agent that is offline for good. */
+const confirmForceAgent = (name: string) =>
+	window.confirm(intl.formatMessage({ id: "wireguard.agent.delete-force-confirm" }, { name }));
+
+/**
+ * Delete confirm for a link/interface whose bound agents are removed with it
+ * (see deleteWithBoundAgents). `boundAgents` is only for the confirmation text.
+ */
+function confirmDeleteWithBoundAgents({
+	titleId,
+	confirmTextId,
+	name,
+	boundAgents,
+	call,
+}: {
+	titleId: string;
+	confirmTextId: string;
+	name: string;
+	boundAgents: { name: string }[];
+	call: Parameters<typeof deleteWithBoundAgents>[0];
+}) {
+	showDeleteConfirmModal({
+		title: intl.formatMessage({ id: titleId }),
+		onConfirm: () => deleteWithBoundAgents(call, (a) => confirmForceAgent(a.name)),
+		invalidations: wireGuardInvalidations({ agents: true }),
+		children: (
+			<>
+				{intl.formatMessage({ id: confirmTextId }, { name })}
+				{boundAgents.length > 0 && (
+					<div className="mt-2">
+						{intl.formatMessage(
+							{ id: "wireguard.link.delete-agent-note" },
+							{ agent: boundAgents.map((a) => a.name).join(", ") },
+						)}
+					</div>
+				)}
+			</>
+		),
+	});
+}
+
 function AgentSection({
 	link,
 	agents,
@@ -376,11 +388,6 @@ function AgentSection({
 	const createAgent = useCreateAgent();
 	const updateAgent = useUpdateAgent();
 	const queryClient = useQueryClient();
-	// While this panel is open, keep the shared agents query fresh (the page-level
-	// observer only polls for pending agents): status, last seen and version of an
-	// active agent update without a reload. Same query key → the `agents` prop
-	// re-renders with the new data; the interval ends when the panel closes.
-	useAgents({ refetchInterval: 30_000 });
 
 	// PRIMARY_URL is the HUB as seen through the tunnel — link.tunnelAddresses are
 	// the gateway's own /32s. Default: the agent-hub-url setting's primary, else the
@@ -453,17 +460,13 @@ function AgentSection({
 		showDeleteConfirmModal({
 			title: intl.formatMessage({ id: "wireguard.agent.delete-title" }),
 			onConfirm: async () => {
-				await deleteAgentGuarded(target, () =>
-					window.confirm(
-						intl.formatMessage({ id: "wireguard.agent.delete-force-confirm" }, { name: target.name }),
-					),
-				);
+				await deleteAgentGuarded(target, () => confirmForceAgent(target.name));
 				// Stay "not found" afterwards — no silent re-create; the retry button creates a fresh agent.
 				agentCreateAttempted.current = true;
 				setActiveAgentId(null);
 				setLastKnown(null);
 			},
-			invalidations: [["agents"], ["agent-ingress-check"]],
+			invalidations: agentInvalidations(),
 			children: intl.formatMessage({ id: "wireguard.agent.delete-confirm" }, { name: target.name }),
 		});
 	};
@@ -556,7 +559,9 @@ function AgentSection({
 
 	return (
 		<div className={styles.inlineSection}>
-			<div className="fw-medium mb-3 small text-uppercase text-secondary">Agent — {link.name}</div>
+			<div className="fw-medium mb-3 small text-uppercase text-secondary">
+				{intl.formatMessage({ id: "wireguard.link.agent" })} — {link.name}
+			</div>
 
 			{!agent && (
 				<div className="text-secondary small">
@@ -953,11 +958,7 @@ function LinkCard({
 		window.confirm(intl.formatMessage({ id: "wireguard.link.rotate-confirm" }, { name: link.name || link.id }));
 	// The rotated key changes the link id (iface:newPubKey) — refresh so later
 	// edits/deletes don't target the old id.
-	const invalidateAfterRotation = () => {
-		for (const key of ["wireguard-status", "wireguard-metadata", "wireguard-bandwidth"]) {
-			queryClient.invalidateQueries({ queryKey: [key] });
-		}
-	};
+	const invalidateAfterRotation = () => invalidateWireGuard(queryClient);
 
 	// Editor state
 	const [draftName, setDraftName] = useState("");
@@ -979,11 +980,13 @@ function LinkCard({
 	const [planReturn, setPlanReturn] = useState<WireGuardReturnPathMode>("auto");
 	const [planMgmt, setPlanMgmt] = useState<WireGuardRemoteManagementMode>("none");
 	const [planIntent, setPlanIntent] = useState("unknown");
+	// Same idea as editorBase: the planner patch diffs against the link as it was when the planner opened.
+	const [plannerBase, setPlannerBase] = useState<WireGuardLink | null>(null);
 
 	const applyMetadata = useApplyWireGuardMetadata();
 
-	const tb = typeBadge(link.type);
-	const pb = planBadge(link.planState);
+	const tb = getLinkTypeBadge(link);
+	const pb = getPlanBadge(link);
 	const missingReturn = hasRouteHint(link, missingReturnRoutes);
 	const natCandidate = hasRouteHint(link, natCandidates);
 
@@ -1011,6 +1014,7 @@ function LinkCard({
 	};
 
 	const openPlanner = () => {
+		setPlannerBase(link);
 		const iface = planningInterfaces.find((i) => i.name === link.interfaceName);
 		setPlanExported(
 			(link.exportedNetworks.length ? link.exportedNetworks : (iface?.exportedNetworks ?? [])).join(", "),
@@ -1027,37 +1031,45 @@ function LinkCard({
 	// Only include fields that actually changed — avoids triggering metadata-with-config-intent
 	// for unchanged config-relevant fields whose stored value is simply undefined (default).
 	const base = editorBase ?? link;
-	const editorLinkPatch: Record<string, unknown> = {};
+	const editorLinkPatch: WireGuardMetadataLinkPatch = {};
 	const trimmedName = draftName.trim();
-	if (trimmedName !== (base.name || "")) editorLinkPatch.name = trimmedName || undefined;
-	const draftImportedArr = splitCsv(draftImported);
-	if (draftImportedArr.join(",") !== (base.importedNetworks || []).join(","))
-		editorLinkPatch.importedNetworks = draftImportedArr;
-	const draftExportedArr = splitCsv(draftExported);
-	if (draftExportedArr.join(",") !== (base.exportedNetworks || []).join(","))
-		editorLinkPatch.exportedNetworks = draftExportedArr;
+	// Cleared name: send "" (JSON drops undefined, which made clearing a silent no-op);
+	// the backend sanitizes "" to a removal and falls back to the generated name.
+	if (trimmedName !== (base.name || "")) editorLinkPatch.name = trimmedName;
+	if (csvChanged(draftImported, base.importedNetworks)) editorLinkPatch.importedNetworks = splitCsv(draftImported);
+	if (csvChanged(draftExported, base.exportedNetworks)) editorLinkPatch.exportedNetworks = splitCsv(draftExported);
 	if (draftMgmt !== (base.remoteManagementMode || "none")) editorLinkPatch.remoteManagementMode = draftMgmt;
 	if (draftReturn !== (base.returnPathMode || "auto")) editorLinkPatch.returnPathMode = draftReturn;
-	const draftDnsArr = splitCsv(draftDns);
-	if (draftDnsArr.join(",") !== (base.dns || []).join(",")) editorLinkPatch.dns = draftDnsArr;
-	if (draftFullTunnel !== Boolean(base.fullTunnel)) editorLinkPatch.fullTunnel = draftFullTunnel;
+	if (csvChanged(draftDns, base.dns)) editorLinkPatch.dns = splitCsv(draftDns);
+	// Client-only fields, mirroring the create form: a link re-typed away from client must not keep a
+	// stale full tunnel (would put 0.0.0.0/1 into its downloaded config) or a Desktop/Mobile badge.
+	const effectiveFullTunnel = draftType === "client" && draftFullTunnel;
+	if (effectiveFullTunnel !== Boolean(base.fullTunnel)) editorLinkPatch.fullTunnel = effectiveFullTunnel;
 	if (draftType !== base.type) editorLinkPatch.type = draftType;
-	if (draftPlatform !== (base.platform || "desktop")) editorLinkPatch.platform = draftPlatform;
+	if (draftType === "client") {
+		if (draftPlatform !== (base.platform || "desktop")) editorLinkPatch.platform = draftPlatform;
+	} else if (base.platform) {
+		// JSON drops undefined keys, so null is what actually clears the stored value server-side
+		editorLinkPatch.platform = null;
+	}
 
 	const editorPatch: WireGuardMetadataPatch = {
 		links: { [link.id]: editorLinkPatch },
 	};
+	// Planner: same changed-fields-only rule as the editor. Sending all six fields unconditionally
+	// stored derived defaults (type, auto/none) and forced a config-intent apply on an untouched save.
+	const pBase = plannerBase ?? link;
+	const plannerLinkPatch: WireGuardMetadataLinkPatch = {};
+	if (planIntent !== (pBase.planIntent || pBase.type || "unknown")) {
+		plannerLinkPatch.planIntent = planIntent;
+		if (planIntent !== pBase.type) plannerLinkPatch.type = planIntent as WireGuardLink["type"];
+	}
+	if (csvChanged(planExported, pBase.exportedNetworks)) plannerLinkPatch.exportedNetworks = splitCsv(planExported);
+	if (csvChanged(planImported, pBase.importedNetworks)) plannerLinkPatch.importedNetworks = splitCsv(planImported);
+	if (planReturn !== (pBase.returnPathMode || "auto")) plannerLinkPatch.returnPathMode = planReturn;
+	if (planMgmt !== (pBase.remoteManagementMode || "none")) plannerLinkPatch.remoteManagementMode = planMgmt;
 	const plannerPatch: WireGuardMetadataPatch = {
-		links: {
-			[link.id]: {
-				type: planIntent as WireGuardLink["type"],
-				exportedNetworks: splitCsv(planExported),
-				importedNetworks: splitCsv(planImported),
-				returnPathMode: planReturn,
-				remoteManagementMode: planMgmt,
-				planIntent,
-			},
-		},
+		links: { [link.id]: plannerLinkPatch },
 	};
 	return (
 		<div className={`card ${styles.linkCard}`}>
@@ -1072,7 +1084,7 @@ function LinkCard({
 					</div>
 				</div>
 				<div className="d-flex align-items-center gap-2 flex-shrink-0">
-					<span className={`badge ${tb.cls}`}>{tb.label}</span>
+					<span className={`badge ${tb.className}`}>{intl.formatMessage({ id: tb.labelId })}</span>
 					<span
 						className={`badge ${link.active ? "bg-green-lt text-green" : "bg-secondary-lt text-secondary"}`}
 					>
@@ -1080,10 +1092,15 @@ function LinkCard({
 							? intl.formatMessage({ id: "wireguard.link.active" })
 							: intl.formatMessage({ id: "wireguard.link.inactive" })}
 					</span>
-					<span className={`badge ${pb.cls}`}>{pb.label}</span>
-					{link.platform && (
+					<span className={`badge ${pb.className}`}>{intl.formatMessage({ id: pb.labelId })}</span>
+					{link.type === "client" && link.platform && (
 						<span className="badge bg-azure-lt text-azure">
-							{link.platform === "mobile" ? "Mobile" : "Desktop"}
+							{intl.formatMessage({
+								id:
+									link.platform === "mobile"
+										? "wireguard.link.platform-mobile"
+										: "wireguard.link.platform-desktop",
+							})}
 						</span>
 					)}
 					{missingReturn && (
@@ -1232,7 +1249,9 @@ function LinkCard({
 							type="button"
 							onClick={() => setAgentOpen((v) => !v)}
 						>
-							{agentOpen ? intl.formatMessage({ id: "wireguard.link.close-agent" }) : "Agent"}
+							{agentOpen
+								? intl.formatMessage({ id: "wireguard.link.close-agent" })
+								: intl.formatMessage({ id: "wireguard.link.agent" })}
 						</button>
 					)}
 					{canProvisionConfig && (
@@ -1281,43 +1300,12 @@ function LinkCard({
 							// still active), the agents are deleted only after the peer is gone.
 							// This list is only for the confirmation text.
 							const boundAgents = agents.filter((a) => a.wgLinkName === link.name);
-							showDeleteConfirmModal({
-								title: intl.formatMessage({ id: "wireguard.link.delete-title" }),
-								onConfirm: () =>
-									deleteWithBoundAgents(
-										(opts) => deleteWireGuardPeer({ linkId: link.id, ...opts }),
-										(a) =>
-											window.confirm(
-												intl.formatMessage(
-													{ id: "wireguard.agent.delete-force-confirm" },
-													{ name: a.name },
-												),
-											),
-									),
-								invalidations: [
-									["wireguard-status"],
-									["wireguard-metadata"],
-									["wireguard-bandwidth"],
-									["wireguard-apply-state"],
-									["agents"],
-									["agent-ingress-check"],
-								],
-								children: (
-									<>
-										{intl.formatMessage(
-											{ id: "wireguard.link.delete-confirm" },
-											{ name: link.name || link.id },
-										)}
-										{boundAgents.length > 0 && (
-											<div className="mt-2">
-												{intl.formatMessage(
-													{ id: "wireguard.link.delete-agent-note" },
-													{ agent: boundAgents.map((a) => a.name).join(", ") },
-												)}
-											</div>
-										)}
-									</>
-								),
+							confirmDeleteWithBoundAgents({
+								titleId: "wireguard.link.delete-title",
+								confirmTextId: "wireguard.link.delete-confirm",
+								name: link.name || link.id,
+								boundAgents,
+								call: (opts) => deleteWireGuardPeer({ linkId: link.id, ...opts }),
 							});
 						}}
 					>
@@ -1398,6 +1386,12 @@ function LinkCard({
 									value={draftType}
 									onChange={(e) => setDraftType(e.target.value as WireGuardLinkType)}
 								>
+									{/* 'unknown'/'imported' links show their real state instead of "Client" */}
+									{!["client", "site-to-site", "hub-link"].includes(draftType) && (
+										<option value={draftType} disabled>
+											{draftType}
+										</option>
+									)}
 									<option value="client">Client</option>
 									<option value="site-to-site">Site-to-Site</option>
 									<option value="hub-link">Hub-Link</option>
@@ -1412,6 +1406,11 @@ function LinkCard({
 									value={draftMgmt}
 									onChange={(e) => setDraftMgmt(parseMgmt(e.target.value))}
 								>
+									{draftMgmt === "unknown" && (
+										<option value="unknown" disabled>
+											unknown
+										</option>
+									)}
 									<option value="none">
 										{intl.formatMessage({ id: "wireguard.link.mgmt-none" })}
 									</option>
@@ -1428,7 +1427,13 @@ function LinkCard({
 									value={draftReturn}
 									onChange={(e) => setDraftReturn(parseReturn(e.target.value))}
 								>
+									{draftReturn === "unknown" && (
+										<option value="unknown" disabled>
+											unknown
+										</option>
+									)}
 									<option value="auto">auto</option>
+									<option value="routed">routed</option>
 									<option value="static-route">static-route</option>
 									<option value="nat">nat</option>
 								</select>
@@ -1505,12 +1510,7 @@ function LinkCard({
 						</button>
 					</div>
 					{applyMetadata.isError && (
-						<div className="alert alert-danger mt-2 mb-0 py-2 small">
-							{intl.formatMessage({ id: "wireguard.link.save-failed" })}
-							{applyMetadata.error?.message && (
-								<div className="font-monospace mt-1">{applyMetadata.error.message}</div>
-							)}
-						</div>
+						<MutationError error={applyMetadata.error} titleId="wireguard.link.save-failed" />
 					)}
 				</div>
 			)}
@@ -1570,7 +1570,13 @@ function LinkCard({
 									value={planReturn}
 									onChange={(e) => setPlanReturn(parseReturn(e.target.value))}
 								>
+									{planReturn === "unknown" && (
+										<option value="unknown" disabled>
+											unknown
+										</option>
+									)}
 									<option value="auto">auto</option>
+									<option value="routed">routed</option>
 									<option value="static-route">static-route</option>
 									<option value="nat">nat</option>
 								</select>
@@ -1582,6 +1588,11 @@ function LinkCard({
 									value={planMgmt}
 									onChange={(e) => setPlanMgmt(parseMgmt(e.target.value))}
 								>
+									{planMgmt === "unknown" && (
+										<option value="unknown" disabled>
+											unknown
+										</option>
+									)}
 									<option value="none">
 										{intl.formatMessage({ id: "wireguard.link.mgmt-none" })}
 									</option>
@@ -1595,7 +1606,7 @@ function LinkCard({
 						<button
 							className="btn btn-sm btn-primary"
 							type="button"
-							disabled={applyMetadata.isPending}
+							disabled={applyMetadata.isPending || Object.keys(plannerLinkPatch).length === 0}
 							onClick={() => {
 								applyMetadata.mutate(plannerPatch, {
 									onSuccess: () => {
@@ -1618,12 +1629,11 @@ function LinkCard({
 						</button>
 					</div>
 					{applyMetadata.isError && (
-						<div className="alert alert-danger mt-2 mb-0 py-2 small" data-testid="planner-save-error">
-							{intl.formatMessage({ id: "wireguard.link.save-failed" })}
-							{applyMetadata.error?.message && (
-								<div className="font-monospace mt-1">{applyMetadata.error.message}</div>
-							)}
-						</div>
+						<MutationError
+							error={applyMetadata.error}
+							titleId="wireguard.link.save-failed"
+							testId="planner-save-error"
+						/>
 					)}
 				</div>
 			)}
@@ -1678,7 +1688,7 @@ function InterfaceCard({
 			importedNetworks: iface.importedNetworks.join(", "),
 			routeTargets: iface.routeTargets.join(", "),
 			dns: (iface.dns || []).join(", "),
-			notes: iface.notes.join(", "),
+			notes: iface.notes.join("\n"),
 		});
 		setDraftRole(iface.role || "unknown");
 		setDraftMgmt(iface.managementMode || "local");
@@ -1686,7 +1696,7 @@ function InterfaceCard({
 		setDraftImported(iface.importedNetworks.join(", "));
 		setDraftRouteTargets(iface.routeTargets.join(", "));
 		setDraftDns((iface.dns || []).join(", "));
-		setDraftNotes(iface.notes.join(", "));
+		setDraftNotes(iface.notes.join("\n"));
 		setPreview(null);
 		setPreviewKey("");
 		applyMetadata.reset();
@@ -1695,15 +1705,18 @@ function InterfaceCard({
 
 	const ifacePatch: Record<string, unknown> = {};
 	if (editorBase) {
-		const sameList = (draft: string, key: string) =>
-			splitCsv(draft).join(",") === splitCsv(editorBase[key] ?? "").join(",");
 		if (draftRole !== editorBase.role) ifacePatch.role = draftRole;
 		if (draftMgmt !== editorBase.managementMode) ifacePatch.managementMode = draftMgmt;
-		if (!sameList(draftExported, "exportedNetworks")) ifacePatch.exportedNetworks = splitCsv(draftExported);
-		if (!sameList(draftImported, "importedNetworks")) ifacePatch.importedNetworks = splitCsv(draftImported);
-		if (!sameList(draftRouteTargets, "routeTargets")) ifacePatch.routeTargets = splitCsv(draftRouteTargets);
-		if (!sameList(draftDns, "dns")) ifacePatch.dns = splitCsv(draftDns);
-		if (!sameList(draftNotes, "notes")) ifacePatch.notes = splitCsv(draftNotes);
+		if (csvChanged(draftExported, editorBase.exportedNetworks))
+			ifacePatch.exportedNetworks = splitCsv(draftExported);
+		if (csvChanged(draftImported, editorBase.importedNetworks))
+			ifacePatch.importedNetworks = splitCsv(draftImported);
+		if (csvChanged(draftRouteTargets, editorBase.routeTargets))
+			ifacePatch.routeTargets = splitCsv(draftRouteTargets);
+		if (csvChanged(draftDns, editorBase.dns)) ifacePatch.dns = splitCsv(draftDns);
+		// Notes are free text (may contain commas) — one note per line.
+		if (splitLines(draftNotes).join("\n") !== splitLines(editorBase.notes ?? "").join("\n"))
+			ifacePatch.notes = splitLines(draftNotes);
 	}
 	const patch: WireGuardMetadataPatch = {
 		interfaces: { [iface.name]: ifacePatch },
@@ -1750,7 +1763,7 @@ function InterfaceCard({
 					{byteFmt(iface.rxBytes)} rx / {byteFmt(iface.txBytes)} tx
 				</div>
 				<div className="small">
-					<span className="text-secondary me-1">Port</span>
+					<span className="text-secondary me-1">{intl.formatMessage({ id: "wireguard.iface.port" })}</span>
 					{iface.listenPort || "—"}
 				</div>
 				<div className="small text-truncate">
@@ -1771,7 +1784,7 @@ function InterfaceCard({
 					<span className="text-secondary me-1">{intl.formatMessage({ id: "wireguard.tab.links" })}</span>
 					{ifaceLinks.length > 0
 						? ifaceLinks.map((l) => (
-								<span key={l.id} className={`badge ${typeBadge(l.type).cls} me-1`}>
+								<span key={l.id} className={`badge ${getLinkTypeBadge(l).className} me-1`}>
 									{l.name}
 								</span>
 							))
@@ -1815,43 +1828,12 @@ function InterfaceCard({
 									ifaceLinkNames.has(a.wgLinkName) &&
 									!otherLinkNames.has(a.wgLinkName),
 							);
-							showDeleteConfirmModal({
-								title: intl.formatMessage({ id: "wireguard.iface.delete-title" }),
-								onConfirm: () =>
-									deleteWithBoundAgents(
-										(opts) => deleteWireGuardInterface({ name: iface.name, ...opts }),
-										(a) =>
-											window.confirm(
-												intl.formatMessage(
-													{ id: "wireguard.agent.delete-force-confirm" },
-													{ name: a.name },
-												),
-											),
-									),
-								invalidations: [
-									["wireguard-status"],
-									["wireguard-metadata"],
-									["wireguard-bandwidth"],
-									["wireguard-apply-state"],
-									["agents"],
-									["agent-ingress-check"],
-								],
-								children: (
-									<>
-										{intl.formatMessage(
-											{ id: "wireguard.iface.delete-confirm" },
-											{ name: iface.name },
-										)}
-										{boundAgents.length > 0 && (
-											<div className="mt-2">
-												{intl.formatMessage(
-													{ id: "wireguard.link.delete-agent-note" },
-													{ agent: boundAgents.map((a) => a.name).join(", ") },
-												)}
-											</div>
-										)}
-									</>
-								),
+							confirmDeleteWithBoundAgents({
+								titleId: "wireguard.iface.delete-title",
+								confirmTextId: "wireguard.iface.delete-confirm",
+								name: iface.name,
+								boundAgents,
+								call: (opts) => deleteWireGuardInterface({ name: iface.name, ...opts }),
 							});
 						}}
 					>
@@ -2030,7 +2012,7 @@ function InterfaceCard({
 							</div>
 							<textarea
 								className="form-control form-control-sm"
-								rows={2}
+								rows={3}
 								value={draftNotes}
 								onChange={(e) => setDraftNotes(e.target.value)}
 								placeholder={intl.formatMessage({ id: "wireguard.iface.placeholder-notes" })}
@@ -2039,21 +2021,15 @@ function InterfaceCard({
 					</div>
 
 					{previewPlan.isError && (
-						<div className="alert alert-danger mt-2 mb-0 py-2 small" data-testid="iface-preview-error">
-							{intl.formatMessage({ id: "wireguard.iface.preview-failed" })}
-							{previewPlan.error?.message && (
-								<div className="font-monospace mt-1">{previewPlan.error.message}</div>
-							)}
-						</div>
+						<MutationError
+							error={previewPlan.error}
+							titleId="wireguard.iface.preview-failed"
+							testId="iface-preview-error"
+						/>
 					)}
 					{preview && <PreviewResult preview={preview} current={previewCurrent} />}
 					{applyMetadata.isError && (
-						<div className="alert alert-danger mt-2 mb-0 py-2 small">
-							{intl.formatMessage({ id: "wireguard.iface.save-failed" })}
-							{applyMetadata.error?.message && (
-								<div className="font-monospace mt-1">{applyMetadata.error.message}</div>
-							)}
-						</div>
+						<MutationError error={applyMetadata.error} titleId="wireguard.iface.save-failed" />
 					)}
 				</div>
 			)}
@@ -2090,10 +2066,9 @@ function CreateInterfaceForm() {
 				listenPort: listenPort ? Number(listenPort) : undefined,
 			});
 			setResult(res);
-			queryClient.invalidateQueries({ queryKey: ["wireguard-status"] });
-			queryClient.invalidateQueries({ queryKey: ["wireguard-metadata"] });
+			invalidateWireGuard(queryClient);
 		} catch (err: any) {
-			setError(err?.message || "Failed to create interface");
+			setError(err?.message || intl.formatMessage({ id: "wireguard.create.error" }));
 		}
 		setPending(false);
 	};
@@ -2372,10 +2347,17 @@ const WireGuard = () => {
 	const { data, isLoading, isError, error } = useWireGuardStatus();
 	const applyState = useWireGuardApplyState();
 	const restoreMetadata = useRestoreWireGuardMetadata();
-	// Poll while an agent waits for its install so the panel switches to "active" by itself
+	// Keep the shared agents query fresh while the page is open: fast while an
+	// install is pending (the panel switches to "active" by itself), otherwise at
+	// a steady cadence so the topology map's online/offline state (lastSeen vs.
+	// AGENT_OFFLINE_AFTER_S) does not flip every agent to "offline" after 5
+	// minutes without a reload.
 	const agentsQuery = useAgents({
-		refetchInterval: (query: { state: { data?: Agent[] } }) =>
-			query.state.data?.some((a) => a.status === "pending") ? 10_000 : false,
+		refetchInterval: (query: { state: { data?: Agent[] } }) => {
+			const list = query.state.data;
+			if (!list?.length) return false;
+			return list.some((a) => a.status === "pending") ? 10_000 : 60_000;
+		},
 	});
 	const createPeer = useCreateWireGuardPeer();
 	const [activeTab, setActiveTab] = useState<Tab>("overview");
@@ -2423,10 +2405,10 @@ const WireGuard = () => {
 	const missingReturnRoutes = data.routes?.missingReturnRoutes || [];
 	const natCandidates = data.routes?.natCandidates || [];
 	const nextActions = data.nextActions || [];
-	const globalWarnings = (data.warnings || []) as (string | StructuredWarning)[];
-	const conflictWarnings = globalWarnings.filter(
-		(w) => isStructuredWarning(w) && w.code === "allowedips-conflict",
-	) as StructuredWarning[];
+	const globalWarnings = data.warnings || [];
+	const conflictWarnings = globalWarnings.filter(isConflictWarning);
+	// Operational backend warnings (no live wg dump, /sys/class/net missing, …)
+	const generalWarnings = globalWarnings.filter((w) => !isConflictWarning(w));
 	const activePeers = interfaces
 		.flatMap((iface) => iface.peers.map((peer) => ({ ...peer, iface: iface.name })))
 		.filter((peer) => peer.isActive);
@@ -2537,7 +2519,9 @@ const WireGuard = () => {
 									)}
 								</div>
 								<div className="mb-3">
-									<label className="form-label fw-bold">Client configuration for download:</label>
+									<label className="form-label fw-bold">
+										{intl.formatMessage({ id: "wireguard.create.client-config-label" })}
+									</label>
 									<pre
 										className="bg-dark text-light p-3 rounded"
 										style={{ fontSize: "0.78rem", maxHeight: 300, overflow: "auto" }}
@@ -2550,13 +2534,10 @@ const WireGuard = () => {
 										type="button"
 										className="btn btn-sm btn-primary"
 										onClick={() => {
-											const blob = new Blob([createResult.content], { type: "text/plain" });
-											const url = URL.createObjectURL(blob);
-											const a = document.createElement("a");
-											a.href = url;
-											a.download = createResult.filename;
-											a.click();
-											URL.revokeObjectURL(url);
+											saveBlob(
+												new Blob([createResult.content], { type: "text/plain" }),
+												createResult.filename,
+											);
 										}}
 									>
 										{intl.formatMessage({ id: "wireguard.create.download" })}
@@ -2773,20 +2754,15 @@ const WireGuard = () => {
 													{
 														name: newName.trim(),
 														type: newType,
-														dns: newDns
-															? newDns
-																	.split(",")
-																	.map((s) => s.trim())
-																	.filter(Boolean)
-															: [],
+														dns: splitCsv(newDns),
 														fullTunnel: newType === "client" && newFullTunnel,
-														platform: newPlatform,
-														importedNetworks: newImported
-															? newImported
-																	.split(",")
-																	.map((s) => s.trim())
-																	.filter(Boolean)
-															: [],
+														// Client-only, like fullTunnel: a site link must not carry a Desktop badge
+														platform: newType === "client" ? newPlatform : undefined,
+														// Hidden while full tunnel is on (see the picker guard above): don't persist a reach list the config ignores
+														importedNetworks:
+															newType === "client" && newFullTunnel
+																? []
+																: splitCsv(newImported),
 														ifaceName: newIfaceName,
 													},
 													{ onSuccess: setCreateResult },
@@ -2929,10 +2905,15 @@ const WireGuard = () => {
 							<div className="card-options">
 								<div className="d-flex gap-2">
 									<span className="badge bg-emerald-lt text-emerald">
-										client {summary.clientLinkCount}
+										{intl.formatMessage({ id: "platform.link-type.client" })}{" "}
+										{summary.clientLinkCount}
 									</span>
-									<span className="badge bg-indigo-lt text-indigo">site {summary.siteLinkCount}</span>
-									<span className="badge bg-cyan-lt text-cyan">hub {summary.hubLinkCount}</span>
+									<span className="badge bg-indigo-lt text-indigo">
+										{intl.formatMessage({ id: "platform.link-type.site" })} {summary.siteLinkCount}
+									</span>
+									<span className="badge bg-cyan-lt text-cyan">
+										{intl.formatMessage({ id: "platform.link-type.hub" })} {summary.hubLinkCount}
+									</span>
 								</div>
 							</div>
 						</div>
@@ -2954,9 +2935,21 @@ const WireGuard = () => {
 
 					{conflictWarnings.length > 0 && (
 						<div className="alert alert-danger mb-4 py-3">
-							<div className="fw-bold mb-2">AllowedIPs Conflict</div>
+							<div className="fw-bold mb-2">
+								{intl.formatMessage({ id: "wireguard.overview.allowedips-conflict" })}
+							</div>
 							{conflictWarnings.map((w) => (
 								<div key={w.subnet} className="small mb-1">
+									{fmtGlobalWarning(w)}
+								</div>
+							))}
+						</div>
+					)}
+
+					{generalWarnings.length > 0 && (
+						<div className="alert alert-warning mb-4 py-3">
+							{generalWarnings.map((w) => (
+								<div key={typeof w === "string" ? w : `${w.code}-${w.subnet}`} className="small mb-1">
 									{fmtGlobalWarning(w)}
 								</div>
 							))}

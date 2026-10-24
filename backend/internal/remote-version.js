@@ -15,6 +15,9 @@ const internalRemoteVersion = {
 	last_fetch_time: null,
 	last_error: null,
 	last_error_time: null,
+	// Shared promise of the GitHub request currently running, so concurrent
+	// callers at cache expiry share one request instead of each starting their own.
+	inflight: null,
 	// Overall deadline for one fetch (overridable in tests)
 	fetch_timeout: FETCH_TIMEOUT_MS,
 
@@ -23,29 +26,41 @@ const internalRemoteVersion = {
 	 * @return {Promise<{current: string, latest: string, update_available: boolean}>} Version info
 	 */
 	get: async () => {
-		if (
+		const stale =
 			!internalRemoteVersion.last_result ||
 			!internalRemoteVersion.last_fetch_time ||
-			Date.now() - internalRemoteVersion.last_fetch_time > internalRemoteVersion.cache_timeout
-		) {
-			if (
+			Date.now() - internalRemoteVersion.last_fetch_time > internalRemoteVersion.cache_timeout;
+		if (stale) {
+			const errorCached =
 				internalRemoteVersion.last_error &&
-				Date.now() - internalRemoteVersion.last_error_time < internalRemoteVersion.error_cache_timeout
-			) {
-				throw internalRemoteVersion.last_error;
-			}
-			try {
-				const raw = await internalRemoteVersion.fetchUrl(VERSION_URL);
-				const data = JSON.parse(raw);
-				if (!data || typeof data.tag_name !== "string")
-					throw new Error("Remote version response has no tag_name");
-				internalRemoteVersion.last_result = data;
-				internalRemoteVersion.last_fetch_time = Date.now();
-				internalRemoteVersion.last_error = null;
-			} catch (err) {
-				internalRemoteVersion.last_error = err;
-				internalRemoteVersion.last_error_time = Date.now();
-				throw err;
+				Date.now() - internalRemoteVersion.last_error_time < internalRemoteVersion.error_cache_timeout;
+			if (errorCached) {
+				// A recent fetch already failed: do not hammer GitHub again. Without any
+				// earlier result there is nothing to serve, so the cached error stands.
+				if (!internalRemoteVersion.last_result) throw internalRemoteVersion.last_error;
+				debug(logger, "Remote version refresh recently failed, serving the last known result");
+			} else {
+				try {
+					if (!internalRemoteVersion.inflight) {
+						internalRemoteVersion.inflight = internalRemoteVersion.fetchUrl(VERSION_URL).finally(() => {
+							internalRemoteVersion.inflight = null;
+						});
+					}
+					const raw = await internalRemoteVersion.inflight;
+					const data = JSON.parse(raw);
+					if (!data || typeof data.tag_name !== "string")
+						throw new Error("Remote version response has no tag_name");
+					internalRemoteVersion.last_result = data;
+					internalRemoteVersion.last_fetch_time = Date.now();
+					internalRemoteVersion.last_error = null;
+				} catch (err) {
+					internalRemoteVersion.last_error = err;
+					internalRemoteVersion.last_error_time = Date.now();
+					// A refresh failure must not hide a release we already know about:
+					// keep serving the last result and only fail when there is none.
+					if (!internalRemoteVersion.last_result) throw err;
+					logger.warn(`Remote version refresh failed, serving the last known result: ${err.message}`);
+				}
 			}
 		} else {
 			debug(logger, "Using cached remote version result");

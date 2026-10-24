@@ -9,6 +9,7 @@ Stand: 2026-05-27
 - nginx config: `/etc/nginx/conf.d/floppyguard.conf` (port 81 admin UI, includes `/data/nginx/`)
 - MySQL backend (same DB as legacy NPM)
 - certbot virtualenv at `/opt/certbot/` with Cloudflare + dns-multi plugins
+- DNS-challenge credentials are written only for the duration of a certbot run and removed afterwards (since 2.4.0)
 - Let's Encrypt certs symlinked from `/opt/npm/letsencrypt/`
 - NPM Docker container stopped (cutover complete)
 
@@ -129,13 +130,14 @@ Full security audit performed and all findings remediated:
 **Access control:**
 - All admin endpoints (`/api/agents/*`, `/api/wireguard/*` reads, `GET /api/users`,
   `GET /api/security/fail2ban`) now require `requireAdmin()` middleware
-- `POST /api/design/screenshot` requires JWT + admin + magic-bytes file validation
+- `POST /api/design/screenshot` (JWT + admin + magic-bytes file validation); route removed in 2.4.0
 - `DELETE /api/users` (bulk delete) permanently disabled (always returns 404)
 - `GET /api/wireguard/link-config` and `/link-config-qr` require admin (expose private keys)
 
 **Authentication:**
 - JWT token expiry capped at 30 days maximum
 - Rate limiter upgraded from in-memory Map to SQLite-backed persistent storage
+- Since 2.4.0: tokens issued before a password change are rejected (401); 2FA QR code rendered locally (no external QR service); TOTP disable code sent in the request body; 2FA and password-change endpoints rate limited
 
 **Infrastructure:**
 - GitHub Actions SHA-pinned (immutable commit references)
@@ -203,7 +205,9 @@ Full security audit performed and all findings remediated:
 | Audit Log | Live |
 | `/wireguard` | Live (full CRUD + routing automation + agent management) |
 | `/gateway` | Live (WireGuard gateway status + link warnings) |
-| `/platform` | Alias for Dashboard (`/`) |
+| `/ingress` | Live (per-site ingress filter rules + site isolation at the hub) |
+| `/traffic` | Live (WireGuard bandwidth per peer) |
+| `/platform` | Alias for Dashboard (`/`); the former Platform page was removed |
 
 ## Next Priorities
 

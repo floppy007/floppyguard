@@ -24,14 +24,11 @@ router
 	 * GET /tokens
 	 *
 	 * Get a new Token, given they already have a token they want to refresh
-	 * We also piggy back on to this method, allowing admins to get tokens
-	 * for services like Job board and Worker.
 	 */
 	.get(jwtdecode(), async (req, res, next) => {
 		try {
 			const data = await internalToken.getFreshToken(res.locals.access, {
 				expiry: typeof req.query.expiry !== "undefined" ? req.query.expiry : null,
-				scope: typeof req.query.scope !== "undefined" ? req.query.scope : null,
 			});
 			res.status(200).send(data);
 		} catch (err) {

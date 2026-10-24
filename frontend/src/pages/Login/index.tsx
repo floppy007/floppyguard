@@ -10,6 +10,14 @@ import styles from "./index.module.css";
 
 const t = (id: string) => intl.formatMessage({ id });
 
+// Nach Session-Ablauf rendert der Router <Login/> an Ort und Stelle, die URL
+// zeigt noch die zuletzt besuchte Seite. Dorthin zurueck; "/login" ist nur die
+// SSO-Ruecksprungadresse ohne Route und faellt auf das Dashboard zurueck.
+const returnTarget = () => {
+	const { pathname, search } = window.location;
+	return pathname === "/login" ? "/" : `${pathname}${search}`;
+};
+
 // Feste Fehlercodes vom Backend (routes/oidc.js). Alles andere wird ignoriert.
 const SSO_ERRORS = ["unconfigured", "denied", "invalid", "failed", "expired", "rejected"];
 // "group" nutzt den allgemeinen Text von login.sso-error-rejected.
@@ -68,6 +76,7 @@ export default function Login() {
 		return `v${v.major}.${v.minor}.${v.revision}`;
 	};
 
+	// Canonical interactive login + 2FA flow (AuthContext.login is only used by Setup)
 	const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
 		if (isSubmitting) return;
@@ -82,7 +91,7 @@ export default function Login() {
 				return;
 			}
 			AuthStore.set(response);
-			window.location.assign("/");
+			window.location.assign(returnTarget());
 		} catch (err: any) {
 			setStatusIsError(true);
 			setStatus(intl.formatMessage({ id: "login.error" }, { error: err?.message || "Unexpected error" }));
@@ -100,7 +109,7 @@ export default function Login() {
 		try {
 			const response = await verify2FA(challengeToken, code);
 			AuthStore.set(response);
-			window.location.assign("/");
+			window.location.assign(returnTarget());
 		} catch (err: any) {
 			setStatusIsError(true);
 			setStatus(intl.formatMessage({ id: "login.2fa-error" }, { error: err?.message || "Unexpected error" }));

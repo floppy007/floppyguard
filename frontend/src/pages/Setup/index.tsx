@@ -1,11 +1,11 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { Field, Form, Formik } from "formik";
+import { Form, Formik } from "formik";
 import { useState } from "react";
 import { Alert } from "react-bootstrap";
 import { createUser } from "src/api/backend";
-import { BrandLogo, Button, LocalePicker, Page, ThemeSwitcher } from "src/components";
+import { BrandLogo, Button, FloatingTextField, LocalePicker, Page, ThemeSwitcher } from "src/components";
 import { useAuthState } from "src/context";
-import { intl, T } from "src/locale";
+import { T } from "src/locale";
 import { validateEmail, validateString } from "src/modules/Validations";
 import styles from "./index.module.css";
 
@@ -67,13 +67,14 @@ export default function Setup() {
 				<div className={styles.hero}>
 					<BrandLogo className={styles.logo} alt="FloppyGuard Platform" />
 					<div className={styles.heroCopy}>
-						<div className={styles.kicker}>Initial setup</div>
+						<div className={styles.kicker}>
+							<T id="setup.kicker" />
+						</div>
 						<h1 className={styles.title}>
-							Create the first platform admin and bring the stack under one control surface.
+							<T id="setup.hero.title" />
 						</h1>
 						<p className={styles.subtitle}>
-							This prepares the first user account for proxy, gateway and WireGuard visibility in the new
-							platform shell.
+							<T id="setup.hero.subtitle" />
 						</p>
 					</div>
 				</div>
@@ -103,86 +104,34 @@ export default function Setup() {
 								</div>
 								<div className={styles.panelBody}>
 									<div className="mb-3">
-										<Field name="name" validate={validateString(1, 50)}>
-											{({ field, form }: any) => (
-												<div className="form-floating mb-3">
-													<input
-														id="name"
-														className={`form-control ${form.errors.name && form.touched.name ? "is-invalid" : ""}`}
-														placeholder={intl.formatMessage({ id: "user.full-name" })}
-														{...field}
-													/>
-													<label htmlFor="name">
-														<T id="user.full-name" />
-													</label>
-													{form.errors.name ? (
-														<div className="invalid-feedback">
-															{form.errors.name && form.touched.name
-																? form.errors.name
-																: null}
-														</div>
-													) : null}
-												</div>
-											)}
-										</Field>
+										<FloatingTextField
+											name="name"
+											labelId="user.full-name"
+											validate={validateString(1, 50)}
+										/>
 									</div>
 									<div className="mb-3">
-										<Field name="email" validate={validateEmail()}>
-											{({ field, form }: any) => (
-												<div className="form-floating mb-3">
-													<input
-														id="email"
-														type="email"
-														className={`form-control ${form.errors.email && form.touched.email ? "is-invalid" : ""}`}
-														placeholder={intl.formatMessage({ id: "email-address" })}
-														{...field}
-													/>
-													<label htmlFor="email">
-														<T id="email-address" />
-													</label>
-													{form.errors.email ? (
-														<div className="invalid-feedback">
-															{form.errors.email && form.touched.email
-																? form.errors.email
-																: null}
-														</div>
-													) : null}
-												</div>
-											)}
-										</Field>
+										<FloatingTextField
+											name="email"
+											labelId="email-address"
+											type="email"
+											validate={validateEmail()}
+										/>
 									</div>
 									<div className="mb-3">
-										<Field name="password" validate={validateString(8, 100)}>
-											{({ field, form }: any) => (
-												<div className="form-floating mb-3">
-													<input
-														id="password"
-														type="password"
-														autoComplete="new-password"
-														className={`form-control ${form.errors.password && form.touched.password ? "is-invalid" : ""}`}
-														placeholder={intl.formatMessage({ id: "user.new-password" })}
-														{...field}
-													/>
-													<label htmlFor="password">
-														<T id="user.new-password" />
-													</label>
-													{form.errors.password ? (
-														<div className="invalid-feedback">
-															{form.errors.password && form.touched.password
-																? form.errors.password
-																: null}
-														</div>
-													) : null}
-												</div>
-											)}
-										</Field>
+										<FloatingTextField
+											name="password"
+											labelId="user.new-password"
+											type="password"
+											autoComplete="new-password"
+											validate={validateString(8, 100)}
+										/>
 									</div>
 								</div>
 								<div className={styles.footerAction}>
 									<Button
 										type="submit"
 										actionType="primary"
-										data-bs-dismiss="modal"
 										isLoading={isSubmitting}
 										disabled={isSubmitting}
 										className="w-100"

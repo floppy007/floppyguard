@@ -29,7 +29,10 @@ export function RulePreviewList({ rules, catalog }: Props) {
 				{tooMany && ` — ${ti("wizard.too-many", { max: MAX_RULE_LINES })}`}
 			</div>
 			{broad && (
-				<div className="alert d-block alert-warning py-2 px-3 small mt-2 mb-0" data-testid="ingress-wizard-broad">
+				<div
+					className="alert d-block alert-warning py-2 px-3 small mt-2 mb-0"
+					data-testid="ingress-wizard-broad"
+				>
 					{ti("wizard.broad")}
 				</div>
 			)}

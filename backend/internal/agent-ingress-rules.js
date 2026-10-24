@@ -4,9 +4,9 @@
 // Model: an agent with ingress_mode "restricted" filters all traffic that ARRIVES
 // through its WireGuard interface (from the hub or other sites) against an allow
 // list. The agent applies the generated ruleset as its own chain FG_IN (atomic
-// iptables-restore --noflush, jump at FORWARD position 1). Semantics mirror the
-// former VPN_MGR chain of the UniFi-Manager 1:1: ACCEPT RELATED,ESTABLISHED,
-// ACCEPT per (source × destination × port), DROP for `-i <iface>` at the end.
+// iptables-restore --noflush, jump at FORWARD position 1). Restricted semantics:
+// ACCEPT RELATED,ESTABLISHED, ACCEPT per (source × destination × port), DROP for
+// `-i <iface>` at the end.
 // Mode "open" with rules is observation only: the rule lines end in RETURN (hit
 // counters still work), established/related traffic RETURNs at the top (so it
 // skips the rule walk and the counters mean "new flows" in both modes), and there
@@ -24,7 +24,15 @@ export const INGRESS_CHAIN = "FG_IN";
 export const INGRESS_MODES = new Set(["open", "restricted"]);
 export const INGRESS_PROTOS = new Set(["tcp", "udp"]);
 
-const MAX_RULES_PER_AGENT = 500;
+export const MAX_RULES_PER_AGENT = 500;
+export const isWgIface = (name) => /^wg\d{1,3}$/.test(String(name ?? ""));
+/** "wgN:<pubkey>" -> [iface, pubkey] or null when there is no colon. */
+export function splitLinkId(id) {
+	const s = String(id);
+	const i = s.indexOf(":");
+	return i < 0 ? null : [s.slice(0, i), s.slice(i + 1)];
+}
+export const pubKey8 = (pub) => String(pub).slice(0, 8);
 const MAX_LIST = 64;
 // Every rule expands to sources × destinations × ports iptables lines. The whole
 // ruleset travels in each /agent/config poll and is parsed on the agent, so cap
@@ -85,7 +93,7 @@ export function cidrContains(outer, inner) {
 }
 
 /** A request value echoed in an error message, clipped (the message goes to the client and the log). */
-const echoValue = (v) => {
+export const echoValue = (v) => {
 	const s = String(v ?? "");
 	return s.length > 64 ? `${s.slice(0, 64)}…` : s;
 };
@@ -209,14 +217,15 @@ export function sanitizeIngressMode(mode) {
 	return m;
 }
 
-const parseJsonList = (v) => {
-	if (Array.isArray(v)) return v;
-	if (typeof v !== "string" || !v) return [];
+/** JSON array column -> array. Arrays pass through; empty, non-string, non-array or invalid JSON -> fallback. */
+export const parseJsonArray = (raw, fallback = []) => {
+	if (Array.isArray(raw)) return raw;
+	if (typeof raw !== "string" || !raw) return fallback;
 	try {
-		const p = JSON.parse(v);
-		return Array.isArray(p) ? p : [];
+		const v = JSON.parse(raw);
+		return Array.isArray(v) ? v : fallback;
 	} catch {
-		return [];
+		return fallback;
 	}
 };
 
@@ -226,9 +235,9 @@ export function rowToRule(row) {
 		id: row.id,
 		agent_id: row.agent_id,
 		name: row.name,
-		sources: parseJsonList(row.sources),
-		destinations: parseJsonList(row.destinations),
-		ports: parseJsonList(row.ports),
+		sources: parseJsonArray(row.sources),
+		destinations: parseJsonArray(row.destinations),
+		ports: parseJsonArray(row.ports),
 		enabled: Boolean(row.enabled),
 		note: row.note ?? null,
 		hit_packets: Number(row.hit_packets || 0),
@@ -242,17 +251,21 @@ export function rowToRule(row) {
 /**
  * Pure: the armed_on patch for an update. A rule is (re-)armed — its "no new
  * connection" window starts over — when it is switched on or its targets
- * change; a rename or note edit keeps the reference.
+ * change (as sets — reordering does not re-arm); a rename or note edit keeps the reference.
  *
  * @param {Object} existing  API-shaped rule (rowToRule) before the update
  * @param {Object} clean     sanitized partial patch
  * @param {number} now       unix seconds
  * @returns {{armed_on?: number}}
  */
+/** Order-insensitive key of a sources/destinations/ports list (entries are already canonical). */
+const listKey = (list) =>
+	JSON.stringify([...(list || [])].map((v) => (typeof v === "string" ? v : `${v.proto}/${v.port}`)).sort());
+
 export function armedOnPatch(existing, clean, now) {
 	const switchedOn = clean.enabled === true && !existing.enabled;
 	const targetsChanged = ["sources", "destinations", "ports"].some(
-		(f) => typeof clean[f] !== "undefined" && JSON.stringify(clean[f]) !== JSON.stringify(existing[f]),
+		(f) => typeof clean[f] !== "undefined" && listKey(clean[f]) !== listKey(existing[f]),
 	);
 	return switchedOn || targetsChanged ? { armed_on: now } : {};
 }
@@ -269,7 +282,7 @@ export function buildIngressRestore({ ingress_mode, iface }, rules) {
 	const mode = INGRESS_MODES.has(ingress_mode) ? ingress_mode : "open";
 	const active = (rules || []).filter((r) => r.enabled).sort((a, b) => a.id - b.id);
 	if (mode === "open" && active.length === 0) return null;
-	if (!/^wg\d{1,3}$/.test(iface)) throw new Error(`invalid wg interface: ${iface}`);
+	if (!isWgIface(iface)) throw new Error(`invalid wg interface: ${iface}`);
 	if (active.length > MAX_RULES_PER_AGENT) throw new Error("too many ingress rules");
 
 	const restricted = mode === "restricted";
@@ -314,93 +327,6 @@ export function buildIngressRestore({ ingress_mode, iface }, rules) {
 	lines.push("COMMIT");
 	const text = `${lines.join("\n")}\n`;
 	return { text, hash: createHash("sha256").update(text).digest("hex"), ruleCount };
-}
-
-/**
- * Normalize `iptables -S <chain>` output (or our restore text) into a sorted set
- * of rule signatures, ignoring chain name, comments and counters. Used for the
- * dry-run comparison against a legacy chain (VPN_MGR) before switching over.
- */
-export function normalizeChainRules(text) {
-	const out = [];
-	for (const raw of String(text || "").split(/\r?\n/)) {
-		const line = raw.trim();
-		if (!line.startsWith("-A ")) continue;
-		const tokens = line.split(/\s+/).slice(2); // drop "-A <chain>"
-		const opts = [];
-		for (let i = 0; i < tokens.length; i++) {
-			const t = tokens[i];
-			if (t === "-m" && tokens[i + 1] === "comment") {
-				i += 3; // -m comment --comment "<text>" (comment without spaces)
-				continue;
-			}
-			if (t === "-m" && (tokens[i + 1] === "tcp" || tokens[i + 1] === "udp")) {
-				i += 1;
-				continue;
-			}
-			if (t.startsWith("-")) opts.push([t, tokens[i + 1] && !tokens[i + 1].startsWith("-") ? tokens[++i] : ""]);
-		}
-		const map = new Map(opts);
-		const src = map.has("-s") ? canonicalCidr(map.get("-s")) : "*";
-		const dst = map.has("-d") ? canonicalCidr(map.get("-d")) : "*";
-		const sig = [
-			`s=${src}`,
-			`d=${dst}`,
-			`i=${map.get("-i") ?? "*"}`,
-			`p=${map.get("-p") ?? "*"}`,
-			`dport=${map.get("--dport") ?? "*"}`,
-			`state=${map.get("--ctstate") ?? "*"}`,
-			`j=${map.get("-j") ?? "*"}`,
-		].join(" ");
-		out.push(sig);
-	}
-	return out.sort();
-}
-
-/** Compare two chains semantically; returns {equal, onlyOld, onlyNew}. */
-export function compareChains(oldText, newText) {
-	const a = normalizeChainRules(oldText);
-	const b = normalizeChainRules(newText);
-	const count = (arr) => arr.reduce((m, x) => m.set(x, (m.get(x) || 0) + 1), new Map());
-	const ca = count(a);
-	const cb = count(b);
-	const onlyOld = [...ca.keys()].filter((k) => !cb.has(k));
-	const onlyNew = [...cb.keys()].filter((k) => !ca.has(k));
-	// The DROP must be last in both — order of the ACCEPTs is irrelevant.
-	const lastIsDrop = (text) => {
-		const lines = String(text || "")
-			.split(/\r?\n/)
-			.filter((l) => l.trim().startsWith("-A "));
-		return lines.length > 0 && / -j DROP$/.test(lines[lines.length - 1].trim());
-	};
-	const dropOk = lastIsDrop(oldText) === lastIsDrop(newText);
-	return { equal: onlyOld.length === 0 && onlyNew.length === 0 && dropOk, onlyOld, onlyNew, dropOk };
-}
-
-/**
- * Convert the UniFi-Manager vpn-networks.json entries to ingress rules.
- * entry.destinations = remote nets arriving via wg (→ sources),
- * entry.incoming.allowed = local targets (→ destinations); mode full = any target.
- */
-export function rulesFromVpnNetworks(entries) {
-	const out = [];
-	for (const e of entries || []) {
-		const inc = e.incoming || {};
-		const mode = inc.mode || "full";
-		if (mode === "blocked") continue;
-		const sources = (e.destinations || []).map(canonicalCidr).filter(Boolean);
-		if (!sources.length) continue;
-		const destinations = mode === "full" ? [] : (inc.allowed || []).map(canonicalCidr).filter(Boolean);
-		if (mode === "restricted" && destinations.length === 0) continue;
-		out.push({
-			name: String(e.name || "Import").slice(0, NAME_MAX),
-			sources,
-			destinations,
-			ports: [],
-			enabled: true,
-		});
-	}
-	return out;
 }
 
 /**
@@ -449,14 +375,52 @@ export function ruleCovers(rule, { src, dst, port, proto = "tcp" }) {
 	});
 }
 
+/**
+ * True when EVERY source of the rule lies inside one of `hubSrcs` (hub tunnel
+ * /32s + egress-flow sources). A broad source that merely contains the hub
+ * (10.10.0.0/24, 0.0.0.0/0) is NOT hub-sourced. Does not look at `enabled`.
+ */
+export function isHubSourced(rule, hubSrcs) {
+	return (
+		Array.isArray(rule?.sources) &&
+		rule.sources.length > 0 &&
+		rule.sources.every((s) => hubSrcs.some((h) => cidrContains(h, s)))
+	);
+}
+
+/**
+ * True when upstream `u` ({host, port, proto, source?}) is reachable through an
+ * enabled rule from its hub source: an egress flow may name its own source
+ * (SNAT address), everything else arrives from one of the hub tunnel hosts.
+ */
+export function upstreamCovered(u, rules, hubHosts) {
+	const srcs = u.source ? [u.source] : hubHosts || [];
+	return srcs.some((src) =>
+		(rules || []).some((r) => ruleCovers(r, { src, dst: u.host, port: u.port ?? null, proto: u.proto || "tcp" })),
+	);
+}
+
+/** Trimmed entries of all `Address =` lines of a wg conf, in file order. */
+export function tunnelAddressEntries(confText) {
+	const out = [];
+	for (const m of String(confText || "").matchAll(/^\s*Address\s*=\s*(.+)$/gim)) {
+		for (const part of m[1].split(",")) {
+			const p = part.trim();
+			if (p) out.push(p);
+		}
+	}
+	return out;
+}
+
 /** Host part of a tunnel Address line ("Address = 10.10.0.1/24" → "10.10.0.1/32"). */
 export function hubTunnelHosts(confText) {
 	const hosts = [];
-	for (const m of String(confText || "").matchAll(/^\s*Address\s*=\s*(.+)$/gim)) {
-		for (const part of m[1].split(",")) {
-			const ip = part.trim().split("/")[0];
-			if (ipToInt(ip) !== null) hosts.push(`${ip}/32`);
-		}
+	for (const p of tunnelAddressEntries(confText)) {
+		const ip = p.split("/")[0];
+		if (ipToInt(ip) !== null) hosts.push(`${ip}/32`);
 	}
 	return hosts;
 }
+
+/** "10.0.0.1/32" → "10.0.0.1"; any other CIDR is returned unchanged. */
+export const hostIp = (cidr) => String(cidr).replace(/\/32$/, "");

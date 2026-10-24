@@ -13,7 +13,7 @@ import { express as logger } from "../logger.js";
 //     `has_client_secret`; ein leeres Feld beim Speichern behält das alte.
 //   * Geschrieben wird atomar (Temp-Datei + rename) mit Modus 0600.
 
-const CONFIG_PATH = () => process.env.OIDC_CONFIG_PATH || "/data/oidc.json";
+export const configPath = () => process.env.OIDC_CONFIG_PATH || "/data/oidc.json";
 
 export const DEFAULTS = Object.freeze({
 	enabled: false,
@@ -26,6 +26,12 @@ export const DEFAULTS = Object.freeze({
 	scopes: "openid profile email",
 	expiry: "1d",
 });
+
+// Issuer ohne abschließende Slashes, damit Vergleiche mit dem Discovery-Dokument greifen.
+export const normalizeIssuer = (value) =>
+	String(value || "")
+		.trim()
+		.replace(/\/+$/, "");
 
 const FIELDS = Object.keys(DEFAULTS);
 // Nur Einheiten, die überall gleich gelesen werden. Die Lebensdauer wird
@@ -53,11 +59,11 @@ const CTRL_RE = /[\u0000-\u001f\u007f]/;
 
 const readRaw = () => {
 	try {
-		const parsed = JSON.parse(fs.readFileSync(CONFIG_PATH(), "utf8"));
+		const parsed = JSON.parse(fs.readFileSync(configPath(), "utf8"));
 		return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
 	} catch (err) {
 		if (err.code !== "ENOENT") {
-			logger.error(`OIDC-Einstellungen: ${CONFIG_PATH()} nicht lesbar: ${err.message}`);
+			logger.error(`OIDC-Einstellungen: ${configPath()} nicht lesbar: ${err.message}`);
 		}
 		return {};
 	}
@@ -85,7 +91,7 @@ const toPublic = (raw) => {
 		out[key] = typeof raw[key] === typeof DEFAULTS[key] ? raw[key] : DEFAULTS[key];
 	}
 	out.has_client_secret = typeof raw.client_secret === "string" && raw.client_secret.length > 0;
-	out.config_path = CONFIG_PATH();
+	out.config_path = configPath();
 	return out;
 };
 
@@ -112,7 +118,7 @@ export const validate = (input, existing) => {
 		out[key] = trimmed;
 	}
 
-	out.issuer = out.issuer.replace(/\/+$/, "");
+	out.issuer = normalizeIssuer(out.issuer);
 	if (!out.label) out.label = DEFAULTS.label;
 	if (out.label.length > 80)
 		throw new errs.ValidationError("Die Button-Beschriftung darf höchstens 80 Zeichen haben");
@@ -172,7 +178,7 @@ export const validate = (input, existing) => {
 };
 
 const writeAtomic = (data) => {
-	const target = CONFIG_PATH();
+	const target = configPath();
 	const dir = path.dirname(target);
 	const tmp = path.join(dir, `.oidc.json.${process.pid}.${Date.now()}.tmp`);
 	fs.writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 });
@@ -204,9 +210,7 @@ const internalOidcSettings = {
 	 * Holt das Discovery-Dokument des Anbieters, ohne etwas zu speichern.
 	 */
 	test: async (issuerInput) => {
-		const issuer = String(issuerInput || readRaw().issuer || "")
-			.trim()
-			.replace(/\/+$/, "");
+		const issuer = normalizeIssuer(issuerInput || readRaw().issuer);
 		if (!issuer || !isHttpsUrl(issuer, { allowHttpLocal: true })) {
 			throw new errs.ValidationError("Bitte eine gültige https-Issuer-URL angeben");
 		}
@@ -228,7 +232,7 @@ const internalOidcSettings = {
 		} catch {
 			return { ok: false, message: "Discovery-Dokument ist kein gültiges JSON" };
 		}
-		const docIssuer = String(doc.issuer || "").replace(/\/+$/, "");
+		const docIssuer = normalizeIssuer(doc.issuer);
 		if (docIssuer !== issuer) {
 			return { ok: false, message: "Issuer im Discovery-Dokument stimmt nicht mit der URL überein" };
 		}

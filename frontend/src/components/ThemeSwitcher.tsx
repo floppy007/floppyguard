@@ -1,5 +1,6 @@
 import cn from "classnames";
 import { Dark, Light, useTheme } from "src/hooks";
+import { T } from "src/locale";
 import styles from "./ThemeSwitcher.module.css";
 
 interface Props {
@@ -16,14 +17,14 @@ function ThemeSwitcher({ className }: Props) {
 				className={cn(styles.opt, { [styles.optActive]: !isDark })}
 				onClick={() => setTheme(Light)}
 			>
-				Light
+				<T id="theme.light" />
 			</button>
 			<button
 				type="button"
 				className={cn(styles.opt, { [styles.optActive]: isDark })}
 				onClick={() => setTheme(Dark)}
 			>
-				Dark
+				<T id="theme.dark" />
 			</button>
 		</div>
 	);

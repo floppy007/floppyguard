@@ -3,7 +3,9 @@ import path from "node:path";
 import { wireguard as logger } from "../logger.js";
 import internalWireGuard, {
 	buildRouteAnalysis,
+	buildSummary,
 	buildTopology,
+	cascadeLinkRenames,
 	clearPeerConfigCache,
 	dedupe,
 	deriveGlobalNextActions,
@@ -15,7 +17,8 @@ import internalWireGuard, {
 	mergeMetadataEntry,
 	sanitizeInterfaceMetadataPatch,
 	sanitizeLinkMetadataPatch,
-	syncHubConf,
+	syncAgentConfigsLocked,
+	syncAllHubConfs,
 	withWriteLock,
 } from "./wireguard.js";
 
@@ -50,7 +53,10 @@ function buildDiffEntries(currentEntries, patchedEntries, kind) {
 		const before = currentEntries[id] || {};
 
 		const after = mergeMetadata(before, patch);
-		const changedFields = Object.keys(after).filter((field) => !isEqual(before[field], after[field]));
+		// Union of keys: a patch that clears a field is sanitized to `undefined` and
+		// mergeMetadata deletes the key, so the removal only shows up in `before`.
+		const fields = new Set([...Object.keys(before), ...Object.keys(after)]);
+		const changedFields = [...fields].filter((field) => !isEqual(before[field], after[field]));
 		if (!changedFields.length) return [];
 
 		return [
@@ -70,46 +76,38 @@ function buildProjectedInterface(item, metadata) {
 		...item,
 		role: metadata.role || item.role || "unknown",
 		managementMode: metadata.managementMode || item.managementMode || "unknown",
-		importedNetworks: metadata.importedNetworks?.length ? metadata.importedNetworks : item.importedNetworks || [],
+		importedNetworks: Object.hasOwn(metadata, "importedNetworks")
+			? metadata.importedNetworks
+			: item.importedNetworks || [],
 		exportedNetworks: metadata.exportedNetworks || item.exportedNetworks || [],
-		routeTargets: metadata.routeTargets?.length ? metadata.routeTargets : item.routeTargets || [],
-		notes: metadata.notes?.length ? metadata.notes : item.notes || [],
+		routeTargets: Object.hasOwn(metadata, "routeTargets") ? metadata.routeTargets : item.routeTargets || [],
+		notes: Object.hasOwn(metadata, "notes") ? metadata.notes : item.notes || [],
 	};
 }
 
 function buildProjectedLink(link, metadata) {
+	const type = metadata.type || link.type || "unknown";
 	return {
 		...link,
-		type: metadata.type || link.type || "unknown",
-		name: metadata.name || link.name,
+		type,
+		// No stored name → buildLinkRecord falls back to the generated `${type}-${pubkey8}`
+		// after the write, so a cleared name must project THAT, not the old live name
+		// (which would trip the duplicate check when another link takes it over).
+		name: metadata.name || (link.peerPublicKey ? `${type}-${link.peerPublicKey.slice(0, 8)}` : link.name),
 		exportedNetworks: metadata.exportedNetworks || link.exportedNetworks || [],
-		importedNetworks: metadata.importedNetworks?.length ? metadata.importedNetworks : link.importedNetworks || [],
+		// hasOwn, not `?.length`: an explicit [] revokes every net (same rule as
+		// _buildPeerUpdates); only an ABSENT key keeps the live (conf-derived) nets.
+		importedNetworks: Object.hasOwn(metadata, "importedNetworks")
+			? metadata.importedNetworks
+			: link.importedNetworks || [],
 		returnPathMode: metadata.returnPathMode || link.returnPathMode || "unknown",
 		remoteManagementMode: metadata.remoteManagementMode || link.remoteManagementMode || "unknown",
 		planIntent: metadata.planIntent || link.planIntent || metadata.type || link.type || "unknown",
 		planState: metadata.planState || null,
-		notes: metadata.notes?.length ? metadata.notes : link.notes || [],
+		notes: Object.hasOwn(metadata, "notes") ? metadata.notes : link.notes || [],
 		hasMetadata: Object.keys(metadata).length > 0,
 		warnings: [],
 		nextActions: [],
-	};
-}
-
-function buildSummary(interfaces, links, topology, routeAnalysis) {
-	return {
-		interfaceCount: interfaces.length,
-		activeInterfaceCount: interfaces.filter((item) => item.active).length,
-		totalPeers: interfaces.reduce((sum, item) => sum + (item.peerCount || 0), 0),
-		activePeers: interfaces.reduce((sum, item) => sum + (item.activePeerCount || 0), 0),
-		totalRxBytes: interfaces.reduce((sum, item) => sum + (item.rxBytes || 0), 0),
-		totalTxBytes: interfaces.reduce((sum, item) => sum + (item.txBytes || 0), 0),
-		peerNetworkCount: dedupe(interfaces.flatMap((item) => item.peerNetworks || [])).length,
-		wireguardRouteCount: routeAnalysis.wireguard.length,
-		privateRouteCount: routeAnalysis.privateRoutes.length,
-		linkCount: links.length,
-		siteLinkCount: topology.siteLinks.length,
-		hubLinkCount: topology.hubLinks.length,
-		clientLinkCount: topology.clientLinks.length,
 	};
 }
 
@@ -178,11 +176,21 @@ function buildPatchSummary(patch) {
 }
 
 async function readApplyAudit() {
+	let raw;
 	try {
-		const raw = await fs.readFile(getApplyAuditFile(), "utf8");
+		raw = await fs.readFile(getApplyAuditFile(), "utf8");
+	} catch (err) {
+		if (err.code !== "ENOENT") {
+			logger.warn(`Apply audit ${getApplyAuditFile()} unreadable (${err.message}); starting fresh`);
+		}
+		return [];
+	}
+	try {
 		const parsed = JSON.parse(raw);
 		return Array.isArray(parsed) ? parsed : [];
-	} catch {
+	} catch (err) {
+		// Advisory history only — never fail an already-persisted apply over it.
+		logger.warn(`Apply audit ${getApplyAuditFile()} is corrupt (${err.message}); starting fresh`);
 		return [];
 	}
 }
@@ -190,14 +198,21 @@ async function readApplyAudit() {
 async function writeApplyAudit(entries) {
 	const auditFile = getApplyAuditFile();
 	await fs.mkdir(path.dirname(auditFile), { recursive: true });
-	await fs.writeFile(auditFile, `${JSON.stringify(entries, null, 2)}\n`, "utf8");
+	// tmp + rename, same as writeMetadataStore: never leave a truncated file behind.
+	const tmpFile = `${auditFile}.tmp`;
+	await fs.writeFile(tmpFile, `${JSON.stringify(entries, null, 2)}\n`, "utf8");
+	await fs.rename(tmpFile, auditFile);
 }
 
+// Under the module write lock: both callers (applyMetadata, restoreMetadataBackup)
+// call this after their own locked sections have returned, so this cannot nest/deadlock.
 async function appendApplyAudit(entry) {
-	const entries = await readApplyAudit();
-	entries.unshift(entry);
-	await writeApplyAudit(entries.slice(0, 25));
-	return entry;
+	return withWriteLock(async () => {
+		const entries = await readApplyAudit();
+		entries.unshift(entry);
+		await writeApplyAudit(entries.slice(0, 25));
+		return entry;
+	});
 }
 
 async function listMetadataBackups() {
@@ -309,7 +324,7 @@ function buildPlanPreview(status, patch = {}) {
 		interfaces: buildDiffEntries(currentMetadata.interfaces || {}, normalizedPatch.interfaces || {}, "interface"),
 		links: buildDiffEntries(currentMetadata.links || {}, normalizedPatch.links || {}, "link"),
 	};
-	const apply = buildApplyContract({ errors, warnings, nextActions, normalizedPatch, diff });
+	const apply = buildApplyContract({ errors, nextActions, diff });
 
 	return {
 		mode: status.mode || "metadata-write",
@@ -359,69 +374,40 @@ function statusLinkNames(status) {
 }
 
 /**
- * Agents bind to a link by its MUTABLE name (wg_link_name, allowed_sites). Every
- * write path that can rename a link must cascade, BEFORE the agent resync: else
- * the bound agent gets "no-link-or-config" and freezes, and allowed_sites
- * entries of other agents stop matching (their routes to that site vanish).
- * Swaps (A↔B) go through a temporary name so the second step can't undo the first.
- *
- * Returns { renames, errors: [{from, to, error}], rolledBack } — the caller puts it
- * into the apply/restore response so a failed cascade is VISIBLE (a bound agent
- * left on the old or a temporary name freezes with "no-link-or-config").
- * A failure in the temp phase rolls the already-moved bindings back to their old
- * names and skips the second phase: continuing would merge two swapped groups
- * onto one name. A failed final step is retried once, then reported.
+ * Shared tail of every metadata write (apply, restore, PUT /metadata):
+ * drop cached peer configs, cascade link renames to agent bindings, then
+ * (optionally) resync hub confs + agent config_text with the error shaping
+ * the audit log and UI expect. Returns the post-sync status.
  */
-async function cascadeLinkRenames(renames, { rename } = {}) {
-	const result = { renames: renames.map((r) => ({ ...r })), errors: [], rolledBack: false };
-	if (!renames.length) return result;
-	let doRename = rename;
-	if (!doRename) {
-		const { default: internalAgent } = await import("./agent.js");
-		doRename = (from, to) => internalAgent.renameLinkBinding(from, to);
-	}
-	const run = async (from, to) => {
+async function finishMetadataWrite({ previous, written, statusBefore, syncConfig }) {
+	// The write may have changed link AllowedIPs/DNS/full-tunnel/platform; invalidate
+	// cached peer configs so a prior Download/QR isn't re-served stale.
+	clearPeerConfigCache();
+	// One snapshot after the write, reused for rename fallback names and the
+	// conf-sync interface list (cascadeLinkRenames only touches agent bindings).
+	const statusAfterWrite = await internalWireGuard.getStatus();
+	// Agents bind to a link by its (mutable) name: cascade renames BEFORE the resync.
+	const renameCascade = await cascadeLinkRenames(
+		diffLinkRenames(previous, written, statusLinkNames(statusBefore), statusLinkNames(statusAfterWrite)),
+	);
+	let hubSync = null;
+	let agentSync = null;
+	if (syncConfig) {
 		try {
-			await doRename(from, to);
-			return null;
+			hubSync = await syncAllHubConfs((statusAfterWrite.interfaces || []).map((i) => i.name));
 		} catch (err) {
-			logger.error(`Link rename cascade ${from}→${to} failed: ${err.message}`);
-			return err.message || String(err);
+			hubSync = { synced: false, reason: err.message };
 		}
-	};
-	const oldNames = new Set(renames.map((r) => r.oldName));
-	const needsTemp = renames.some((r) => oldNames.has(r.newName));
-	if (!needsTemp) {
-		for (const r of renames) {
-			const error = await run(r.oldName, r.newName);
-			if (error) result.errors.push({ from: r.oldName, to: r.newName, error });
+		try {
+			// Locked + fresh-read (see syncAgentConfigsLocked): a concurrent mutation's
+			// older-snapshot sync can never land last and re-advertise a removed network.
+			agentSync = await syncAgentConfigsLocked();
+		} catch (err) {
+			agentSync = { error: err.message };
 		}
-		return result;
 	}
-	const stamp = Date.now();
-	const tmpNames = renames.map((_, i) => `__fg_rename_${stamp}_${i}__`);
-	const moved = [];
-	for (const [i, r] of renames.entries()) {
-		const error = await run(r.oldName, tmpNames[i]);
-		if (error) {
-			result.errors.push({ from: r.oldName, to: tmpNames[i], error });
-			break;
-		}
-		moved.push(i);
-	}
-	if (result.errors.length) {
-		for (const i of moved.reverse()) {
-			const error = await run(tmpNames[i], renames[i].oldName);
-			if (error) result.errors.push({ from: tmpNames[i], to: renames[i].oldName, error });
-		}
-		result.rolledBack = true;
-		return result;
-	}
-	for (const [i, r] of renames.entries()) {
-		const error = (await run(tmpNames[i], r.newName)) && (await run(tmpNames[i], r.newName));
-		if (error) result.errors.push({ from: tmpNames[i], to: r.newName, error });
-	}
-	return result;
+	const status = await internalWireGuard.getStatus();
+	return { renameCascade, hubSync, agentSync, status };
 }
 
 async function previewPlan(patch = {}) {
@@ -430,7 +416,8 @@ async function previewPlan(patch = {}) {
 }
 
 async function applyMetadata(patch = {}) {
-	const preview = await previewPlan(patch);
+	const statusBefore = await internalWireGuard.getStatus();
+	const preview = buildPlanPreview(statusBefore, patch);
 	if (!preview.valid) {
 		const err = new Error(`Preview invalid: ${preview.errors.join(", ")}`);
 		err.code = "preview-invalid";
@@ -444,7 +431,6 @@ async function applyMetadata(patch = {}) {
 		throw err;
 	}
 
-	const statusBefore = await internalWireGuard.getStatus();
 	const currentMetadata = statusBefore.metadata || { interfaces: {}, links: {} };
 	const backupPath = await internalWireGuard.backupMetadataStore(currentMetadata);
 	// previous = the store read under the same write lock as the patch (no window
@@ -452,51 +438,14 @@ async function applyMetadata(patch = {}) {
 	const { store: metadata, previous: storeBefore } = await internalWireGuard.applyMetadataPatch(preview.patch, {
 		withPrevious: true,
 	});
-	// The patch may have changed link AllowedIPs/DNS/full-tunnel; invalidate any cached
-	// peer configs so a prior Download/QR isn't re-served stale on the next download.
-	clearPeerConfigCache();
-	// A renamed link must carry its agent bindings along before the resync below.
-	const renameCascade = await cascadeLinkRenames(
-		diffLinkRenames(
-			storeBefore,
-			metadata,
-			statusLinkNames(statusBefore),
-			statusLinkNames(await internalWireGuard.getStatus()),
-		),
-	);
-
-	// Sync ALL WG interfaces' conf files from the new metadata.
-	// Also sync agent config_text so remote gateways pick up routing changes on next poll.
-	// This ensures the live WireGuard config never drifts from what is defined in the UI.
-	let hubSync = null;
-	let agentSync = null;
-	if (preview.apply.changeScope === "metadata-with-config-intent") {
-		try {
-			const status = await internalWireGuard.getStatus();
-			const confNames = (status.interfaces || []).map((i) => i.name);
-			hubSync = {};
-			for (const ifName of confNames) {
-				hubSync[ifName] = await syncHubConf(metadata, ifName);
-			}
-		} catch (err) {
-			hubSync = { synced: false, reason: err.message };
-		}
-		try {
-			// Run the agent resync under the write lock on FRESHLY-read metadata so a
-			// concurrent mutation's sync (built from an older snapshot) can never land
-			// last and overwrite this apply with a stale config that re-advertises a
-			// removed network fleet-wide. Mirrors deletePeer/updatePeer in wireguard.js.
-			agentSync = await withWriteLock(async () => {
-				const { default: internalAgent } = await import("./agent.js");
-				const fresh = await internalWireGuard.readMetadataStore();
-				return internalAgent.syncAgentConfigs(fresh);
-			});
-		} catch (err) {
-			agentSync = { error: err.message };
-		}
-	}
-
-	const status = await internalWireGuard.getStatus();
+	// Sync ALL WG interfaces' conf files + agent config_text from the new metadata
+	// (config-relevant changes only) so the live config never drifts from the UI.
+	const { renameCascade, hubSync, agentSync, status } = await finishMetadataWrite({
+		previous: storeBefore,
+		written: metadata,
+		statusBefore,
+		syncConfig: preview.apply.changeScope === "metadata-with-config-intent",
+	});
 	const auditEntry = await appendApplyAudit({
 		at: new Date().toISOString(),
 		backupPath,
@@ -585,7 +534,18 @@ async function restoreMetadataBackup(backupPath) {
 	}
 
 	const restoreSourceRaw = await fs.readFile(selectedBackup.path, "utf8");
-	const restoreSource = JSON.parse(restoreSourceRaw);
+	let restoreSource;
+	try {
+		restoreSource = JSON.parse(restoreSourceRaw);
+	} catch (parseErr) {
+		// A truncated/corrupt .bak (crash mid-write, manual edit) must be a client-visible
+		// 400 with the file name, not a SyntaxError → 500 "Internal Error".
+		const err = new Error(
+			`Metadata backup ${path.basename(selectedBackup.path)} is corrupt and cannot be restored: ${parseErr.message}`,
+		);
+		err.code = "restore-invalid-backup";
+		throw err;
+	}
 	const statusBefore = await internalWireGuard.getStatus();
 	if (!statusBefore.available) {
 		const err = new Error("WireGuard is not available — cannot match the backup against live peers");
@@ -614,49 +574,17 @@ async function restoreMetadataBackup(backupPath) {
 			`Metadata restore from ${path.basename(selectedBackup.path)}: skipped ${mergeInfo.skippedLinks.length} non-live link(s), kept current metadata for ${mergeInfo.keptLinks.length} live link(s) missing from the backup`,
 		);
 	}
-	// Restoring rolls link AllowedIPs/DNS/full-tunnel back; invalidate any cached peer
-	// configs so a prior Download/QR isn't re-served stale on the next download.
-	clearPeerConfigCache();
-	// The backup may carry other link names — cascade them to the agent bindings.
-	const renameCascade = await cascadeLinkRenames(
-		diffLinkRenames(
-			storeBefore,
-			restoredMetadata,
-			statusLinkNames(statusBefore),
-			statusLinkNames(await internalWireGuard.getStatus()),
-		),
-	);
-
-	// Sync hub conf for every interface plus agent config_text from the restored
-	// metadata, mirroring applyMetadata's config-intent path. Without this, wg0.conf
-	// AllowedIPs/PostUp, live wg peers, kernel routes, and agent configs would keep
-	// reflecting the pre-restore state even though the UI reports the rollback applied.
-	let hubSync = null;
-	let agentSync = null;
-	try {
-		const confNames = ((await internalWireGuard.getStatus()).interfaces || []).map((i) => i.name);
-		hubSync = {};
-		for (const ifName of confNames) {
-			hubSync[ifName] = await syncHubConf(restoredMetadata, ifName);
-		}
-	} catch (err) {
-		hubSync = { synced: false, reason: err.message };
-	}
-	try {
-		// Run the agent resync under the write lock on FRESHLY-read metadata so a
-		// concurrent mutation's sync (built from an older snapshot) can never land
-		// last and overwrite this restore with a stale config that re-advertises a
-		// removed network fleet-wide. Mirrors deletePeer/updatePeer in wireguard.js.
-		agentSync = await withWriteLock(async () => {
-			const { default: internalAgent } = await import("./agent.js");
-			const fresh = await internalWireGuard.readMetadataStore();
-			return internalAgent.syncAgentConfigs(fresh);
-		});
-	} catch (err) {
-		agentSync = { error: err.message };
-	}
-
-	const status = await internalWireGuard.getStatus();
+	// Always resync hub conf for every interface plus agent config_text from the
+	// restored metadata (mirrors applyMetadata's config-intent path). Without this,
+	// wg0.conf AllowedIPs/PostUp, live wg peers, kernel routes, and agent configs would
+	// keep reflecting the pre-restore state even though the UI reports the rollback
+	// applied. The backup may also carry other link names — those cascade too.
+	const { renameCascade, hubSync, agentSync, status } = await finishMetadataWrite({
+		previous: storeBefore,
+		written: restoredMetadata,
+		statusBefore,
+		syncConfig: true,
+	});
 	const auditEntry = await appendApplyAudit({
 		at: new Date().toISOString(),
 		backupPath: preRestoreBackupPath,
@@ -704,6 +632,7 @@ export {
 	cascadeLinkRenames,
 	classifyChangeScope,
 	diffLinkRenames,
+	finishMetadataWrite,
 	mergeBackupIntoLive,
 	normalizePatch,
 	statusLinkNames,

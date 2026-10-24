@@ -1,4 +1,5 @@
 import { Field, useFormikContext } from "formik";
+import { T } from "src/locale";
 
 export function CloudflareDnsFields() {
 	const { values, setFieldValue } = useFormikContext<any>();
@@ -8,9 +9,11 @@ export function CloudflareDnsFields() {
 		<div className="mt-4 pt-3 border-top">
 			<div className="d-flex justify-content-between align-items-center mb-2">
 				<div>
-					<div className="form-label mb-0">Cloudflare DNS</div>
+					<div className="form-label mb-0">
+						<T id="cloudflare.title" />
+					</div>
 					<div className="text-secondary small">
-						Synchronizes explicit A/AAAA records when this Proxy Host is saved.
+						<T id="cloudflare.description" />
 					</div>
 				</div>
 				{config.status ? (
@@ -29,7 +32,9 @@ export function CloudflareDnsFields() {
 							checked={Boolean(field.value)}
 							onChange={(event) => setFieldValue(field.name, event.target.checked)}
 						/>
-						<span className="form-check-label">Manage DNS records automatically</span>
+						<span className="form-check-label">
+							<T id="cloudflare.enabled" />
+						</span>
 					</label>
 				)}
 			</Field>
@@ -44,7 +49,9 @@ export function CloudflareDnsFields() {
 							checked={Boolean(field.value)}
 							onChange={(event) => setFieldValue(field.name, event.target.checked)}
 						/>
-						<span className="form-check-label">Proxy through Cloudflare</span>
+						<span className="form-check-label">
+							<T id="cloudflare.proxied" />
+						</span>
 					</label>
 				)}
 			</Field>

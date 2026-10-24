@@ -1,4 +1,5 @@
 import Access from "../access.js";
+import errs from "../error.js";
 
 export default () => {
 	return async (_, res, next) => {
@@ -9,7 +10,8 @@ export default () => {
 			res.locals.access = access;
 			next();
 		} catch (err) {
-			next(err);
+			// Expired, malformed or foreign-key-signed token -> 401 so the SPA drops it (base.ts logoutOn401)
+			next(new errs.UnauthorizedError(err instanceof errs.AuthError ? err.message : "Invalid token", err));
 		}
 	};
 };

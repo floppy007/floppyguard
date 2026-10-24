@@ -4,7 +4,6 @@ import {
 	type AgentCreateData,
 	type AgentUpdateData,
 	createAgent,
-	deleteAgent,
 	getAgents,
 	updateAgent,
 } from "src/api/backend";
@@ -38,14 +37,4 @@ const useUpdateAgent = () => {
 	});
 };
 
-const useDeleteAgent = () => {
-	const queryClient = useQueryClient();
-	return useMutation({
-		mutationFn: (id: number) => deleteAgent(id),
-		onSuccess: () => {
-			queryClient.invalidateQueries({ queryKey: ["agents"] });
-		},
-	});
-};
-
-export { useAgents, useCreateAgent, useDeleteAgent, useUpdateAgent };
+export { useAgents, useCreateAgent, useUpdateAgent };

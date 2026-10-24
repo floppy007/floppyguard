@@ -1,9 +1,9 @@
 import { IconArrowRight, IconChevronDown, IconChevronRight } from "@tabler/icons-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { AgentIngressCatalog, AgentIngressCatalogKind, AgentIngressRule } from "src/api/backend";
 import { describeRule, groupRulesBySource, shortCidr, type SourceGroupKind } from "./catalog";
 import { KindIcon } from "./CatalogPicker";
-import { MAX_INLINE_TARGETS } from "./RuleSentence";
+import { inlineTargetNodes } from "./RuleSentence";
 import { HitCell, ingressRuleDomId, RuleMenu, RuleToggle, useRuleRowActions } from "./RulesTable";
 import { isLegacyNote, ti } from "./utils";
 
@@ -25,27 +25,8 @@ export function RuleTargets({
 	rule: Pick<AgentIngressRule, "sources" | "destinations" | "ports">;
 	catalog?: AgentIngressCatalog | null;
 }) {
-	const d = describeRule(rule, catalog);
-	const inline = d.targets.slice(0, MAX_INLINE_TARGETS);
-	const more = d.targets.slice(MAX_INLINE_TARGETS);
-	const targets: ReactNode[] = [];
-	if (d.anyTarget) {
-		targets.push(<strong key="any">{ti("row.anything")}</strong>);
-	} else {
-		inline.forEach((t, i) => {
-			if (i > 0) targets.push(", ");
-			targets.push(<strong key={`t-${i}`}>{t}</strong>);
-		});
-		if (more.length) {
-			targets.push(" ");
-			targets.push(
-				<span key="more" className="text-decoration-underline" title={more.join(", ")}>
-					{ti("sentence.more", { count: more.length })}
-					<span className="visually-hidden">: {more.join(", ")}</span>
-				</span>,
-			);
-		}
-	}
+	const d = useMemo(() => describeRule(rule, catalog), [rule, catalog]);
+	const targets = d.anyTarget ? [<strong key="any">{ti("row.anything")}</strong>] : inlineTargetNodes(d.targets);
 	const ports = rule.ports.map((p) => `${p.proto}/${p.port}`);
 	const shownPorts = ports.slice(0, MAX_PORT_CHIPS);
 	const hiddenPorts = ports.slice(MAX_PORT_CHIPS);
@@ -91,10 +72,11 @@ interface Props {
 export function AgentIngressRuleSentences({ agentId, rules, catalog, onEdit, onError, highlightId }: Props) {
 	const { onToggle, onDelete, togglePending } = useRuleRowActions(agentId, onError);
 	const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
-	const groups = groupRulesBySource(rules, catalog);
+	const groups = useMemo(() => groupRulesBySource(rules, catalog), [rules, catalog]);
 	// The group a highlight targets (tester "go to rule", a rule just created)
 	// opens for good — it must not snap shut when the highlight fades.
-	const highlightGroup = highlightId == null ? null : (groups.find((g) => g.rules.some((r) => r.id === highlightId))?.key ?? null);
+	const highlightGroup =
+		highlightId == null ? null : (groups.find((g) => g.rules.some((r) => r.id === highlightId))?.key ?? null);
 	useEffect(() => {
 		if (highlightGroup === null) return;
 		setCollapsed((prev) => {
@@ -174,10 +156,14 @@ export function AgentIngressRuleSentences({ agentId, rules, catalog, onEdit, onE
 												<div className="small text-secondary mt-1 d-flex flex-wrap align-items-center gap-1">
 													<span className="text-break">{rule.name}</span>
 													{isLegacyNote(rule.note) && (
-														<span className="badge bg-warning-lt text-warning">{ti("legacy")}</span>
+														<span className="badge bg-warning-lt text-warning">
+															{ti("legacy")}
+														</span>
 													)}
 													{!rule.enabled && (
-														<span className="badge bg-secondary-lt">{ti("sentence.off")}</span>
+														<span className="badge bg-secondary-lt">
+															{ti("sentence.off")}
+														</span>
 													)}
 												</div>
 												{rule.note && <div className="small text-secondary">{rule.note}</div>}

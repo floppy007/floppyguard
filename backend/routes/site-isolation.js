@@ -1,33 +1,12 @@
 import express from "express";
 import internalSiteIsolation from "../internal/site-isolation.js";
-import jwtdecode from "../lib/express/jwt-decode.js";
-import requireAdmin from "../lib/express/require-admin.js";
-import { debug, express as logger } from "../logger.js";
+import createRoute from "../lib/express/route.js";
 
 // "Standorte untereinander": which sites must not reach each other through the
 // hub. Admin only; PUT is audited inside internalSiteIsolation.replace.
 const router = express.Router({ caseSensitive: true, strict: true, mergeParams: true });
 
-const route = (path, handlers, opts = {}) => {
-	const r = router
-		.route(path)
-		.options((_, res) => {
-			res.sendStatus(204);
-		})
-		.all(jwtdecode())
-		.all(requireAdmin());
-	for (const [method, fn] of Object.entries(handlers)) {
-		r[method](async (req, res, next) => {
-			try {
-				const out = await fn(req, res);
-				res.status(opts.status?.[method] ?? 200).send(out);
-			} catch (err) {
-				debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
-				next(err);
-			}
-		});
-	}
-};
+const route = createRoute(router);
 
 /**
  * GET /api/site-isolation → { sites, pairs, applied, warnings }
@@ -40,8 +19,13 @@ route(["", "/"], {
 });
 
 /** POST /api/site-isolation/test  Body: { source, destination } — read-only verdict. */
-route("/test", {
-	post: (req) => internalSiteIsolation.test(req.body || {}),
-});
+route(
+	"/test",
+	{
+		post: (req) => internalSiteIsolation.test(req.body || {}),
+	},
+	// read-only verdict, nothing is created
+	{ status: { post: 200 } },
+);
 
 export default router;

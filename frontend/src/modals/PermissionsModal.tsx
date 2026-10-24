@@ -88,7 +88,7 @@ const PermissionsModal = EasyModal.create(({ id, visible, remove }: Props) => {
 					<input
 						type="radio"
 						className="btn-check"
-						name="btn-radio-basic"
+						name={field.name}
 						id={`${field.name}-manage`}
 						autoComplete="off"
 						value="manage"
@@ -101,7 +101,7 @@ const PermissionsModal = EasyModal.create(({ id, visible, remove }: Props) => {
 					<input
 						type="radio"
 						className="btn-check"
-						name="btn-radio-basic"
+						name={field.name}
 						id={`${field.name}-view`}
 						autoComplete="off"
 						value="view"
@@ -114,7 +114,7 @@ const PermissionsModal = EasyModal.create(({ id, visible, remove }: Props) => {
 					<input
 						type="radio"
 						className="btn-check"
-						name="btn-radio-basic"
+						name={field.name}
 						id={`${field.name}-hidden`}
 						autoComplete="off"
 						value="hidden"
@@ -163,20 +163,20 @@ const PermissionsModal = EasyModal.create(({ id, visible, remove }: Props) => {
 								</Modal.Title>
 							</Modal.Header>
 							<Modal.Body>
-								<Alert variant="danger" show={!!error} onClose={() => setErrorMsg(null)} dismissible>
+								<Alert variant="danger" show={!!errorMsg} onClose={() => setErrorMsg(null)} dismissible>
 									{errorMsg}
 								</Alert>
 								<div className="mb-3">
-									<label htmlFor="asd" className="form-label">
+									<div className="form-label">
 										<T id="permissions.visibility.title" />
-									</label>
+									</div>
 									<Field name="visibility">
 										{({ field, form }: any) => (
 											<div className="btn-group w-100" role="group">
 												<input
 													type="radio"
 													className="btn-check"
-													name="btn-radio-basic"
+													name={field.name}
 													id={`${field.name}-user`}
 													autoComplete="off"
 													value="user"
@@ -192,7 +192,7 @@ const PermissionsModal = EasyModal.create(({ id, visible, remove }: Props) => {
 												<input
 													type="radio"
 													className="btn-check"
-													name="btn-radio-basic"
+													name={field.name}
 													id={`${field.name}-all`}
 													autoComplete="off"
 													value="all"
@@ -212,49 +212,49 @@ const PermissionsModal = EasyModal.create(({ id, visible, remove }: Props) => {
 								{!isAdmin && (
 									<>
 										<div className="mb-3">
-											<label htmlFor="ignored" className="form-label">
+											<div className="form-label">
 												<T id="proxy-hosts" />
-											</label>
+											</div>
 											<Field name="proxyHosts">
 												{({ field, form }: any) => getPermissionButtons(field, form)}
 											</Field>
 										</div>
 										<div className="mb-3">
-											<label htmlFor="ignored" className="form-label">
+											<div className="form-label">
 												<T id="redirection-hosts" />
-											</label>
+											</div>
 											<Field name="redirectionHosts">
 												{({ field, form }: any) => getPermissionButtons(field, form)}
 											</Field>
 										</div>
 										<div className="mb-3">
-											<label htmlFor="ignored" className="form-label">
+											<div className="form-label">
 												<T id="dead-hosts" />
-											</label>
+											</div>
 											<Field name="deadHosts">
 												{({ field, form }: any) => getPermissionButtons(field, form)}
 											</Field>
 										</div>
 										<div className="mb-3">
-											<label htmlFor="ignored" className="form-label">
+											<div className="form-label">
 												<T id="streams" />
-											</label>
+											</div>
 											<Field name="streams">
 												{({ field, form }: any) => getPermissionButtons(field, form)}
 											</Field>
 										</div>
 										<div className="mb-3">
-											<label htmlFor="ignored" className="form-label">
+											<div className="form-label">
 												<T id="access-lists" />
-											</label>
+											</div>
 											<Field name="accessLists">
 												{({ field, form }: any) => getPermissionButtons(field, form)}
 											</Field>
 										</div>
 										<div className="mb-3">
-											<label htmlFor="ignored" className="form-label">
+											<div className="form-label">
 												<T id="certificates" />
-											</label>
+											</div>
 											<Field name="certificates">
 												{({ field, form }: any) => getPermissionButtons(field, form)}
 											</Field>
@@ -263,13 +263,12 @@ const PermissionsModal = EasyModal.create(({ id, visible, remove }: Props) => {
 								)}
 							</Modal.Body>
 							<Modal.Footer>
-								<Button data-bs-dismiss="modal" onClick={remove} disabled={isSubmitting}>
+								<Button onClick={remove} disabled={isSubmitting}>
 									<T id="cancel" />
 								</Button>
 								<Button
 									type="submit"
 									className="ms-auto btn-orange"
-									data-bs-dismiss="modal"
 									isLoading={isSubmitting}
 									disabled={isSubmitting}
 								>

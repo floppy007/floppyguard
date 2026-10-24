@@ -3,7 +3,14 @@ import { Field, Form, Formik } from "formik";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { Alert } from "react-bootstrap";
 import Modal from "react-bootstrap/Modal";
-import { disable2FA, enable2FA, get2FAStatus, regenerateBackupCodes, start2FASetup } from "src/api/backend";
+import {
+	disable2FA,
+	enable2FA,
+	get2FAStatus,
+	regenerateBackupCodes,
+	start2FASetup,
+	type TwoFactorSetupResponse,
+} from "src/api/backend";
 import { Button } from "src/components";
 import { T } from "src/locale";
 import { validateString } from "src/modules/Validations";
@@ -23,7 +30,7 @@ const TwoFactorModal = EasyModal.create(({ id, visible, remove }: Props) => {
 	const [step, setStep] = useState<Step>("loading");
 	const [isEnabled, setIsEnabled] = useState(false);
 	const [backupCodesRemaining, setBackupCodesRemaining] = useState(0);
-	const [setupData, setSetupData] = useState<{ secret: string; otpauthUrl: string } | null>(null);
+	const [setupData, setSetupData] = useState<TwoFactorSetupResponse | null>(null);
 	const [backupCodes, setBackupCodes] = useState<string[]>([]);
 	const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -154,14 +161,17 @@ const TwoFactorModal = EasyModal.create(({ id, visible, remove }: Props) => {
 					<p className="text-muted mb-3">
 						<T id="2fa.setup-instructions" />
 					</p>
-					<div className="text-center mb-3">
-						<img
-							src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(setupData.otpauthUrl)}`}
-							alt="QR Code"
-							className="img-fluid"
-							style={{ maxWidth: "200px" }}
-						/>
-					</div>
+					{/* QR is rendered by the backend; never send the otpauth URL (contains the secret) to a third party. */}
+					{setupData.qrDataUrl?.startsWith("data:image/") ? (
+						<div className="text-center mb-3">
+							<img
+								src={setupData.qrDataUrl}
+								alt="QR Code"
+								className="img-fluid"
+								style={{ maxWidth: "200px" }}
+							/>
+						</div>
+					) : null}
 					<label className="mb-3 d-block">
 						<span className="form-label small text-muted">
 							<T id="2fa.secret-key" />

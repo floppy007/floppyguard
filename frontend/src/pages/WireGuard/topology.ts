@@ -114,8 +114,7 @@ type LinkRef = Pick<WireGuardLink, "name" | "type" | "peerPublicKey" | "tunnelAd
 type AgentRef = Pick<Agent, "name" | "hostname" | "wgLinkName" | "lastSeen">;
 
 /** A link shown under its generated name `${type}-${pubkey8}` (no stored name). */
-const isGeneratedLinkName = (l: LinkRef) =>
-	!!l.peerPublicKey && l.name === `${l.type}-${l.peerPublicKey.slice(0, 8)}`;
+const isGeneratedLinkName = (l: LinkRef) => !!l.peerPublicKey && l.name === `${l.type}-${l.peerPublicKey.slice(0, 8)}`;
 
 const newestSeen = <A extends AgentRef>(list: A[]): A | undefined =>
 	list.reduce<A | undefined>((best, a) => (!best || (a.lastSeen ?? 0) > (best.lastSeen ?? 0) ? a : best), undefined);

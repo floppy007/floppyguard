@@ -1,4 +1,5 @@
 import { IconAlertTriangle, IconHandStop, IconLock, IconPlugConnected } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import Alert from "react-bootstrap/Alert";
 import { useLocation } from "react-router-dom";
@@ -374,6 +375,7 @@ function SiteNets({ site }: { site: SiteIsolationSite }) {
 export function SiteIsolationCard() {
 	const query = useSiteIsolation();
 	const save = useSetSiteIsolation();
+	const queryClient = useQueryClient();
 	const location = useLocation();
 	const [error, setError] = useState<string | null>(null);
 	// null = no choice in this view yet (expanded, unless collapsed before and calm), else the user's choice
@@ -432,6 +434,8 @@ export function SiteIsolationCard() {
 	}
 
 	const data = query.data;
+	// the overview as of now (a refetch may have landed while a dialog was open)
+	const latest = () => queryClient.getQueryData<SiteIsolationOverview>(["site-isolation"]) ?? data;
 	const sites = data.sites;
 	const pairByKey = new Map(currentSitePairs(data).map((p) => [sitePairKey(p.linkA, p.linkB), p]));
 	const manualKeys = new Set((data.manualPairs ?? []).map((m) => sitePairKey(m.linkA, m.linkB)));
@@ -443,10 +447,12 @@ export function SiteIsolationCard() {
 	const toAdopt = unadoptedManualPairs(data);
 	const hasStale = data.pairs.length > currentSitePairs(data).length;
 
-	const submit = (next: SiteIsolationPairInput[]) => async () => {
+	// the PUT replaces the full pair set: resolve it on confirm, not when the
+	// dialog opens, so a change that arrived meanwhile is not overwritten
+	const submit = (next: () => SiteIsolationPairInput[]) => async () => {
 		setError(null);
 		try {
-			await save.mutateAsync(next);
+			await save.mutateAsync(next());
 		} catch (err) {
 			// shown in the card (the dialog closes either way)
 			setError(errMessage(err));
@@ -456,11 +462,10 @@ export function SiteIsolationCard() {
 	const toggle = (a: SiteIsolationSite, b: SiteIsolationSite) => {
 		if (busy) return;
 		const block = !pairOf(a, b);
-		const next = nextSitePairs(data, a.linkId, b.linkId, block);
 		showDeleteConfirmModal({
 			title: ti(block ? "sites.confirm-block-title" : "sites.confirm-allow-title", { a: a.name, b: b.name }),
 			confirmLabel: ti(block ? "sites.confirm-block-button" : "sites.confirm-allow-button"),
-			onConfirm: submit(next),
+			onConfirm: submit(() => nextSitePairs(latest(), a.linkId, b.linkId, block)),
 			children: block ? (
 				<div data-testid="site-isolation-confirm">
 					<p>{ti("sites.confirm-block", { a: a.name, b: b.name })}</p>
@@ -488,7 +493,7 @@ export function SiteIsolationCard() {
 		showDeleteConfirmModal({
 			title: ti("sites.adopt-title"),
 			confirmLabel: ti("sites.adopt-button"),
-			onConfirm: submit(adoptManualPairs(data)),
+			onConfirm: submit(() => adoptManualPairs(latest())),
 			children: <p className="mb-0">{ti("sites.adopt-text")}</p>,
 		});
 	};
@@ -717,7 +722,7 @@ export function SiteIsolationCard() {
 												<button
 													type="button"
 													className="btn btn-sm"
-													onClick={submit(keysToPairs(blockedSitePairKeys(data)))}
+													onClick={submit(() => keysToPairs(blockedSitePairKeys(data)))}
 													disabled={busy}
 													data-testid="site-isolation-cleanup"
 												>

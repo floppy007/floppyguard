@@ -80,8 +80,11 @@ export function LocationsFields({ initialValues, name = "locations" }: Props) {
 						<div className="row">
 							<div className="col-md-12">
 								<div className="input-group mb-3">
-									<span className="input-group-text">Location</span>
+									<label className="input-group-text" htmlFor={`location-${idx}-path`}>
+										<T id="location" />
+									</label>
 									<input
+										id={`location-${idx}-path`}
 										type="text"
 										className="form-control"
 										placeholder="/path"
@@ -95,11 +98,11 @@ export function LocationsFields({ initialValues, name = "locations" }: Props) {
 						<div className="row">
 							<div className="col-md-3">
 								<div className="mb-3">
-									<label className="form-label" htmlFor="forwardScheme">
+									<label className="form-label" htmlFor={`location-${idx}-forwardScheme`}>
 										<T id="host.forward-scheme" />
 									</label>
 									<select
-										id="forwardScheme"
+										id={`location-${idx}-forwardScheme`}
 										className="form-control"
 										value={item.forwardScheme}
 										onChange={(e) => handleChange(idx, "forwardScheme", e.target.value)}
@@ -111,11 +114,11 @@ export function LocationsFields({ initialValues, name = "locations" }: Props) {
 							</div>
 							<div className="col-md-6">
 								<div className="mb-3">
-									<label className="form-label" htmlFor="forwardHost">
+									<label className="form-label" htmlFor={`location-${idx}-forwardHost`}>
 										<T id="proxy-host.forward-host" />
 									</label>
 									<input
-										id="forwardHost"
+										id={`location-${idx}-forwardHost`}
 										type="text"
 										className="form-control"
 										required
@@ -127,11 +130,11 @@ export function LocationsFields({ initialValues, name = "locations" }: Props) {
 							</div>
 							<div className="col-md-3">
 								<div className="mb-3">
-									<label className="form-label" htmlFor="forwardPort">
+									<label className="form-label" htmlFor={`location-${idx}-forwardPort`}>
 										<T id="host.forward-port" />
 									</label>
 									<input
-										id="forwardPort"
+										id={`location-${idx}-forwardPort`}
 										type="number"
 										min={1}
 										max={65535}

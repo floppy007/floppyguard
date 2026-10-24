@@ -254,6 +254,138 @@ test("loadLinks: status unavailable or failing keeps the last known tunnel /32s"
 	await load();
 });
 
+test("loadLinks: status unavailable keeps the live-derived type and networks of metadata entries without them", async () => {
+	const meta = {
+		links: {
+			[H]: { name: "Hinderlich Office" },
+			[D]: { name: "Daniel Home", type: "site-to-site" },
+		},
+	};
+	let mode = "ok";
+	const load = createLinkLoader({
+		readMetadataStore: async () => meta,
+		getStatus: async () => {
+			if (mode === "throw") throw new Error("wg show failed");
+			if (mode === "down") return { available: false, links: [] };
+			const liveH = {
+				id: H,
+				type: "site-to-site",
+				importedNetworks: ["192.168.210.0/24"],
+				tunnelAddresses: ["10.10.0.7/32"],
+				active: true,
+			};
+			const liveD = {
+				id: D,
+				type: "site-to-site",
+				importedNetworks: ["192.168.111.0/24"],
+				tunnelAddresses: ["10.10.0.5/32"],
+				active: true,
+			};
+			return { available: true, links: mode === "partial" ? [liveD] : [liveH, liveD] };
+		},
+		log: quiet,
+	});
+	const view = (ls) =>
+		Object.fromEntries(ls.map((l) => [l.id, [l.type, l.importedNetworks, l.tunnelAddresses, l.live]]));
+	const expected = {
+		[H]: ["site-to-site", ["192.168.210.0/24"], ["10.10.0.7/32"], true],
+		[D]: ["site-to-site", ["192.168.111.0/24"], ["10.10.0.5/32"], true],
+	};
+	assert.deepEqual(view(await load()), expected);
+	for (mode of ["throw", "down", "partial"]) {
+		const ls = await load();
+		assert.deepEqual(view(ls), expected, mode);
+		const script = buildSiteIsolationNft({ pairs: [normalizePair(H, D)], links: ls });
+		assert.match(script, /192\.168\.210\.0\/24/, mode);
+		assert.match(script, /192\.168\.111\.0\/24/, mode);
+	}
+});
+
+test("apply: a pair dropped because a link has no live view (cold start, wg down) keeps the previous table", async () => {
+	const E = "wg0:EEEEEEEEEEEEEEEEEEEEAAAAAAAAAAAAAAAAAAAAAAA=";
+	const meta = {
+		links: {
+			[H]: { name: "Hinderlich Office", type: "site-to-site", importedNetworks: ["192.168.210.0/24"] },
+			// type/networks only in the live status (inferred from AllowedIPs)
+			[D]: { name: "Daniel Home" },
+			[E]: { name: "Erika", type: "site-to-site", importedNetworks: ["192.168.50.0/24"] },
+		},
+	};
+	let up = false;
+	const load = createLinkLoader({
+		readMetadataStore: async () => meta,
+		getStatus: async () =>
+			up
+				? {
+						available: true,
+						links: [{ id: D, type: "site-to-site", importedNetworks: ["192.168.111.0/24"], active: true }],
+					}
+				: { available: true, links: [] },
+		log: quiet,
+	});
+	const pairs = [normalizePair(H, D), normalizePair(H, E)];
+	const h = harness();
+	try {
+		h.set({ pairs, links: await load() });
+		const bad = await h.applier.apply({ force: true });
+		assert.equal(bad.ok, false);
+		assert.equal(bad.error_code, "links-unresolved");
+		assert.match(bad.error, /WireGuard-Status nicht lesbar/);
+		assert.equal(h.calls.filter((c) => c.args.includes("-f")).length, 0, "nft never ran");
+		await assert.rejects(fsp.readFile(h.persist, "utf8"), "boot file untouched");
+		up = true;
+		h.set({ pairs, links: await load() });
+		const ok = await h.applier.apply({ force: true });
+		assert.equal(ok.ok, true);
+		assert.deepEqual(ok.applied_pairs.sort(), pairs.map((p) => `${p.a}|${p.b}`).sort());
+	} finally {
+		h.cleanup();
+	}
+});
+
+test("apply: a preloaded input skips loadInput", async () => {
+	let loads = 0;
+	const h = harness();
+	try {
+		const applier = createSiteIsolationApplier({
+			execFile: async () => ({ stdout: "", stderr: "" }),
+			fs: fsp,
+			tmpDir: h.dir,
+			persistPath: () => h.persist,
+			nftBin: () => "nft",
+			loadInput: async () => {
+				loads++;
+				return { pairs: [], links: [] };
+			},
+			log: quiet,
+			now: () => 1000,
+		});
+		const res = await applier.apply({ force: true, input: { pairs: [normalizePair(H, D)], links: links() } });
+		assert.equal(res.ok, true);
+		assert.equal(res.pairs, 1);
+		assert.equal(loads, 0);
+	} finally {
+		h.cleanup();
+	}
+});
+
+test("start: SITE_ISOLATION_DISABLED=true never runs nft", async () => {
+	const prev = process.env.SITE_ISOLATION_DISABLED;
+	const prevBin = process.env.NFT_BIN;
+	process.env.SITE_ISOLATION_DISABLED = "true";
+	// would fail loudly if start() reached the applier
+	process.env.NFT_BIN = "/nonexistent/nft-must-not-run";
+	try {
+		const { default: internalSiteIsolation } = await import("./site-isolation.js");
+		assert.equal(await internalSiteIsolation.start(), null);
+	} finally {
+		if (prev === undefined) delete process.env.SITE_ISOLATION_DISABLED;
+		else process.env.SITE_ISOLATION_DISABLED = prev;
+		if (prevBin === undefined) delete process.env.NFT_BIN;
+		else process.env.NFT_BIN = prevBin;
+	}
+});
+
 test("apply: stored pairs but no resolvable site links (empty/missing metadata) keep the previous table", async () => {
 	const h = harness();
 	try {

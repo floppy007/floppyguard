@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import errs from "../lib/error.js";
+import { global as logger } from "../logger.js";
 import internalRemoteVersion from "./remote-version.js";
 
 const execFileAsync = promisify(execFile);
@@ -110,6 +111,12 @@ const internalAppUpdate = {
 			parsed = JSON.parse(await readFile(stateFile, "utf8"));
 		} catch (error) {
 			if (error?.code === "ENOENT") return idleStatus;
+			// A corrupt file must not brick GET /version/update and every future
+			// start() (which reads the status first); only the updater rewrites it.
+			if (error instanceof SyntaxError) {
+				logger.warn(`${stateFile} is not valid JSON, treating the updater as idle: ${error.message}`);
+				return idleStatus;
+			}
 			throw error;
 		}
 		if (typeof parsed?.state !== "string" || typeof parsed?.message !== "string") {

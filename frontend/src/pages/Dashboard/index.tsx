@@ -20,7 +20,10 @@ import {
 	useWireGuardStatus,
 } from "src/hooks";
 import { intl } from "src/locale/IntlProvider";
-import { PEER_COLORS, peerColorMap, sortByVolume } from "src/pages/Traffic/bandwidth";
+import { relativeTimeOrDash } from "src/modules/relativeTime";
+import { currentRates, isLinkActive, PEER_COLORS, peerColorMap, sortByVolume } from "src/pages/Traffic/bandwidth";
+import { fmtNextAction } from "src/pages/WireGuard/linkLabels";
+import { byteFmt, rateFmt } from "src/pages/WireGuard/topology";
 import {
 	ADMIN,
 	DEAD_HOSTS,
@@ -31,46 +34,6 @@ import {
 	STREAMS,
 	VIEW,
 } from "src/modules/Permissions";
-
-const KNOWN_NEXT_ACTIONS = new Set([
-	"verify-return-path",
-	"model-exported-networks",
-	"define-remote-management-mode",
-	"fix-return-path",
-	"decide-nat-or-static-route",
-	"define-return-path-mode",
-	"verify-live-tunnel-state",
-	"mount-wireguard-config-directory",
-]);
-const fmtNextAction = (a: string) =>
-	KNOWN_NEXT_ACTIONS.has(a) ? intl.formatMessage({ id: `wireguard.next.${a}` }) : a;
-
-const byteFmt = (value?: number) => {
-	const bytes = Number(value) || 0;
-	if (bytes < 1024) return `${bytes} B`;
-	const units = ["KB", "MB", "GB", "TB"];
-	let current = bytes;
-	let idx = -1;
-	do {
-		current /= 1024;
-		idx += 1;
-	} while (current >= 1024 && idx < units.length - 1);
-	return `${current < 10 ? current.toFixed(2) : current < 100 ? current.toFixed(1) : Math.round(current)} ${units[idx]}`;
-};
-
-const rateFmt = (bps: number) => {
-	if (bps < 1024) return `${bps} B/s`;
-	if (bps < 1024 * 1024) return `${(bps / 1024).toFixed(1)} KB/s`;
-	return `${(bps / 1024 / 1024).toFixed(2)} MB/s`;
-};
-
-const timeAgo = (ts: number) => {
-	if (!ts) return "—";
-	const s = Math.floor(Date.now() / 1000) - ts;
-	if (s < 60) return intl.formatMessage({ id: "dashboard.ago-seconds" }, { count: s });
-	if (s < 3600) return intl.formatMessage({ id: "dashboard.ago-minutes" }, { count: Math.floor(s / 60) });
-	return intl.formatMessage({ id: "dashboard.ago-hours" }, { count: Math.floor(s / 3600) });
-};
 
 function MiniChart({
 	peers,
@@ -182,7 +145,7 @@ function MiniChart({
 					fontFamily="monospace"
 					textAnchor="end"
 				>
-					now
+					{intl.formatMessage({ id: "dashboard.chart.now" })}
 				</text>
 			</svg>
 			<div className="d-flex flex-wrap gap-3" style={{ padding: "0.4rem 0 0" }}>
@@ -258,9 +221,12 @@ const Dashboard = () => {
 	const hub = wireguard?.hub;
 	const nextActions = wireguard?.nextActions?.slice(0, 4) || [];
 	const links = wireguard?.links || [];
+	const now = Date.now() / 1000;
+	const anyLinkActive = links.some((l) => isLinkActive(l, now));
 	// Same stable per-peer colours as the Traffic page; rank the chart's top 4 by
 	// volume over the live window (the API orders by the newest sample only).
 	const chartPeers = sortByVolume(bw).slice(0, 4);
+	const { rx: liveRx, tx: liveTx } = currentRates(bw);
 	const peerColors = peerColorMap(
 		links.map((l) => l.id),
 		chartPeers.map((p) => p.id),
@@ -373,7 +339,10 @@ const Dashboard = () => {
 											</span>
 										</div>
 										<div className="text-secondary" style={{ fontSize: "0.72rem" }}>
-											{hub?.name || "—"} active
+											{intl.formatMessage(
+												{ id: "dashboard.hub-active" },
+												{ name: hub?.name || "—" },
+											)}
 										</div>
 									</div>
 								</div>
@@ -402,7 +371,7 @@ const Dashboard = () => {
 												letterSpacing: "0.04em",
 											}}
 										>
-											Active Peers
+											{intl.formatMessage({ id: "dashboard.stat.active-peers" })}
 										</div>
 										<div className="platform-stat-value">
 											{peersActive}{" "}
@@ -455,8 +424,13 @@ const Dashboard = () => {
 										</div>
 										<div className="platform-stat-value">{wgSummary?.linkCount || 0}</div>
 										<div className="text-secondary" style={{ fontSize: "0.72rem" }}>
-											{wgSummary?.siteLinkCount || 0} site · {wgSummary?.clientLinkCount || 0}{" "}
-											client
+											{intl.formatMessage(
+												{ id: "dashboard.stat.link-split" },
+												{
+													site: wgSummary?.siteLinkCount || 0,
+													client: wgSummary?.clientLinkCount || 0,
+												},
+											)}
 										</div>
 									</div>
 								</div>
@@ -513,8 +487,13 @@ const Dashboard = () => {
 												{byteFmt(wgSummary?.totalRxBytes)} / {byteFmt(wgSummary?.totalTxBytes)}
 											</div>
 											<div className="small text-secondary">
-												{wgSummary?.peerNetworkCount || 0} peer networks ·{" "}
-												{wgSummary?.privateRouteCount || 0} private routes
+												{intl.formatMessage(
+													{ id: "dashboard.traffic-scope" },
+													{
+														networks: wgSummary?.peerNetworkCount || 0,
+														routes: wgSummary?.privateRouteCount || 0,
+													},
+												)}
 											</div>
 										</div>
 									</div>
@@ -524,8 +503,14 @@ const Dashboard = () => {
 												{intl.formatMessage({ id: "dashboard.topology" })}
 											</div>
 											<div className="fw-bold mb-1">
-												{wgSummary?.siteLinkCount || 0} site · {wgSummary?.hubLinkCount || 0}{" "}
-												hub · {wgSummary?.clientLinkCount || 0} client
+												{intl.formatMessage(
+													{ id: "dashboard.topology-split" },
+													{
+														site: wgSummary?.siteLinkCount || 0,
+														hub: wgSummary?.hubLinkCount || 0,
+														client: wgSummary?.clientLinkCount || 0,
+													},
+												)}
 											</div>
 											<div className="small text-secondary">
 												{missingReturnRoutes.length > 0 && (
@@ -584,7 +569,7 @@ const Dashboard = () => {
 								<h3 className="card-title d-flex align-items-center gap-2">
 									<IconShieldHalfFilled size={16} />
 									{intl.formatMessage({ id: "dashboard.link-preview" })}
-									{links.some((l) => l.active) && (
+									{anyLinkActive && (
 										<span
 											className="status-dot status-green status-dot-animated"
 											style={{ width: 5, height: 5 }}
@@ -619,10 +604,7 @@ const Dashboard = () => {
 									const bwMap = new Map(bw.map((p) => [p.id, p]));
 
 									return links.map((link) => {
-										const isActive =
-											link.active &&
-											link.latestHandshake > 0 &&
-											Date.now() / 1000 - link.latestHandshake < 180;
+										const isActive = isLinkActive(link, now);
 										const peerBw = bwMap.get(link.id);
 										const sparkData = peerBw?.history.map((s) => s.rx + s.tx) || [];
 										const color = isActive
@@ -637,15 +619,26 @@ const Dashboard = () => {
 															{link.name || link.id}
 														</span>
 														<div className="text-secondary" style={{ fontSize: "0.7rem" }}>
-															{link.type || "—"} · {link.interfaceName} · handshake{" "}
-															{timeAgo(link.latestHandshake)}
+															{intl.formatMessage(
+																{ id: "dashboard.link-meta" },
+																{
+																	type: link.type || "—",
+																	iface: link.interfaceName,
+																	handshake: relativeTimeOrDash(link.latestHandshake),
+																},
+															)}
 														</div>
 													</div>
 													<span
 														className={`badge ${isActive ? "bg-success-lt text-success" : "bg-secondary-lt text-secondary"}`}
 														style={{ fontSize: "0.65rem" }}
 													>
-														{isActive ? "●" : "○"} {isActive ? "Active" : "Idle"}
+														{isActive ? "●" : "○"}{" "}
+														{intl.formatMessage({
+															id: isActive
+																? "traffic.status-active"
+																: "traffic.status-idle",
+														})}
 													</span>
 												</div>
 												<div className="platform-peer-bottom">
@@ -696,9 +689,7 @@ const Dashboard = () => {
 										className="text-secondary"
 										style={{ fontSize: "0.72rem", fontFamily: "monospace" }}
 									>
-										{rateFmt(
-											bw.reduce((s, p) => s + (p.history[p.history.length - 1]?.rx ?? 0), 0),
-										)}
+										{rateFmt(liveRx)}
 									</span>
 								</div>
 							</div>
@@ -719,9 +710,7 @@ const Dashboard = () => {
 										className="text-secondary"
 										style={{ fontSize: "0.72rem", fontFamily: "monospace" }}
 									>
-										{rateFmt(
-											bw.reduce((s, p) => s + (p.history[p.history.length - 1]?.tx ?? 0), 0),
-										)}
+										{rateFmt(liveTx)}
 									</span>
 								</div>
 							</div>
@@ -763,13 +752,16 @@ const Dashboard = () => {
 												letterSpacing: "0.04em",
 											}}
 										>
-											Redirections
+											{intl.formatMessage({ id: "redirection-hosts" })}
 										</div>
 										<div className="platform-stat-value" style={{ fontSize: "1.15rem" }}>
-											{hostReport?.redirection || 0} active
+											{intl.formatMessage(
+												{ id: "dashboard.count-active" },
+												{ count: hostReport?.redirection || 0 },
+											)}
 										</div>
 										<div className="text-secondary" style={{ fontSize: "0.72rem" }}>
-											All operational
+											{intl.formatMessage({ id: "dashboard.redirections-hint" })}
 										</div>
 									</div>
 								</div>
@@ -805,13 +797,16 @@ const Dashboard = () => {
 												letterSpacing: "0.04em",
 											}}
 										>
-											Streams
+											{intl.formatMessage({ id: "streams" })}
 										</div>
 										<div className="platform-stat-value" style={{ fontSize: "1.15rem" }}>
-											{hostReport?.stream || 0} active
+											{intl.formatMessage(
+												{ id: "dashboard.count-active" },
+												{ count: hostReport?.stream || 0 },
+											)}
 										</div>
 										<div className="text-secondary" style={{ fontSize: "0.72rem" }}>
-											TCP forwarding
+											{intl.formatMessage({ id: "dashboard.streams-hint" })}
 										</div>
 									</div>
 								</div>
@@ -847,7 +842,7 @@ const Dashboard = () => {
 												letterSpacing: "0.04em",
 											}}
 										>
-											Dead Hosts
+											{intl.formatMessage({ id: "dead-hosts" })}
 										</div>
 										<div className="platform-stat-value" style={{ fontSize: "1.15rem" }}>
 											{intl.formatMessage(
@@ -856,7 +851,7 @@ const Dashboard = () => {
 											)}
 										</div>
 										<div className="text-secondary" style={{ fontSize: "0.72rem" }}>
-											Serving 410 Gone
+											{intl.formatMessage({ id: "dashboard.dead-hint" })}
 										</div>
 									</div>
 								</div>

@@ -1,12 +1,14 @@
 import EasyModal, { type InnerModalProps } from "ez-modal-react";
-import { Field, Form, Formik } from "formik";
+import { Form, Formik } from "formik";
 import { type ReactNode, useState } from "react";
 import { Alert } from "react-bootstrap";
 import Modal from "react-bootstrap/Modal";
 import { updateAuth } from "src/api/backend";
-import { Button } from "src/components";
+import { Button, FloatingTextField } from "src/components";
+import { useAuthState } from "src/context";
 import { intl, T } from "src/locale";
 import { validateString } from "src/modules/Validations";
+import { showSuccess } from "src/notifications";
 
 const showChangePasswordModal = (id: number | "me") => {
 	EasyModal.show(ChangePasswordModal, { id });
@@ -18,6 +20,7 @@ interface Props extends InnerModalProps {
 const ChangePasswordModal = EasyModal.create(({ id, visible, remove }: Props) => {
 	const [error, setError] = useState<ReactNode | null>(null);
 	const [isSubmitting, setIsSubmitting] = useState(false);
+	const { logout } = useAuthState();
 
 	const onSubmit = async (values: any, { setSubmitting }: any) => {
 		if (values.new !== values.confirm) {
@@ -32,12 +35,20 @@ const ChangePasswordModal = EasyModal.create(({ id, visible, remove }: Props) =>
 
 		try {
 			await updateAuth(id, values.new, values.current);
-			remove();
 		} catch (err: any) {
 			setError(<T id={err.message} />);
+			setIsSubmitting(false);
+			setSubmitting(false);
+			return;
 		}
-		setIsSubmitting(false);
-		setSubmitting(false);
+		remove();
+		if (id === "me") {
+			// The backend revokes every token issued before the change, including
+			// this session's: log out now with an explanation instead of letting
+			// the next request 401 and reload to the login page without one.
+			showSuccess(intl.formatMessage({ id: "user.password-changed-relogin" }));
+			logout();
+		}
 	};
 
 	return (
@@ -64,96 +75,43 @@ const ChangePasswordModal = EasyModal.create(({ id, visible, remove }: Props) =>
 								{error}
 							</Alert>
 							<div className="mb-3">
-								<Field name="current">
-									{({ field, form }: any) => (
-										<div className="form-floating mb-3">
-											<input
-												id="current"
-												type="password"
-												autoComplete="current-password"
-												required
-												className={`form-control ${form.errors.current && form.touched.current ? "is-invalid" : ""}`}
-												placeholder={intl.formatMessage({
-													id: "user.current-password",
-												})}
-												{...field}
-											/>
-											<label htmlFor="current">
-												<T id="user.current-password" />
-											</label>
-											{form.errors.name ? (
-												<div className="invalid-feedback">
-													{form.errors.current && form.touched.current
-														? form.errors.current
-														: null}
-												</div>
-											) : null}
-										</div>
-									)}
-								</Field>
+								<FloatingTextField
+									name="current"
+									labelId="user.current-password"
+									type="password"
+									autoComplete="current-password"
+									required
+								/>
 							</div>
 							<div className="mb-3">
-								<Field name="new" validate={validateString(8, 100)}>
-									{({ field, form }: any) => (
-										<div className="form-floating mb-3">
-											<input
-												id="new"
-												type="password"
-												autoComplete="new-password"
-												required
-												className={`form-control ${form.errors.new && form.touched.new ? "is-invalid" : ""}`}
-												placeholder={intl.formatMessage({ id: "user.new-password" })}
-												{...field}
-											/>
-											<label htmlFor="new">
-												<T id="user.new-password" />
-											</label>
-											{form.errors.new ? (
-												<div className="invalid-feedback">
-													{form.errors.new && form.touched.new ? form.errors.new : null}
-												</div>
-											) : null}
-										</div>
-									)}
-								</Field>
+								<FloatingTextField
+									name="new"
+									labelId="user.new-password"
+									type="password"
+									autoComplete="new-password"
+									required
+									validate={validateString(8, 100)}
+								/>
 							</div>
 							<div className="mb-3">
-								<Field name="confirm" validate={validateString(8, 100)}>
-									{({ field, form }: any) => (
-										<div className="form-floating mb-3">
-											<input
-												id="confirm"
-												type="password"
-												autoComplete="new-password"
-												required
-												className={`form-control ${form.errors.confirm && form.touched.confirm ? "is-invalid" : ""}`}
-												placeholder={intl.formatMessage({ id: "user.confirm-password" })}
-												{...field}
-											/>
-											{form.errors.confirm ? (
-												<div className="invalid-feedback">
-													{form.errors.confirm && form.touched.confirm
-														? form.errors.confirm
-														: null}
-												</div>
-											) : null}
-											<label htmlFor="confirm">
-												<T id="user.confirm-password" />
-											</label>
-										</div>
-									)}
-								</Field>
+								<FloatingTextField
+									name="confirm"
+									labelId="user.confirm-password"
+									type="password"
+									autoComplete="new-password"
+									required
+									validate={validateString(8, 100)}
+								/>
 							</div>
 						</Modal.Body>
 						<Modal.Footer>
-							<Button data-bs-dismiss="modal" onClick={remove} disabled={isSubmitting}>
+							<Button onClick={remove} disabled={isSubmitting}>
 								<T id="cancel" />
 							</Button>
 							<Button
 								type="submit"
 								actionType="primary"
 								className="ms-auto"
-								data-bs-dismiss="modal"
 								isLoading={isSubmitting}
 								disabled={isSubmitting}
 							>

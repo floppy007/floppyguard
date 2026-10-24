@@ -288,7 +288,10 @@ export function AgentIngressRuleForm({ agentId, rule, onDone, catalog }: Props) 
 					</div>
 				)}
 				{draft.sources.length > 0 && portsChosen && isBroadRule(draft) && (
-					<div className="alert d-block alert-warning py-2 px-3 small mt-2 mb-0" data-testid="ingress-form-broad">
+					<div
+						className="alert d-block alert-warning py-2 px-3 small mt-2 mb-0"
+						data-testid="ingress-form-broad"
+					>
 						{ti("form.broad")}
 					</div>
 				)}
@@ -300,7 +303,11 @@ export function AgentIngressRuleForm({ agentId, rule, onDone, catalog }: Props) 
 					</ul>
 				)}
 				{serverError && (
-					<div className="alert d-block alert-danger py-2 px-3 small mt-2 mb-0" role="alert" data-testid="ingress-form-server-error">
+					<div
+						className="alert d-block alert-danger py-2 px-3 small mt-2 mb-0"
+						role="alert"
+						data-testid="ingress-form-server-error"
+					>
 						{serverError.message}
 					</div>
 				)}

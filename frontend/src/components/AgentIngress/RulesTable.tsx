@@ -1,11 +1,12 @@
 import { IconDotsVertical, IconInfoCircle, IconPencil, IconTrash } from "@tabler/icons-react";
 import { type AgentIngressCatalog, type AgentIngressRule, deleteAgentIngressRule } from "src/api/backend";
-import { useUpdateAgentIngressRule } from "src/hooks";
+import { useQueryClient } from "@tanstack/react-query";
+import { invalidateAgentIngress, useUpdateAgentIngressRule } from "src/hooks";
 import { intl } from "src/locale/IntlProvider";
 import { POPPER_FIXED } from "src/modules/Dropdown";
 import { showDeleteConfirmModal } from "src/modals/DeleteConfirmModal";
 import { labelsForCidrs } from "./catalog";
-import { errMessage, formatPorts, INGRESS_INVALIDATIONS, isLegacyNote, isStaleRule, relativeTime, ti } from "./utils";
+import { errMessage, formatPorts, isLegacyNote, isStaleRule, relativeTime, ti } from "./utils";
 
 /** Hit info: "zuletzt: vor 2 Stunden" / "noch kein Treffer"; packets and the stale hint in the tooltip. */
 export function HitCell({ rule }: { rule: AgentIngressRule }) {
@@ -34,6 +35,7 @@ export const rawRuleDomId = (agentId: number, ruleId: number) => `${ingressRuleD
 /** Toggle / delete shared by the table and the sentence view. */
 export function useRuleRowActions(agentId: number, onError: (msg: string | null) => void) {
 	const updateRule = useUpdateAgentIngressRule(agentId);
+	const queryClient = useQueryClient();
 	const onToggle = (rule: AgentIngressRule, enabled: boolean) => {
 		onError(null);
 		updateRule.mutate({ ruleId: rule.id, data: { enabled } }, { onError: (err) => onError(errMessage(err)) });
@@ -43,8 +45,9 @@ export function useRuleRowActions(agentId: number, onError: (msg: string | null)
 			title: ti("delete-title"),
 			onConfirm: async () => {
 				await deleteAgentIngressRule(agentId, rule.id);
+				// same refresh as every other ingress mutation (incl. a fresh pending poll window)
+				await invalidateAgentIngress(queryClient);
 			},
-			invalidations: INGRESS_INVALIDATIONS,
 			children: ti("delete-confirm", { name: rule.name }),
 		});
 	return { onToggle, onDelete, togglePending: updateRule.isPending };
@@ -199,7 +202,9 @@ export function AgentIngressRulesTable({ agentId, rules, onEdit, onError, catalo
 							<td className="font-monospace">{rule.ports.length ? formatPorts(rule.ports) : all}</td>
 							<td className="text-nowrap">
 								<HitCell rule={rule} />
-								<div className="text-secondary">{ti("hit.packets", { count: rule.hitPackets ?? 0 })}</div>
+								<div className="text-secondary">
+									{ti("hit.packets", { count: rule.hitPackets ?? 0 })}
+								</div>
 							</td>
 							<td>
 								<RuleToggle rule={rule} disabled={togglePending} onToggle={onToggle} />

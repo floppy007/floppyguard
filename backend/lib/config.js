@@ -243,13 +243,6 @@ const isPostgres = () => {
 const isDebugMode = () => ["1", "true", "yes", "on"].includes(String(process.env.DEBUG || "").trim().toLowerCase());
 
 /**
- * Are we running in CI?
- *
- * @returns {boolean}
- */
-const isCI = () => process.env.CI === "true" && process.env.DEBUG === "true";
-
-/**
  * Returns a public key
  *
  * @returns {string}
@@ -289,7 +282,6 @@ export {
 	configHas,
 	getPrivateKey,
 	getPublicKey,
-	isCI,
 	isDebugMode,
 	isMysql,
 	isPostgres,

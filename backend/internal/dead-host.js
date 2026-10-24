@@ -29,22 +29,7 @@ const internalDeadHost = {
 		internalNginx.assertSafeHostFields("dead_host", data);
 		await internalHost.assertCertificateAccess(access, data.certificate_id);
 
-		// Get a list of the domain names and check each of them against existing records
-		const domainNameCheckPromises = [];
-
-		data.domain_names.map((domain_name) => {
-			domainNameCheckPromises.push(internalHost.isHostnameTaken(domain_name));
-			return true;
-		});
-
-		await Promise.all(domainNameCheckPromises).then((check_results) => {
-			check_results.map((result) => {
-				if (result.is_taken) {
-					throw new errs.ValidationError(`${result.hostname} is already in use`);
-				}
-				return true;
-			});
-		});
+		await internalHost.assertHostnamesFree(data.domain_names);
 
 		// At this point the domains should have been checked
 		data.owner_user_id = access.token.getUserId(1);
@@ -52,7 +37,7 @@ const internalDeadHost = {
 
 		// Fix for db field not having a default value
 		// for this optional field.
-		if (typeof data.advanced_config === "undefined") {
+		if (typeof thisData.advanced_config === "undefined") {
 			thisData.advanced_config = "";
 		}
 
@@ -69,11 +54,8 @@ const internalDeadHost = {
 		if (createCertificate) {
 			const cert = await internalCertificate.createQuickCertificate(access, data);
 
-			// update host with cert id
-			await internalDeadHost.update(access, {
-				id: row.id,
-				certificate_id: cert.id,
-			});
+			// link the new cert; the single re-fetch/configure below picks it up
+			await deadHostModel.query().where({ id: row.id }).patch({ certificate_id: cert.id });
 		}
 
 		// re-fetch with cert
@@ -88,7 +70,7 @@ const internalDeadHost = {
 		}
 
 		// Configure nginx
-		await internalNginx.configure(deadHostModel, "dead_host", freshRow);
+		freshRow.meta = await internalNginx.configure(deadHostModel, "dead_host", freshRow);
 
 		return freshRow;
 	},
@@ -108,22 +90,7 @@ const internalDeadHost = {
 		await access.can("dead_hosts:update", data.id);
 		internalNginx.assertSafeHostFields("dead_host", data);
 
-		// Get a list of the domain names and check each of them against existing records
-		const domainNameCheckPromises = [];
-		if (typeof data.domain_names !== "undefined") {
-			data.domain_names.map((domainName) => {
-				domainNameCheckPromises.push(internalHost.isHostnameTaken(domainName, "dead", data.id));
-				return true;
-			});
-
-			const checkResults = await Promise.all(domainNameCheckPromises);
-			checkResults.map((result) => {
-				if (result.is_taken) {
-					throw new errs.ValidationError(`${result.hostname} is already in use`);
-				}
-				return true;
-			});
-		}
+		await internalHost.assertHostnamesFree(data.domain_names, "dead", data.id);
 		const row = await internalDeadHost.get(access, { id: data.id });
 
 		if (row.id !== data.id) {
@@ -207,6 +174,8 @@ const internalDeadHost = {
 		if (!row?.id) {
 			throw new errs.ItemNotFoundError(data.id);
 		}
+		// certificate.meta holds private keys / DNS credentials: never return it
+		internalHost.cleanRowCertificateMeta(row);
 		// Custom omissions
 		if (typeof data.omit !== "undefined" && data.omit !== null) {
 			return _.omit(row, data.omit);

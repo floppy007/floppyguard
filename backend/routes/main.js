@@ -6,7 +6,6 @@ import { isSetup } from "../setup.js";
 // FloppyGuard extension routes.
 import agentRoutes from "./agent.js";
 import auditLogRoutes from "./audit-log.js";
-import designRoutes from "./design.js";
 import accessListsRoutes from "./nginx/access_lists.js";
 import oidcRoutes from "./oidc.js";
 import oidcSettingsRoutes from "./oidc-settings.js";
@@ -68,7 +67,6 @@ router.use("/", agentRoutes);
 router.use("/wireguard", wireGuardRoutes);
 router.use("/site-isolation", siteIsolationRoutes);
 router.use("/security", securityRoutes);
-router.use("/design", designRoutes);
 router.use("/nginx/proxy-hosts", proxyHostsRoutes);
 router.use("/nginx/redirection-hosts", redirectionHostsRoutes);
 router.use("/nginx/dead-hosts", deadHostsRoutes);

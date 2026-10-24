@@ -176,12 +176,14 @@ test("configure rejects an unsafe host before deleting the live config", async (
 		deleteConfig: internalNginx.deleteConfig,
 		generateConfig: internalNginx.generateConfig,
 		reload: internalNginx.reload,
+		reloadTested: internalNginx.reloadTested,
 	};
 	const calls = [];
 	internalNginx.test = async () => calls.push("test");
 	internalNginx.deleteConfig = async () => calls.push("delete");
 	internalNginx.generateConfig = async () => calls.push("generate");
 	internalNginx.reload = async () => calls.push("reload");
+	internalNginx.reloadTested = async () => calls.push("reload");
 	try {
 		await assert.rejects(
 			() => internalNginx.configure({}, "proxy_host", { id: 5, meta: {}, advanced_config: "include /etc/x;" }),
@@ -204,6 +206,7 @@ async function withFakeNginx(fn) {
 		test: internalNginx.test,
 		generateConfig: internalNginx.generateConfig,
 		reload: internalNginx.reload,
+		reloadTested: internalNginx.reloadTested,
 		getConfigName: internalNginx.getConfigName,
 		markHostsRejected: internalNginx.markHostsRejected,
 		clearHostErrors: internalNginx.clearHostErrors,
@@ -231,9 +234,26 @@ async function withFakeNginx(fn) {
 			`server { ${host.advanced_config || ""} }\n`,
 		);
 	};
-	internalNginx.reload = async () => internalNginx.test();
+	let reloads = 0;
+	internalNginx.reload = async () => {
+		await internalNginx.test();
+		reloads++;
+	};
+	internalNginx.reloadTested = async () => {
+		reloads++;
+	};
 	try {
-		await fn({ dir, fs, path, model, patches, marked, cleared, testCalls: () => testCalls });
+		await fn({
+			dir,
+			fs,
+			path,
+			model,
+			patches,
+			marked,
+			cleared,
+			testCalls: () => testCalls,
+			reloads: () => reloads,
+		});
 	} finally {
 		Object.assign(internalNginx, orig);
 		fs.rmSync(dir, { recursive: true, force: true });
@@ -286,7 +306,7 @@ test("configure marks a NEW host offline when its first conf fails nginx -t", as
 });
 
 test("configure replaces the conf and drops the backup on success", async () => {
-	await withFakeNginx(async ({ dir, fs, path, model }) => {
+	await withFakeNginx(async ({ dir, fs, path, model, testCalls, reloads }) => {
 		const conf = path.join(dir, "9.conf");
 		fs.writeFileSync(conf, "server { old }\n");
 		const meta = await internalNginx.configure(model, "proxy_host", {
@@ -298,6 +318,9 @@ test("configure replaces the conf and drops the backup on success", async () => 
 		assert.ok(!fs.existsSync(`${conf}.bak`));
 		assert.equal(meta.nginx_online, true);
 		assert.equal(meta.nginx_err, null);
+		// baseline + new conf; the reload itself does not run a third `nginx -t`
+		assert.equal(testCalls(), 2);
+		assert.equal(reloads(), 1);
 	});
 });
 
@@ -407,6 +430,31 @@ test("bulkGenerateConfigs changes nothing when nginx -t already fails without th
 	});
 });
 
+test("bulkGenerateConfigs waits for every render before putting the previous confs back", async () => {
+	await withFakeNginx(async ({ dir, fs, path }) => {
+		const conf41 = path.join(dir, "41.conf");
+		fs.writeFileSync(conf41, "server { old41 }\n");
+		const fakeTest = internalNginx.test;
+		// A slow `nginx -t`: with Promise.all the late render of #41 landed while
+		// the base state was being tested, after its .bak had been put back.
+		internalNginx.test = async () => {
+			await new Promise((r) => setTimeout(r, 20));
+			return fakeTest();
+		};
+		internalNginx.generateConfig = async (_t, host) => {
+			if (host.id === 40) throw new Error("forbidden legacy advanced_config");
+			await new Promise((r) => setTimeout(r, 5));
+			fs.writeFileSync(internalNginx.getConfigName("proxy_host", host.id), "server { bogus_directive on; }\n");
+		};
+		await assert.rejects(
+			() => internalNginx.bulkGenerateConfigs("proxy_host", [{ id: 40 }, { id: 41 }]),
+			(err) => !/even with the previous/.test(err.message),
+		);
+		assert.equal(fs.readFileSync(conf41, "utf8"), "server { old41 }\n");
+		assert.ok(!fs.existsSync(`${conf41}.bak`));
+	});
+});
+
 test("enableInUseHosts runs all host types and does not throw when one type has a bad host", async () => {
 	const { default: internalCertificate } = await import("./certificate.js");
 	const orig = internalNginx.bulkGenerateConfigs;
@@ -510,4 +558,191 @@ test("withConfigLock serializes callers, is re-entrant and survives errors", asy
 		"c:nested",
 		"c:end",
 	]);
+});
+
+// ─── host rows must carry their relations before they are rendered ──────────
+// getHostsWithDomains() fed raw rows into bulkGenerateConfigs(): the templates
+// then dropped `listen 443`/ssl and rendered `deny all;` without auth_basic,
+// which passes nginx -t and silently went live.
+
+const renderProxyHost = async (row) => {
+	const { default: utils } = await import("../lib/utils.js");
+	const fsMod = await import("node:fs");
+	const template = fsMod.readFileSync(new URL("../templates/proxy_host.conf", import.meta.url), "utf8");
+	return utils.getRenderEngine().parseAndRender(template, {
+		id: 1,
+		domain_names: ["app.example.com"],
+		forward_scheme: "http",
+		forward_host: "10.0.0.5",
+		forward_port: 8080,
+		advanced_config: "",
+		locations: [],
+		use_default_location: true,
+		ipv6: false,
+		enabled: 1,
+		ssl_forced: 1,
+		...row,
+	});
+};
+
+test("proxy_host.conf rendered from a raw row (no relations) loses SSL and auth", async () => {
+	const out = await renderProxyHost({ certificate_id: 3, access_list_id: 5 });
+	assert.doesNotMatch(out, /listen 443/);
+	assert.match(out, /deny all;/);
+	assert.doesNotMatch(out, /auth_basic_user_file/);
+});
+
+test("proxy_host.conf rendered with loaded relations keeps SSL, auth and allow rules", async () => {
+	const out = await renderProxyHost({
+		certificate_id: 3,
+		certificate: { id: 3, provider: "letsencrypt" },
+		access_list_id: 5,
+		access_list: {
+			id: 5,
+			pass_auth: 0,
+			satisfy_any: 1,
+			items: [{ username: "u" }],
+			clients: [{ directive: "allow", address: "10.0.0.0/24" }],
+		},
+	});
+	assert.match(out, /listen 443/);
+	assert.match(out, /auth_basic_user_file\s+\/data\/access\/5;/);
+	assert.match(out, /allow 10\.0\.0\.0\/24;/);
+});
+
+test("assertHostRelationsLoaded rejects rows whose relations were never loaded", () => {
+	const { assertHostRelationsLoaded } = _testExports;
+	assert.throws(
+		() => assertHostRelationsLoaded("proxy_host", { id: 1, certificate_id: 3 }),
+		(err) => err instanceof errs.ConfigurationError && /no certificate loaded/.test(err.message),
+	);
+	assert.throws(
+		() => assertHostRelationsLoaded("proxy_host", { id: 1, access_list_id: 5, access_list: { id: 5 } }),
+		/no access list clients\/items loaded/,
+	);
+	assert.throws(() => assertHostRelationsLoaded("proxy_host", { id: 1, access_list_id: 5 }), /access list/);
+	// fetched but no match (soft-deleted cert) is null: render without SSL
+	assert.doesNotThrow(() => assertHostRelationsLoaded("proxy_host", { id: 1, certificate_id: 3, certificate: null }));
+	assert.doesNotThrow(() =>
+		assertHostRelationsLoaded("proxy_host", {
+			id: 1,
+			access_list_id: 5,
+			access_list: { items: [], clients: [] },
+		}),
+	);
+	assert.doesNotThrow(() => assertHostRelationsLoaded("dead_host", { id: 1, certificate_id: 0 }));
+	assert.doesNotThrow(() => assertHostRelationsLoaded("default", { id: 0 }));
+	assert.throws(() => assertHostRelationsLoaded("redirection_host", { id: 2, certificate_id: 4 }), /certificate/);
+});
+
+test("getHostsWithDomains loads the relations the templates need", async () => {
+	const { default: internalHost } = await import("./host.js");
+	const { default: proxyHostModel } = await import("../models/proxy_host.js");
+	const { default: redirectionHostModel } = await import("../models/redirection_host.js");
+	const { default: deadHostModel } = await import("../models/dead_host.js");
+	const graphs = {};
+	const stub = (name, rows) => () => {
+		const qb = {
+			where: () => qb,
+			andWhere: (cb) => {
+				cb({ orWhere: () => {} });
+				return qb;
+			},
+			withGraphFetched: (g) => {
+				graphs[name] = g;
+				return qb;
+			},
+			// biome-ignore lint/suspicious/noThenProperty: mimics the awaitable query builder
+			then: (resolve, reject) => Promise.resolve(rows).then(resolve, reject),
+		};
+		return qb;
+	};
+	const orig = [proxyHostModel.query, redirectionHostModel.query, deadHostModel.query];
+	// id 3 is a LIKE-prefilter hit only and must not be included
+	proxyHostModel.query = stub("proxy", [
+		{ id: 1, domain_names: ["App.example.com"] },
+		{ id: 3, domain_names: ["sub.app.example.com"] },
+	]);
+	redirectionHostModel.query = stub("redirection", [{ id: 2, domain_names: ["other.example"] }]);
+	deadHostModel.query = stub("dead", []);
+	try {
+		const res = await internalHost.getHostsWithDomains(["app.example.com"]);
+		assert.equal(graphs.proxy, "[certificate,access_list.[clients,items]]");
+		assert.equal(graphs.redirection, "[certificate]");
+		assert.equal(graphs.dead, "[certificate]");
+		assert.equal(res.total_count, 1);
+		assert.deepEqual(
+			res.proxy_hosts.map((h) => h.id),
+			[1],
+		);
+	} finally {
+		[proxyHostModel.query, redirectionHostModel.query, deadHostModel.query] = orig;
+	}
+});
+
+// Upstream #5543: users but no client rules + "satisfy all" rendered a bare
+// "deny all" that 403'd every request, valid logins included.
+test("_access.conf: users without client rules render no deny all", async () => {
+	for (const satisfy_any of [0, 1]) {
+		const out = await renderProxyHost({
+			access_list_id: 5,
+			access_list: { id: 5, pass_auth: 0, satisfy_any, items: [{ username: "u" }], clients: [] },
+		});
+		assert.match(out, /auth_basic_user_file\s+\/data\/access\/5;/);
+		assert.doesNotMatch(out, /deny all;/);
+		assert.match(out, satisfy_any ? /satisfy any;/ : /satisfy all;/);
+	}
+});
+
+test("_access.conf: an access list without users and rules stays closed", async () => {
+	for (const access_list of [
+		{ id: 5, satisfy_any: 0, items: [], clients: [] },
+		{ id: 5, satisfy_any: 1, items: [], clients: [] },
+		{ id: 5, satisfy_any: 0, items: [{ username: "u" }] }, // clients not loaded
+		{ id: 5, satisfy_any: 0 },
+	]) {
+		const out = await renderProxyHost({ access_list_id: 5, access_list });
+		assert.match(out, /deny all;/, JSON.stringify(access_list));
+	}
+});
+
+test("_access.conf: client rules keep their trailing deny all", async () => {
+	const out = await renderProxyHost({
+		access_list_id: 5,
+		access_list: {
+			id: 5,
+			satisfy_any: 0,
+			items: [{ username: "u" }],
+			clients: [{ directive: "allow", address: "10.0.0.0/24" }],
+		},
+	});
+	assert.match(out, /allow 10\.0\.0\.0\/24;\s+deny all;/);
+});
+
+// Upstream #5741: an IPv6 forwarding_host rendered "fe80::1:25" (invalid port).
+test("streamUpstreamHost brackets IPv6 literals only", () => {
+	const { streamUpstreamHost } = _testExports;
+	assert.equal(streamUpstreamHost("fe80::528:3c87:e7bb:ab08"), "[fe80::528:3c87:e7bb:ab08]");
+	assert.equal(streamUpstreamHost("2001:db8::1"), "[2001:db8::1]");
+	assert.equal(streamUpstreamHost("::1"), "[::1]");
+	assert.equal(streamUpstreamHost("10.0.0.5"), "10.0.0.5");
+	assert.equal(streamUpstreamHost("router.internal"), "router.internal");
+	assert.equal(streamUpstreamHost(undefined), undefined);
+});
+
+test("stream.conf renders an IPv6 upstream as [addr]:port", async () => {
+	const { streamUpstreamHost } = _testExports;
+	const fsMod = await import("node:fs");
+	const { default: utils } = await import("../lib/utils.js");
+	const template = fsMod.readFileSync(new URL("../templates/stream.conf", import.meta.url), "utf8");
+	const out = await utils.getRenderEngine().parseAndRender(template, {
+		id: 4,
+		enabled: 1,
+		incoming_port: 2525,
+		tcp_forwarding: 1,
+		udp_forwarding: 1,
+		forwarding_host: streamUpstreamHost("2001:db8::25"),
+		forwarding_port: 25,
+	});
+	assert.equal((out.match(/proxy_pass \[2001:db8::25\]:25;/g) || []).length, 2);
 });

@@ -107,7 +107,12 @@ export function WizardShell({
 						</Button>
 					)}
 					{last ? (
-						<Button actionType="primary" isLoading={pending} disabled={pending || !canSave} onClick={onSave}>
+						<Button
+							actionType="primary"
+							isLoading={pending}
+							disabled={pending || !canSave}
+							onClick={onSave}
+						>
 							{intl.formatMessage({ id: "save" })}
 						</Button>
 					) : (

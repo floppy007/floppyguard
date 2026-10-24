@@ -8,6 +8,8 @@ import { intl, T } from "src/locale";
 import { POPPER_FIXED } from "src/modules/Dropdown";
 import { ACCESS_LISTS, MANAGE } from "src/modules/Permissions";
 
+const columnHelper = createColumnHelper<AccessList>();
+
 interface Props {
 	data: AccessList[];
 	isFiltered?: boolean;
@@ -17,7 +19,6 @@ interface Props {
 	onNew?: () => void;
 }
 export default function Table({ data, isFetching, isFiltered, onEdit, onDelete, onNew }: Props) {
-	const columnHelper = createColumnHelper<AccessList>();
 	const columns = useMemo(
 		() => [
 			columnHelper.accessor((row: any) => row.owner, {
@@ -113,7 +114,7 @@ export default function Table({ data, isFetching, isFiltered, onEdit, onDelete, 
 				},
 			}),
 		],
-		[columnHelper, onEdit, onDelete],
+		[onEdit, onDelete],
 	);
 
 	const tableInstance = useReactTable<AccessList>({

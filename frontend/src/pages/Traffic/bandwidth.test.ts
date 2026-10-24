@@ -1,7 +1,7 @@
 import type { PeerBandwidth } from "src/api/backend";
 import { bandwidthRefreshMs } from "src/hooks/useWireGuardBandwidth";
 import { describe, expect, it } from "vitest";
-import { PEER_COLORS, currentRates, peerColorMap, sortByVolume } from "./bandwidth";
+import { PEER_COLORS, currentRates, isLinkActive, peerColorMap, sortByVolume } from "./bandwidth";
 
 const peer = (id: string, samples: Array<[number, number]>): PeerBandwidth => ({
 	id,
@@ -65,5 +65,21 @@ describe("traffic bandwidth helpers", () => {
 		expect(bandwidthRefreshMs("24h")).toBeGreaterThanOrEqual(60_000);
 		expect(bandwidthRefreshMs("30d")).toBeGreaterThan(bandwidthRefreshMs("24h"));
 		expect(bandwidthRefreshMs("12m")).toBeGreaterThan(bandwidthRefreshMs("30d"));
+	});
+});
+
+describe("isLinkActive", () => {
+	const now = 1_000_000;
+	it("is true for an active link with a fresh handshake", () => {
+		expect(isLinkActive({ active: true, latestHandshake: now - 10 }, now)).toBe(true);
+	});
+	it("is false for an active link whose handshake is past the window (stale poll data)", () => {
+		expect(isLinkActive({ active: true, latestHandshake: now - 200 }, now)).toBe(false);
+	});
+	it("is false for an inactive link even with a fresh handshake", () => {
+		expect(isLinkActive({ active: false, latestHandshake: now - 10 }, now)).toBe(false);
+	});
+	it("is false without any handshake", () => {
+		expect(isLinkActive({ active: true, latestHandshake: 0 }, now)).toBe(false);
 	});
 });

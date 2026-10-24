@@ -254,3 +254,42 @@ describe("VPN clients for the ingress check come from the live status (r2-2)", a
 		assert.ok(!vpnClientsFromStatus(status).some((c) => c.id === "wg0:SITE"));
 	});
 });
+
+describe("Freigaben: the agent's own untyped single-LAN link is not a VPN client of itself", async () => {
+	const { vpnClientsFromStatus } = await import("./agent-ingress.js");
+	const { buildCatalog } = await import("./agent-ingress-catalog.js");
+	const own = {
+		id: "wg0:OWN",
+		type: "client",
+		typeExplicit: false,
+		importedNetworks: ["192.168.60.0/24"],
+		tunnelAddresses: ["10.10.0.5/32"],
+	};
+	const status = { available: true, links: [own], interfaces: [] };
+	const clients = vpnClientsFromStatus(status);
+	const hubAny = rule({ sources: ["10.10.0.1/32"], destinations: [] });
+
+	it("is still inferred as a client (precondition)", () => {
+		assert.ok(clients.some((c) => c.id === "wg0:OWN"));
+	});
+	it("the catalog does not list it as a client source", () => {
+		const cat = buildCatalog({
+			agent: { id: 1, name: "a", ingress_mode: "restricted" },
+			site: { linkId: "wg0:OWN", ownNets: ["192.168.60.0/24"] },
+			links: [own],
+			hubHosts: ["10.10.0.1/32"],
+			clients,
+			rules: [hubAny],
+		});
+		assert.ok(!cat.sources.some((s) => s.id === "client:wg0:OWN"));
+	});
+	it("excluding the own link yields no vpn-client gap for a hub→any rule", () => {
+		assert.ok(clientIngressGaps(clients, ["192.168.60.0/24"], [hubAny]).length > 0);
+		const gaps = clientIngressGaps(
+			clients.filter((c) => c.id !== "wg0:OWN"),
+			["192.168.60.0/24"],
+			[hubAny],
+		);
+		assert.equal(gaps.length, 0);
+	});
+});

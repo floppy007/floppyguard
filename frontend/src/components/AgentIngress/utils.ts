@@ -53,7 +53,7 @@ export const formatPorts = (ports: AgentIngressPort[]): string => ports.map((p) 
 export const isLegacyNote = (note: string | null | undefined): boolean => /altlast/i.test(note ?? "");
 
 /** createdOn arrives as unix seconds or as a date string; null when unparsable. */
-const toUnixSeconds = (value: number | string | null | undefined): number | null => {
+export const toUnixSeconds = (value: number | string | null | undefined): number | null => {
 	if (value === null || value === undefined || value === "") return null;
 	if (typeof value === "number") return value > 1e12 ? Math.floor(value / 1000) : value;
 	if (/^\d+$/.test(value)) return toUnixSeconds(Number(value));
@@ -77,31 +77,13 @@ export const isStaleRule = (
 ): boolean => {
 	if (!rule.enabled) return false;
 	const armed = rule.armedOn !== undefined ? (rule.armedOn ?? null) : toUnixSeconds(rule.modifiedOn);
-	const refs = [rule.lastHitAt ?? null, toUnixSeconds(rule.createdOn), armed].filter(
-		(v): v is number => v !== null,
-	);
+	const refs = [rule.lastHitAt ?? null, toUnixSeconds(rule.createdOn), armed].filter((v): v is number => v !== null);
 	if (refs.length === 0) return false;
 	const ref = Math.max(...refs);
 	return now - ref > STALE_HIT_SECONDS;
 };
 
-/** Localised "vor 5 Minuten" / "5 minutes ago". */
-export const relativeTime = (ts: number, now = Date.now() / 1000): string => {
-	const diff = Math.max(0, Math.floor(now - ts));
-	const steps: Array<[Intl.RelativeTimeFormatUnit, number]> = [
-		["second", 60],
-		["minute", 60],
-		["hour", 24],
-		["day", 30],
-		["month", 12],
-	];
-	let value = diff;
-	for (const [unit, size] of steps) {
-		if (value < size) return intl.formatRelativeTime(-value, unit, { numeric: "auto" });
-		value = Math.floor(value / size);
-	}
-	return intl.formatRelativeTime(-value, "year", { numeric: "auto" });
-};
+export { relativeTime } from "src/modules/relativeTime";
 
 export interface RuleFormValues {
 	name: string;
@@ -120,7 +102,10 @@ export interface RuleFormValues {
  * Client-side validation; the backend validates again and its message is shown
  * as well. `autoName`: the form derives a name from the rule when none is typed.
  */
-export const validateRuleForm = (values: RuleFormValues, { autoName = false }: { autoName?: boolean } = {}): string[] => {
+export const validateRuleForm = (
+	values: RuleFormValues,
+	{ autoName = false }: { autoName?: boolean } = {},
+): string[] => {
 	const errors: string[] = [];
 	if (!values.name.trim() && !autoName) {
 		errors.push(intl.formatMessage({ id: "wireguard.agent.ingress.err.name-required" }));
@@ -184,12 +169,3 @@ export const ingressUnusedCount = (entry: Pick<AgentIngressCheck, "unusedHubRule
 	entry?.unusedHubRules.length ?? 0;
 
 export const errMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
-
-/** Query keys every ingress mutation must refresh (also passed to showDeleteConfirmModal). */
-export const INGRESS_INVALIDATIONS = [
-	["agent-ingress"],
-	["agent-ingress-preview"],
-	["agent-ingress-check"],
-	["agent-ingress-catalog"],
-	["agents"],
-];

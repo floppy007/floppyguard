@@ -31,11 +31,9 @@ const useSetSiteIsolation = () => {
 	return useMutation<SiteIsolationOverview, Error, SiteIsolationPairInput[]>({
 		mutationFn: (pairs: SiteIsolationPairInput[]) => setSiteIsolation(pairs),
 		onSuccess: (data) => {
+			// the PUT already returns the fresh overview — no refetch of the same query
 			queryClient.setQueryData(["site-isolation"], data);
-			return Promise.all([
-				queryClient.invalidateQueries({ queryKey: ["site-isolation"] }),
-				invalidateAgentIngress(queryClient),
-			]);
+			return invalidateAgentIngress(queryClient);
 		},
 	});
 };

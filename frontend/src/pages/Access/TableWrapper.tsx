@@ -1,5 +1,5 @@
 import { IconHelp, IconSearch } from "@tabler/icons-react";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import Alert from "react-bootstrap/Alert";
 import { deleteAccessList } from "src/api/backend";
 import { Button, HasPermission, LoadingPage } from "src/components";
@@ -14,6 +14,20 @@ export default function TableWrapper() {
 	const [search, setSearch] = useState("");
 	const { isFetching, isLoading, isError, error, data } = useAccessLists(["owner", "items", "clients"]);
 
+	const handleDelete = useCallback(
+		(id: number) =>
+			showDeleteConfirmModal({
+				title: <T id="object.delete" tData={{ object: "access-list" }} />,
+				onConfirm: async () => {
+					await deleteAccessList(id);
+					showObjectSuccess("access-list", "deleted");
+				},
+				invalidations: [["access-lists"], ["access-list", id]],
+				children: <T id="object.delete.content" tData={{ object: "access-list" }} />,
+			}),
+		[],
+	);
+
 	if (isLoading) {
 		return <LoadingPage />;
 	}
@@ -22,18 +36,13 @@ export default function TableWrapper() {
 		return <Alert variant="danger">{error?.message || "Unknown error"}</Alert>;
 	}
 
-	const handleDelete = async (id: number) => {
-		await deleteAccessList(id);
-		showObjectSuccess("access-list", "deleted");
-	};
-
 	let filtered = null;
-	if (search && data) {
+	if (search && data?.length) {
 		filtered = data?.filter((item) => {
 			return item.name.toLowerCase().includes(search);
 		});
 	} else if (search !== "") {
-		// this can happen if someone deletes the last item while searching
+		// list became empty (e.g. last matching item deleted) - drop the stale filter
 		setSearch("");
 	}
 
@@ -80,16 +89,9 @@ export default function TableWrapper() {
 				<Table
 					data={filtered ?? data ?? []}
 					isFetching={isFetching}
-					isFiltered={!!filtered}
-					onEdit={(id: number) => showAccessListModal(id)}
-					onDelete={(id: number) =>
-						showDeleteConfirmModal({
-							title: <T id="object.delete" tData={{ object: "access-list" }} />,
-							onConfirm: () => handleDelete(id),
-							invalidations: [["access-lists"], ["access-list", id]],
-							children: <T id="object.delete.content" tData={{ object: "access-list" }} />,
-						})
-					}
+					isFiltered={!!search}
+					onEdit={showAccessListModal}
+					onDelete={handleDelete}
 					onNew={() => showAccessListModal("new")}
 				/>
 			</div>

@@ -131,7 +131,10 @@ export function AgentIngressCheckList({ agentId, mode, check, isLoading, error, 
 					</div>
 				)}
 				{(check.broadHubRules?.length ?? 0) > 0 && (
-					<div className="alert d-block alert-warning py-2 px-3 small mb-2" data-testid="ingress-broad-hub-rules">
+					<div
+						className="alert d-block alert-warning py-2 px-3 small mb-2"
+						data-testid="ingress-broad-hub-rules"
+					>
 						<div className="fw-medium mb-1">{ti("check.broad")}</div>
 						{check.broadHubRules?.map((r) => (
 							<div key={r.id} className="d-flex gap-2 flex-wrap">

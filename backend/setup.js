@@ -1,9 +1,8 @@
-import { existsSync } from "node:fs";
-import { access, copyFile, mkdir, rm, writeFile } from "node:fs/promises";
+import { access, copyFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { removeStaleCredentialsFiles } from "./internal/certificate.js";
 import { installPlugins } from "./lib/certbot.js";
-import { credentialsFileContent } from "./lib/route53-credentials.js";
 import utils from "./lib/utils.js";
 import { setup as logger } from "./logger.js";
 import authModel from "./models/auth.js";
@@ -11,8 +10,6 @@ import certificateModel from "./models/certificate.js";
 import settingModel from "./models/setting.js";
 import userModel from "./models/user.js";
 import userPermissionModel from "./models/user_permission.js";
-
-const letsencryptRoot = process.env.NPM_LETSENCRYPT_ROOT || "/etc/letsencrypt";
 
 export const isSetup = async () => {
 	const row = await userModel.query().select("id").where("is_deleted", 0).first();
@@ -44,7 +41,7 @@ const setupDefaultUser = async () => {
 
 		const data = {
 			is_deleted: 0,
-			email: initialAdminEmail,
+			email: initialAdminEmail.toLowerCase().trim(),
 			name: "Administrator",
 			nickname: "Admin",
 			avatar: "",
@@ -60,16 +57,7 @@ const setupDefaultUser = async () => {
 			meta: {},
 		});
 
-		await userPermissionModel.query().insert({
-			user_id: user.id,
-			visibility: "all",
-			proxy_hosts: "manage",
-			redirection_hosts: "manage",
-			dead_hosts: "manage",
-			streams: "manage",
-			access_lists: "manage",
-			certificates: "manage",
-		});
+		await userPermissionModel.insertDefaults(user.id, true);
 		logger.info("Initial admin setup completed");
 	}
 };
@@ -111,44 +99,11 @@ const setupCertbotPlugins = async () => {
 
 	if (certificates?.length) {
 		const plugins = [];
-		const promises = [];
 
 		certificates.map((certificate) => {
 			if (certificate.meta && certificate.meta.dns_challenge === true) {
 				if (plugins.indexOf(certificate.meta.dns_provider) === -1) {
 					plugins.push(certificate.meta.dns_provider);
-				}
-
-				// Make sure credentials file exists. Written directly with fs (no
-				// shell): the credentials are user-controlled and must never be
-				// interpolated into a shell command line.
-				if (typeof certificate.meta.dns_provider_credentials === "string") {
-					const credentialsDir = `${letsencryptRoot}/credentials`;
-					const credentials_loc = `${credentialsDir}/credentials-${certificate.id}`;
-					promises.push(
-						(async () => {
-							const isRoute53 = certificate.meta.dns_provider === "route53";
-							// route53 immer neu schreiben: eine ältere, ungeprüfte Datei
-							// könnte credential_process enthalten.
-							if (existsSync(credentials_loc) && !isRoute53) return;
-							if (isRoute53) {
-								try {
-									credentialsFileContent("route53", certificate.meta.dns_provider_credentials);
-								} catch (err) {
-									await rm(credentials_loc, { force: true });
-									throw err;
-								}
-							}
-							await mkdir(credentialsDir, { recursive: true });
-							await writeFile(
-								credentials_loc,
-								credentialsFileContent(certificate.meta.dns_provider, certificate.meta.dns_provider_credentials),
-								{ mode: 0o600 },
-							);
-						})().catch((err) => {
-							logger.warn(`Could not restore DNS credentials for certificate #${certificate.id}: ${err.message}`);
-						}),
-					);
 				}
 			}
 			return true;
@@ -156,10 +111,25 @@ const setupCertbotPlugins = async () => {
 
 		await installPlugins(plugins);
 
-		if (promises.length) {
-			await Promise.all(promises);
+		if (plugins.length) {
 			logger.info(`Added Certbot plugins ${plugins.join(", ")}`);
 		}
+	}
+};
+
+/**
+ * DNS provider credentials are only written for the duration of a certbot run
+ * (internal/certificate.js). Older versions rewrote every credentials-<id> file
+ * at start and left them on disk: remove those, unless one is the only copy.
+ */
+const removeStaleDnsCredentials = async () => {
+	try {
+		const removed = await removeStaleCredentialsFiles();
+		if (removed) {
+			logger.info(`Removed ${removed} stale DNS credentials file(s)`);
+		}
+	} catch (err) {
+		logger.warn(`Could not remove stale DNS credentials files: ${err.message}`);
 	}
 };
 
@@ -208,4 +178,9 @@ const setupLogrotation = () => {
 	return runLogrotate();
 };
 
-export default () => setupDefaultUser().then(setupDefaultSettings).then(setupCertbotPlugins).then(setupLogrotation);
+export default () =>
+	setupDefaultUser()
+		.then(setupDefaultSettings)
+		.then(removeStaleDnsCredentials)
+		.then(setupCertbotPlugins)
+		.then(setupLogrotation);

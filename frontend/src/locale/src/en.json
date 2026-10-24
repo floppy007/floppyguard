@@ -266,6 +266,18 @@
 	"certificates.request.title": {
 		"defaultMessage": "Request a new Certificate"
 	},
+	"cloudflare.description": {
+		"defaultMessage": "Synchronizes explicit A/AAAA records when this Proxy Host is saved."
+	},
+	"cloudflare.enabled": {
+		"defaultMessage": "Manage DNS records automatically"
+	},
+	"cloudflare.proxied": {
+		"defaultMessage": "Proxy through Cloudflare"
+	},
+	"cloudflare.title": {
+		"defaultMessage": "Cloudflare DNS"
+	},
 	"column.access": {
 		"defaultMessage": "Access"
 	},
@@ -341,23 +353,29 @@
 	"dashboard": {
 		"defaultMessage": "Dashboard"
 	},
-	"dashboard.ago-hours": {
-		"defaultMessage": "{count}h ago"
+	"dashboard.chart.now": {
+		"defaultMessage": "now"
 	},
-	"dashboard.ago-minutes": {
-		"defaultMessage": "{count}m ago"
-	},
-	"dashboard.ago-seconds": {
-		"defaultMessage": "{count}s ago"
+	"dashboard.count-active": {
+		"defaultMessage": "{count} active"
 	},
 	"dashboard.dead-blocked": {
 		"defaultMessage": "{count} blocked"
 	},
+	"dashboard.dead-hint": {
+		"defaultMessage": "Answer with 404 Not Found"
+	},
 	"dashboard.gateway-overview": {
 		"defaultMessage": "Gateway Overview"
 	},
+	"dashboard.hub-active": {
+		"defaultMessage": "{name} active"
+	},
 	"dashboard.hub-interface": {
 		"defaultMessage": "Hub Interface"
+	},
+	"dashboard.link-meta": {
+		"defaultMessage": "{type} · {iface} · handshake {handshake}"
 	},
 	"dashboard.link-preview": {
 		"defaultMessage": "Link Preview"
@@ -389,14 +407,32 @@
 	"dashboard.proxy-active-disabled": {
 		"defaultMessage": "{active} active · {disabled} disabled"
 	},
+	"dashboard.redirections-hint": {
+		"defaultMessage": "All operational"
+	},
+	"dashboard.stat.active-peers": {
+		"defaultMessage": "Active Peers"
+	},
+	"dashboard.stat.link-split": {
+		"defaultMessage": "{site} site · {client} client"
+	},
 	"dashboard.stat.logical-links": {
 		"defaultMessage": "Logical Links"
+	},
+	"dashboard.streams-hint": {
+		"defaultMessage": "TCP forwarding"
 	},
 	"dashboard.topology": {
 		"defaultMessage": "Topology"
 	},
+	"dashboard.topology-split": {
+		"defaultMessage": "{site} site · {hub} hub · {client} client"
+	},
 	"dashboard.total-traffic": {
 		"defaultMessage": "Total Traffic"
+	},
+	"dashboard.traffic-scope": {
+		"defaultMessage": "{networks, plural, one {# peer network} other {# peer networks}} · {routes, plural, one {# private route} other {# private routes}}"
 	},
 	"dashboard.update-notice.action": {
 		"defaultMessage": "Update now"
@@ -725,6 +761,9 @@
 	"loading": {
 		"defaultMessage": "Loading…"
 	},
+	"location": {
+		"defaultMessage": "Location"
+	},
 	"login.2fa-back": {
 		"defaultMessage": "Back"
 	},
@@ -926,33 +965,6 @@
 	"platform": {
 		"defaultMessage": "Platform"
 	},
-	"platform.btn.open-gateway": {
-		"defaultMessage": "Open Gateway View"
-	},
-	"platform.btn.open-proxy": {
-		"defaultMessage": "Open Proxy Hosts"
-	},
-	"platform.btn.open-wireguard": {
-		"defaultMessage": "Open WireGuard Module"
-	},
-	"platform.cap.title": {
-		"defaultMessage": "Capability Map"
-	},
-	"platform.gateway-snapshot.title": {
-		"defaultMessage": "Gateway Snapshot"
-	},
-	"platform.hero.kicker": {
-		"defaultMessage": "Platform Overview"
-	},
-	"platform.hero.subtitle": {
-		"defaultMessage": "FloppyGuard combines proxy, gateway and WireGuard management into one operational platform."
-	},
-	"platform.hub-interface": {
-		"defaultMessage": "Hub Interface"
-	},
-	"platform.link-readiness.title": {
-		"defaultMessage": "Link Readiness"
-	},
 	"platform.link-type.client": {
 		"defaultMessage": "Client"
 	},
@@ -964,36 +976,6 @@
 	},
 	"platform.link-type.site": {
 		"defaultMessage": "Site"
-	},
-	"platform.missing-return.none": {
-		"defaultMessage": "No missing return routes detected right now."
-	},
-	"platform.missing-return.some": {
-		"defaultMessage": "{count} imported network(s) still lack a matching live route."
-	},
-	"platform.missing-return.title": {
-		"defaultMessage": "Missing Return Routes"
-	},
-	"platform.nat-candidates.none": {
-		"defaultMessage": "No obvious NAT candidates detected right now."
-	},
-	"platform.nat-candidates.some": {
-		"defaultMessage": "{count} network(s) still look like NAT candidates."
-	},
-	"platform.nat-candidates.title": {
-		"defaultMessage": "NAT Candidates"
-	},
-	"platform.no-addresses": {
-		"defaultMessage": "No addresses"
-	},
-	"platform.no-links": {
-		"defaultMessage": "No logical links configured."
-	},
-	"platform.observations.none": {
-		"defaultMessage": "No additional route observations available right now."
-	},
-	"platform.observations.title": {
-		"defaultMessage": "Observations"
 	},
 	"platform.plan.discover": {
 		"defaultMessage": "Discover"
@@ -1009,15 +991,6 @@
 	},
 	"platform.plan.validate": {
 		"defaultMessage": "Validate"
-	},
-	"platform.runtime-risks.title": {
-		"defaultMessage": "Runtime Risks"
-	},
-	"platform.stat.logical-links": {
-		"defaultMessage": "Logical Links"
-	},
-	"platform.write-cap.title": {
-		"defaultMessage": "Write Capability"
 	},
 	"proxy-host": {
 		"defaultMessage": "Proxy Host"
@@ -1238,6 +1211,15 @@
 	"settings.update.up-to-date": {
 		"defaultMessage": "FloppyGuard is up to date."
 	},
+	"setup.hero.subtitle": {
+		"defaultMessage": "This prepares the first user account for proxy, gateway and WireGuard visibility in the new platform shell."
+	},
+	"setup.hero.title": {
+		"defaultMessage": "Create the first platform admin and bring the stack under one control surface."
+	},
+	"setup.kicker": {
+		"defaultMessage": "Initial setup"
+	},
 	"setup.preamble": {
 		"defaultMessage": "Get started by creating your admin account."
 	},
@@ -1274,8 +1256,17 @@
 	"streams.udp": {
 		"defaultMessage": "UDP"
 	},
+	"table.empty": {
+		"defaultMessage": "There are no items"
+	},
 	"test": {
 		"defaultMessage": "Test"
+	},
+	"theme.dark": {
+		"defaultMessage": "Dark"
+	},
+	"theme.light": {
+		"defaultMessage": "Light"
 	},
 	"traffic": {
 		"defaultMessage": "Traffic"
@@ -1361,6 +1352,12 @@
 	"traffic.warming-up": {
 		"defaultMessage": "Collecting data — updates every 10 s…"
 	},
+	"unhealthy.subtitle": {
+		"defaultMessage": "We'll keep checking and hope to be back soon!"
+	},
+	"unhealthy.title": {
+		"defaultMessage": "The API is not healthy."
+	},
 	"update-available": {
 		"defaultMessage": "Update Available: {latestVersion}"
 	},
@@ -1393,6 +1390,9 @@
 	},
 	"user.nickname": {
 		"defaultMessage": "Nickname"
+	},
+	"user.password-changed-relogin": {
+		"defaultMessage": "Password changed, please sign in again"
 	},
 	"user.set-password": {
 		"defaultMessage": "Set Password"
@@ -2411,6 +2411,9 @@
 	"wireguard.create.cancel": {
 		"defaultMessage": "Cancel"
 	},
+	"wireguard.create.client-config-label": {
+		"defaultMessage": "Client configuration for download:"
+	},
 	"wireguard.create.close": {
 		"defaultMessage": "Close"
 	},
@@ -2511,7 +2514,7 @@
 		"defaultMessage": "Peers"
 	},
 	"wireguard.iface.placeholder-notes": {
-		"defaultMessage": "Hub role, check later, ..."
+		"defaultMessage": "One note per line"
 	},
 	"wireguard.iface.placeholder-routes": {
 		"defaultMessage": "e.g. 10.10.0.0/16"
@@ -2554,6 +2557,9 @@
 	},
 	"wireguard.link.active": {
 		"defaultMessage": "active"
+	},
+	"wireguard.link.agent": {
+		"defaultMessage": "Agent"
 	},
 	"wireguard.link.apps": {
 		"defaultMessage": "Apps"
@@ -2648,6 +2654,12 @@
 	"wireguard.link.planner": {
 		"defaultMessage": "Link Planner"
 	},
+	"wireguard.link.platform-desktop": {
+		"defaultMessage": "Desktop"
+	},
+	"wireguard.link.platform-mobile": {
+		"defaultMessage": "Mobile"
+	},
 	"wireguard.link.qr-hint": {
 		"defaultMessage": "Scan with WireGuard app (iOS / Android)"
 	},
@@ -2716,6 +2728,9 @@
 	},
 	"wireguard.next.verify-return-path": {
 		"defaultMessage": "Verify return path"
+	},
+	"wireguard.overview.allowedips-conflict": {
+		"defaultMessage": "AllowedIPs Conflict"
 	},
 	"wireguard.overview.backups-title": {
 		"defaultMessage": "Metadata Backups"

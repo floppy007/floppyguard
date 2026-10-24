@@ -74,7 +74,10 @@ export function PublishProxyWizard({ agentId, catalog, onDone }: Props) {
 										disabled={noPort}
 										onChange={(ev) => toggle(e.id, ev.target.checked)}
 									/>
-									<label htmlFor={inputId} className="form-check-label d-flex align-items-center gap-1">
+									<label
+										htmlFor={inputId}
+										className="form-check-label d-flex align-items-center gap-1"
+									>
 										<KindIcon kind={e.kind} />
 										{entryLabel(e, catalog)}
 									</label>

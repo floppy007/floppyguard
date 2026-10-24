@@ -11,6 +11,8 @@ export interface IngressAgentEntry {
 	warnings: number;
 	/** what the agent reported for its ruleset (from the check); undefined = not known yet */
 	applied?: AgentIngressApplied["state"];
+	/** enabled rules (from the check); null = not known yet */
+	activeRules: number | null;
 }
 
 /**
@@ -53,6 +55,7 @@ export const buildIngressAgentEntries = (
 				missing,
 				warnings: mode === "restricted" ? missing : 0,
 				applied: check?.applied?.state,
+				activeRules: check?.activeRuleCount ?? null,
 			};
 		})
 		.sort(
@@ -82,7 +85,3 @@ export const ingressAgentFromParam = (entries: IngressAgentEntry[], param: strin
 	}
 	return null;
 };
-
-/** The agent named by the URL (?agent=<id>) when it exists, else the default. */
-export const resolveIngressAgent = (entries: IngressAgentEntry[], param: string | null): number | null =>
-	ingressAgentFromParam(entries, param) ?? pickDefaultIngressAgent(entries);
