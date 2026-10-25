@@ -7,7 +7,7 @@
 > Nginx reverse proxy manager with integrated WireGuard VPN management, a visual topology map, remote agent support and a hardened host-based runtime.
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.4.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.5.0-blue.svg)](CHANGELOG.md)
 [![CI](https://github.com/floppy007/floppyguard/actions/workflows/ci.yml/badge.svg)](https://github.com/floppy007/floppyguard/actions/workflows/ci.yml)
 
 ---
@@ -212,6 +212,18 @@ Until the include is in place, the Freigaben page shows the warning "Nach einem 
 3. Check that the hub has the pair: `nft list table inet floppyguard_sites` shows two `counter drop` rules.
 4. Only then remove the manual rules and sets from the live ruleset (`nft delete rule inet filter forward handle <n>`, `nft delete set inet filter <name>`) **and** from `/etc/nftables.conf`, and add the include above.
 5. Reload the page: the warning about manual blocks is gone, and the pair shows "getrennt".
+
+### Direct links between sites ("Direktverbindungen")
+
+Two site agents can talk to each other through their own WireGuard tunnel instead of through the hub; the hub stays the configuration source and the automatic fallback. Set them up on the **Freigaben** page: site A listens (fixed public IP, UDP port forward on its router to the agent's LAN address, set up on the router itself), site B dials A's address. Agents from script 1.6.0 on generate the key themselves and report only the public key.
+
+- Interface `fgd<id>`, transfer net = a private /30 of its own.
+- The partner's networks go into routing table `52000+id`, looked up by `ip rule pref 31000` before the main table. The agent fills it only while the link is healthy (handshake younger than 180 s and ping to the partner's tunnel address, every 10 s); after 3 failed checks the table is emptied and the hub routes on `wgN` carry the traffic, after 3 successful checks it switches back. The hub routes themselves are never changed.
+- Each side routes the networks it reaches through the hub today (same ACL) that the partner exports. NAT stays as on the hub path; tick "maskiert ausgehend" for a site that masquerades into the hub tunnel today.
+- The Freigaben (`FG_IN`) cover the direct interfaces too; a restricted gateway keeps a direct interface down while its filter does not cover it. Separated sites ("Standorte untereinander") never get an active direct link.
+- Install `conntrack` on the gateways so NATed flows survive a path switch; `ping` is required for the health check.
+
+**Way back:** switch the link off (or delete it): both agents take the tunnel down on their next poll and all traffic goes through the hub again.
 
 ### Application updates
 

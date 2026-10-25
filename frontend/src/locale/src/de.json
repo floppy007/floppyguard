@@ -1733,6 +1733,153 @@
 	"wireguard.agent.ingress.delete-title": {
 		"defaultMessage": "Freigabe löschen"
 	},
+	"wireguard.agent.ingress.direct.add": {
+		"defaultMessage": "Neue Direktverbindung"
+	},
+	"wireguard.agent.ingress.direct.blocked.agent-missing": {
+		"defaultMessage": "Einer der Agents existiert nicht mehr."
+	},
+	"wireguard.agent.ingress.direct.blocked.nat-restricted": {
+		"defaultMessage": "Eine Seite steht auf „nur Freigaben“ und der Partner maskiert in den Direkttunnel: dessen Verkehr käme vom Transfernetz statt von der Hub-Adresse und würde verworfen. Maskierung beim Partner ausschalten."
+	},
+	"wireguard.agent.ingress.direct.blocked.site-link-missing": {
+		"defaultMessage": "Einer der Agents ist keiner Standort-Verbindung zugeordnet."
+	},
+	"wireguard.agent.ingress.direct.blocked.sites-isolated": {
+		"defaultMessage": "Die Standorte sind getrennt („Standorte untereinander“) – die Direktverbindung bleibt abgebaut, solange die Trennung besteht."
+	},
+	"wireguard.agent.ingress.direct.delete": {
+		"defaultMessage": "Löschen"
+	},
+	"wireguard.agent.ingress.direct.delete-button": {
+		"defaultMessage": "Löschen"
+	},
+	"wireguard.agent.ingress.direct.delete-text": {
+		"defaultMessage": "Beide Agents bauen den Tunnel ab und vergessen ihren Schlüssel. Der Verkehr läuft danach wieder über den Hub."
+	},
+	"wireguard.agent.ingress.direct.delete-title": {
+		"defaultMessage": "Direktverbindung „{name}“ löschen?"
+	},
+	"wireguard.agent.ingress.direct.disable": {
+		"defaultMessage": "Ausschalten"
+	},
+	"wireguard.agent.ingress.direct.edit": {
+		"defaultMessage": "Bearbeiten"
+	},
+	"wireguard.agent.ingress.direct.empty": {
+		"defaultMessage": "Noch keine Direktverbindung. Ohne Direktverbindung läuft aller Verkehr zwischen Standorten über den Hub."
+	},
+	"wireguard.agent.ingress.direct.enable": {
+		"defaultMessage": "Einschalten"
+	},
+	"wireguard.agent.ingress.direct.form.agent-a": {
+		"defaultMessage": "Standort A (lauscht)"
+	},
+	"wireguard.agent.ingress.direct.form.agent-a-help": {
+		"defaultMessage": "Der Standort mit fester öffentlicher IP bzw. Portweiterleitung."
+	},
+	"wireguard.agent.ingress.direct.form.agent-b": {
+		"defaultMessage": "Standort B (baut auf)"
+	},
+	"wireguard.agent.ingress.direct.form.agent-b-help": {
+		"defaultMessage": "Darf eine wechselnde IP haben, er verbindet sich zu A."
+	},
+	"wireguard.agent.ingress.direct.form.choose": {
+		"defaultMessage": "– Standort wählen –"
+	},
+	"wireguard.agent.ingress.direct.form.edit-title": {
+		"defaultMessage": "Direktverbindung bearbeiten"
+	},
+	"wireguard.agent.ingress.direct.form.enabled": {
+		"defaultMessage": "Eingeschaltet (erst nach Prüfung der Konfiguration einschalten)"
+	},
+	"wireguard.agent.ingress.direct.form.endpoint": {
+		"defaultMessage": "Öffentliche Adresse von A"
+	},
+	"wireguard.agent.ingress.direct.form.endpoint-help": {
+		"defaultMessage": "IPv4-Adresse oder DNS-Name (bei wechselnder IP wird der Name neu aufgelöst)."
+	},
+	"wireguard.agent.ingress.direct.form.lan-ip-unknown": {
+		"defaultMessage": "LAN-IP des Agents"
+	},
+	"wireguard.agent.ingress.direct.form.name": {
+		"defaultMessage": "Name"
+	},
+	"wireguard.agent.ingress.direct.form.nat": {
+		"defaultMessage": "{site} maskiert ausgehend (wie heute über den Hub)"
+	},
+	"wireguard.agent.ingress.direct.form.nat-help": {
+		"defaultMessage": "Anhaken, wenn der Standort heute in den Hub-Tunnel maskiert (z. B. eine Regel „-o wg0 -j MASQUERADE“). Dann sehen Firewalls, RADIUS und AD auf der Gegenseite dieselben Absender wie bisher."
+	},
+	"wireguard.agent.ingress.direct.form.new-title": {
+		"defaultMessage": "Neue Direktverbindung"
+	},
+	"wireguard.agent.ingress.direct.form.port": {
+		"defaultMessage": "UDP-Port"
+	},
+	"wireguard.agent.ingress.direct.form.portforward": {
+		"defaultMessage": "Am Router von {site} ist eine Portweiterleitung nötig: UDP {port} → {ip}. Die richtest du dort selbst ein, sie gehört nicht zu FloppyGuard."
+	},
+	"wireguard.agent.ingress.direct.form.side-a": {
+		"defaultMessage": "Standort A"
+	},
+	"wireguard.agent.ingress.direct.form.side-b": {
+		"defaultMessage": "Standort B"
+	},
+	"wireguard.agent.ingress.direct.form.subnet": {
+		"defaultMessage": "Transfernetz (/30)"
+	},
+	"wireguard.agent.ingress.direct.form.subnet-help": {
+		"defaultMessage": "Eigenes privates /30, darf sich mit keinem Standortnetz und keinem Tunnelnetz überschneiden."
+	},
+	"wireguard.agent.ingress.direct.lead": {
+		"defaultMessage": "Zwei Standorte sprechen direkt miteinander statt über den Hub. Fällt die Direktverbindung aus, läuft der Verkehr automatisch wieder über den Hub. Die Absender-Adressen (NAT) bleiben dabei wie über den Hub, und die Freigaben gelten für beide Wege."
+	},
+	"wireguard.agent.ingress.direct.route": {
+		"defaultMessage": "{a} lauscht auf {endpoint} · {b} baut auf · Transfernetz {subnet}"
+	},
+	"wireguard.agent.ingress.direct.side.direct": {
+		"defaultMessage": "direkt"
+	},
+	"wireguard.agent.ingress.direct.side.down": {
+		"defaultMessage": "Tunnel nicht aktiv"
+	},
+	"wireguard.agent.ingress.direct.side.handshake": {
+		"defaultMessage": "Handshake vor {s} s"
+	},
+	"wireguard.agent.ingress.direct.side.hub": {
+		"defaultMessage": "über Hub (Direktweg ungesund)"
+	},
+	"wireguard.agent.ingress.direct.side.no-key": {
+		"defaultMessage": "noch kein Schlüssel gemeldet (Agent ab Version 1.6.0 nötig)"
+	},
+	"wireguard.agent.ingress.direct.side.stale": {
+		"defaultMessage": "meldet sich nicht"
+	},
+	"wireguard.agent.ingress.direct.state.blocked": {
+		"defaultMessage": "gesperrt"
+	},
+	"wireguard.agent.ingress.direct.state.direct": {
+		"defaultMessage": "direkt"
+	},
+	"wireguard.agent.ingress.direct.state.hub": {
+		"defaultMessage": "über Hub (Rückfall)"
+	},
+	"wireguard.agent.ingress.direct.state.off": {
+		"defaultMessage": "aus"
+	},
+	"wireguard.agent.ingress.direct.state.partly": {
+		"defaultMessage": "teilweise direkt"
+	},
+	"wireguard.agent.ingress.direct.state.waiting": {
+		"defaultMessage": "wartet"
+	},
+	"wireguard.agent.ingress.direct.summary": {
+		"defaultMessage": "{direct} von {total} direkt"
+	},
+	"wireguard.agent.ingress.direct.title": {
+		"defaultMessage": "Direktverbindungen"
+	},
 	"wireguard.agent.ingress.empty": {
 		"defaultMessage": "Noch keine Freigaben angelegt."
 	},

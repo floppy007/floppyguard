@@ -7,6 +7,7 @@ import { HasPermission, LoadingPage } from "src/components";
 import {
 	AgentIngressDetail,
 	buildIngressAgentEntries,
+	DirectLinksCard,
 	type IngressAgentEntry,
 	ingressAgentFromParam,
 	ingressAgentSubName,
@@ -256,6 +257,9 @@ export function IngressPageContent() {
 
 			{/* hub-wide, above the per-site view: which sites may reach each other at all */}
 			<SiteIsolationCard />
+
+			{/* hub-wide too: which site pairs talk directly, the hub as fallback */}
+			<DirectLinksCard />
 
 			{entries.length === 0 ? (
 				<div className="text-secondary">{ti("page.no-agents")}</div>

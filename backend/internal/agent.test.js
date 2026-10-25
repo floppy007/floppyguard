@@ -34,6 +34,7 @@ const {
 const RELEASED_AGENT_SCRIPTS = {
 	"1.4.0": "874c6a8990545477856bbb187bd7ee94cffe32b78a5ca01b3e702ec1f3e1ea98",
 	"1.5.0": "7cce7bf35195fd5ee2fc459083352a064ce1d5eeeb4f13d0b72e8b3c990da81e",
+	"1.5.1": "2f2ed2de9611f7889e121814be96757618b00fb4c2f71d6a94a0c00f109fe4ba",
 };
 
 test("a changed agent loop script always comes with a new AGENT_SCRIPT_VERSION", () => {

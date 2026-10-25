@@ -1592,6 +1592,153 @@
 	"wireguard.agent.ingress.delete-title": {
 		"defaultMessage": "Supprimer la règle"
 	},
+	"wireguard.agent.ingress.direct.add": {
+		"defaultMessage": "Nouvelle liaison directe"
+	},
+	"wireguard.agent.ingress.direct.blocked.agent-missing": {
+		"defaultMessage": "L'un des agents n'existe plus."
+	},
+	"wireguard.agent.ingress.direct.blocked.nat-restricted": {
+		"defaultMessage": "Un côté n'accepte que les autorisations et le partenaire masque vers le tunnel direct : son trafic viendrait du réseau de transfert au lieu de l'adresse du hub et serait rejeté. Désactiver le masquage chez le partenaire."
+	},
+	"wireguard.agent.ingress.direct.blocked.site-link-missing": {
+		"defaultMessage": "L'un des agents n'est lié à aucune liaison de site."
+	},
+	"wireguard.agent.ingress.direct.blocked.sites-isolated": {
+		"defaultMessage": "Les sites sont séparés — la liaison directe reste démontée tant que la séparation existe."
+	},
+	"wireguard.agent.ingress.direct.delete": {
+		"defaultMessage": "Supprimer"
+	},
+	"wireguard.agent.ingress.direct.delete-button": {
+		"defaultMessage": "Supprimer"
+	},
+	"wireguard.agent.ingress.direct.delete-text": {
+		"defaultMessage": "Les deux agents démontent le tunnel et oublient leur clé. Le trafic repasse ensuite par le hub."
+	},
+	"wireguard.agent.ingress.direct.delete-title": {
+		"defaultMessage": "Supprimer la liaison directe « {name} » ?"
+	},
+	"wireguard.agent.ingress.direct.disable": {
+		"defaultMessage": "Désactiver"
+	},
+	"wireguard.agent.ingress.direct.edit": {
+		"defaultMessage": "Modifier"
+	},
+	"wireguard.agent.ingress.direct.empty": {
+		"defaultMessage": "Aucune liaison directe. Sans liaison, tout le trafic entre sites passe par le hub."
+	},
+	"wireguard.agent.ingress.direct.enable": {
+		"defaultMessage": "Activer"
+	},
+	"wireguard.agent.ingress.direct.form.agent-a": {
+		"defaultMessage": "Site A (écoute)"
+	},
+	"wireguard.agent.ingress.direct.form.agent-a-help": {
+		"defaultMessage": "Le site avec une IP publique fixe / redirection de port."
+	},
+	"wireguard.agent.ingress.direct.form.agent-b": {
+		"defaultMessage": "Site B (se connecte)"
+	},
+	"wireguard.agent.ingress.direct.form.agent-b-help": {
+		"defaultMessage": "Peut avoir une IP changeante, il se connecte à A."
+	},
+	"wireguard.agent.ingress.direct.form.choose": {
+		"defaultMessage": "– choisir un site –"
+	},
+	"wireguard.agent.ingress.direct.form.edit-title": {
+		"defaultMessage": "Modifier la liaison directe"
+	},
+	"wireguard.agent.ingress.direct.form.enabled": {
+		"defaultMessage": "Activée (n'activer qu'après vérification de la configuration)"
+	},
+	"wireguard.agent.ingress.direct.form.endpoint": {
+		"defaultMessage": "Adresse publique de A"
+	},
+	"wireguard.agent.ingress.direct.form.endpoint-help": {
+		"defaultMessage": "Adresse IPv4 ou nom DNS (un nom est résolu à nouveau en cas d'IP changeante)."
+	},
+	"wireguard.agent.ingress.direct.form.lan-ip-unknown": {
+		"defaultMessage": "IP LAN de l'agent"
+	},
+	"wireguard.agent.ingress.direct.form.name": {
+		"defaultMessage": "Nom"
+	},
+	"wireguard.agent.ingress.direct.form.nat": {
+		"defaultMessage": "{site} masque le trafic sortant (comme via le hub aujourd'hui)"
+	},
+	"wireguard.agent.ingress.direct.form.nat-help": {
+		"defaultMessage": "À cocher si le site masque aujourd'hui vers le tunnel du hub (p. ex. une règle « -o wg0 -j MASQUERADE »). Pare-feu, RADIUS et AD de l'autre côté voient alors les mêmes expéditeurs qu'avant."
+	},
+	"wireguard.agent.ingress.direct.form.new-title": {
+		"defaultMessage": "Nouvelle liaison directe"
+	},
+	"wireguard.agent.ingress.direct.form.port": {
+		"defaultMessage": "Port UDP"
+	},
+	"wireguard.agent.ingress.direct.form.portforward": {
+		"defaultMessage": "Le routeur de {site} nécessite une redirection de port : UDP {port} → {ip}. Elle se configure sur le routeur lui-même, elle ne fait pas partie de FloppyGuard."
+	},
+	"wireguard.agent.ingress.direct.form.side-a": {
+		"defaultMessage": "Site A"
+	},
+	"wireguard.agent.ingress.direct.form.side-b": {
+		"defaultMessage": "Site B"
+	},
+	"wireguard.agent.ingress.direct.form.subnet": {
+		"defaultMessage": "Réseau de transfert (/30)"
+	},
+	"wireguard.agent.ingress.direct.form.subnet-help": {
+		"defaultMessage": "Un /30 privé propre, sans chevauchement avec un réseau de site ou de tunnel."
+	},
+	"wireguard.agent.ingress.direct.lead": {
+		"defaultMessage": "Deux sites communiquent directement au lieu de passer par le hub. Si la liaison directe tombe, le trafic repasse automatiquement par le hub. Les adresses source (NAT) restent comme via le hub, et les autorisations s'appliquent aux deux chemins."
+	},
+	"wireguard.agent.ingress.direct.route": {
+		"defaultMessage": "{a} écoute sur {endpoint} · {b} se connecte · réseau de transfert {subnet}"
+	},
+	"wireguard.agent.ingress.direct.side.direct": {
+		"defaultMessage": "direct"
+	},
+	"wireguard.agent.ingress.direct.side.down": {
+		"defaultMessage": "tunnel inactif"
+	},
+	"wireguard.agent.ingress.direct.side.handshake": {
+		"defaultMessage": "handshake il y a {s} s"
+	},
+	"wireguard.agent.ingress.direct.side.hub": {
+		"defaultMessage": "via le hub (chemin direct défaillant)"
+	},
+	"wireguard.agent.ingress.direct.side.no-key": {
+		"defaultMessage": "aucune clé signalée (agent 1.6.0 ou plus récent requis)"
+	},
+	"wireguard.agent.ingress.direct.side.stale": {
+		"defaultMessage": "ne se signale pas"
+	},
+	"wireguard.agent.ingress.direct.state.blocked": {
+		"defaultMessage": "bloquée"
+	},
+	"wireguard.agent.ingress.direct.state.direct": {
+		"defaultMessage": "directe"
+	},
+	"wireguard.agent.ingress.direct.state.hub": {
+		"defaultMessage": "via le hub (secours)"
+	},
+	"wireguard.agent.ingress.direct.state.off": {
+		"defaultMessage": "désactivée"
+	},
+	"wireguard.agent.ingress.direct.state.partly": {
+		"defaultMessage": "partiellement directe"
+	},
+	"wireguard.agent.ingress.direct.state.waiting": {
+		"defaultMessage": "en attente"
+	},
+	"wireguard.agent.ingress.direct.summary": {
+		"defaultMessage": "{direct} sur {total} en direct"
+	},
+	"wireguard.agent.ingress.direct.title": {
+		"defaultMessage": "Liaisons directes"
+	},
 	"wireguard.agent.ingress.empty": {
 		"defaultMessage": "Aucune règle pour l'instant."
 	},

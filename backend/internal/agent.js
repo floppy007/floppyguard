@@ -4,6 +4,7 @@ import { wireguard as logger } from "../logger.js";
 import Agent from "../models/agent.js";
 import AgentIngressRule from "../models/agent_ingress_rule.js";
 import Setting from "../models/setting.js";
+import internalDirectLink from "./agent-direct-link.js";
 import internalAgentIngress from "./agent-ingress.js";
 import { cidrContains } from "./agent-ingress-rules.js";
 import { triggerSiteIsolation } from "./site-isolation-trigger.js";
@@ -65,8 +66,8 @@ const hashConfig = (text) => {
 // buildLoopScript() output therefore needs a new version — AGENT_SCRIPT_SHA256
 // pins the script of this version and agent.test.js fails when the script
 // changes without a new version/pin (released versions are listed there).
-const AGENT_SCRIPT_VERSION = "1.5.1";
-const AGENT_SCRIPT_SHA256 = "2f2ed2de9611f7889e121814be96757618b00fb4c2f71d6a94a0c00f109fe4ba";
+const AGENT_SCRIPT_VERSION = "1.6.0";
+const AGENT_SCRIPT_SHA256 = "ae0bc15b0dfea1b25ede6d8aa13260be466b2cb97cb8e4999dcb4f5a2e8ba538";
 
 /** Setting key holding the hub URLs propagated to agents. */
 const AGENT_HUB_URL_SETTING = "agent-hub-url";
@@ -910,6 +911,504 @@ PYEOF
       INGRESS_APPLIED=$(cat "$INGRESS_RUN_HASH" 2>/dev/null || true)
 `;
 
+// ── Direct links ("Direktverbindungen", agent ↔ agent) ─────────────────────────
+// The hub sends {direct_links: [...]} (see agent-direct-link-rules.js), [] (no
+// links → tear everything down) or omits the key (older hub / hub error → leave
+// as is). Per link the agent keeps its own WireGuard key (generated here, only
+// the public key is reported), brings up fgd<id> with the hub-rendered config and
+// routes the partner's networks through it via routing table <table> + an ip rule
+// in front of the main table — but only while the link is healthy (recent
+// handshake + ping to the partner's tunnel address, with hysteresis). On failure
+// the table is emptied and the unchanged hub routes on the WG interface carry
+// the traffic again. Without direct links nothing here touches the gateway.
+const directFunctions = `\
+DIRECT_DIR="/var/lib/floppyguard-agent/direct"
+DIRECT_RUN="/run/floppyguard-agent/direct"
+DIRECT_RULE_PREF=31000
+DIRECT_HS_MAX=180
+DIRECT_FAILS=3
+DIRECT_OKS=3
+DIRECT_TICK=10
+mkdir -p "$DIRECT_DIR" "$DIRECT_RUN"
+chmod 700 "$DIRECT_DIR" 2>/dev/null || true
+
+_direct_iface_ok() { [[ "$1" =~ ^fgd[0-9]{1,4}$ ]]; }
+_direct_num() { case "$1" in ''|*[!0-9]*) echo 0 ;; *) echo "$1" ;; esac; }
+
+# Public key of link $1, generating the private key on first use.
+direct_key_pub() {
+  local key="$DIRECT_DIR/$1.key"
+  if [ ! -s "$key" ]; then
+    rm -f "$key.tmp"
+    if ! wg genkey > "$key.tmp" 2>/dev/null || [ ! -s "$key.tmp" ]; then
+      rm -f "$key.tmp"
+      return 1
+    fi
+    chmod 600 "$key.tmp"
+    mv -f "$key.tmp" "$key" || return 1
+    log "Generated WireGuard key for direct link $1"
+  fi
+  wg pubkey < "$key" 2>/dev/null
+}
+
+# A restricted gateway (FG_IN ends in "-i <wg> -j DROP") must filter the direct
+# interface the same way before it may carry traffic.
+# "Restricted" is judged from the live chain AND the cached ruleset, so a flushed
+# or missing chain (netfilter reload, failed restore) never counts as "open".
+direct_ingress_ok() {
+  local rules cached=""
+  rules=$(iptables -S "$INGRESS_CHAIN" 2>/dev/null || true)
+  if [ -f "$INGRESS_CACHE" ]; then cached=$(cat "$INGRESS_CACHE" 2>/dev/null || true); fi
+  case "$rules $cached" in
+    *"-i $WG_INTERFACE -j DROP"*)
+      case "$rules" in *"-i $1 -j DROP"*) return 0 ;; *) return 1 ;; esac ;;
+  esac
+  return 0
+}
+
+# After a path switch, conntrack entries of flows to the partner still carry the
+# old path's SNAT (e.g. the direct /30 address, which the hub peer does not
+# accept): drop them so the next packet is NATed for the new path. Needs the
+# conntrack tool; without it such flows hang until they time out.
+direct_ct_flush() {
+  local net
+  command -v conntrack > /dev/null 2>&1 || return 0
+  [ -f "$DIRECT_DIR/$1.routes" ] || return 0
+  while IFS= read -r net; do
+    [ -z "$net" ] && continue
+    conntrack -D -d "$net" > /dev/null 2>&1 || true
+  done < "$DIRECT_DIR/$1.routes"
+  return 0
+}
+
+direct_routes_off() {
+  local table was
+  was=$(cat "$DIRECT_RUN/$1.path" 2>/dev/null || true)
+  table=$(_direct_num "$(cat "$DIRECT_DIR/$1.table" 2>/dev/null || true)")
+  if [ "$table" != 0 ]; then ip route flush table "$table" 2>/dev/null || true; fi
+  printf 'hub\\n' > "$DIRECT_RUN/$1.path"
+  if [ "$was" = direct ]; then direct_ct_flush "$1"; fi
+  return 0
+}
+
+# Fill table <table> with the partner's networks (skipping any that overlap a
+# directly connected LAN) and make sure the ip rule exists. Stale routes go.
+direct_routes_on() {
+  local id="$1" iface table conn rules net cur
+  iface=$(cat "$DIRECT_DIR/$id.iface" 2>/dev/null || true)
+  table=$(_direct_num "$(cat "$DIRECT_DIR/$id.table" 2>/dev/null || true)")
+  _direct_iface_ok "$iface" && [ "$table" != 0 ] || return 1
+  ip link show "$iface" > /dev/null 2>&1 || return 1
+  [ -f "$DIRECT_DIR/$id.routes" ] || return 1
+  conn=$(ip -4 route show table main proto kernel scope link 2>/dev/null | awk '$2 == "dev" && $3 !~ /^(wg|fgd)[0-9]/ && $3 !~ /^(docker|br-|veth)/ {print $1}' | grep '/' || true)
+  while IFS= read -r net; do
+    [ -z "$net" ] && continue
+    if [ -n "$conn" ] && _net_overlaps "$net" "$conn"; then
+      continue
+    fi
+    ip route replace "$net" dev "$iface" table "$table" 2>/dev/null || true
+  done < "$DIRECT_DIR/$id.routes"
+  cur=$(ip -4 route show table "$table" 2>/dev/null | awk '{print ($1 ~ /\\//) ? $1 : $1 "/32"}' || true)
+  for net in $cur; do
+    # gone from the list, or a LAN that appeared since (it must stay local)
+    if ! grep -qxF -- "$net" "$DIRECT_DIR/$id.routes" || { [ -n "$conn" ] && _net_overlaps "$net" "$conn"; }; then
+      ip route del "$net" table "$table" 2>/dev/null || true
+    fi
+  done
+  rules=" $(ip rule show pref $DIRECT_RULE_PREF 2>/dev/null | tr '\\n' ' ' || true) "
+  case "$rules" in
+    *"lookup $table "*) ;;
+    *) ip rule add pref $DIRECT_RULE_PREF lookup "$table" 2>/dev/null || true ;;
+  esac
+  if [ "$(cat "$DIRECT_RUN/$id.path" 2>/dev/null || true)" != direct ]; then
+    printf 'direct\\n' > "$DIRECT_RUN/$id.path"
+    direct_ct_flush "$id"
+  fi
+  return 0
+}
+
+# Take a direct interface down. If wg-quick cannot (conf missing/broken), delete
+# the link; either way remove every FORWARD/POSTROUTING rule still naming it, so
+# no ACCEPT/MASQUERADE outlives the interface.
+direct_iface_down() {
+  local iface="$1" spec tbl chain r
+  _direct_iface_ok "$iface" || return 0
+  if ip link show "$iface" > /dev/null 2>&1; then
+    wg-quick down "$iface" > /dev/null 2>&1 || ip link del "$iface" 2>/dev/null || true
+  fi
+  for spec in filter:FORWARD nat:POSTROUTING; do
+    tbl=$(echo "$spec" | cut -d: -f1)
+    chain=$(echo "$spec" | cut -d: -f2)
+    iptables -t "$tbl" -S "$chain" 2>/dev/null | grep -E -- "(^| )-[io] $iface( |$)" | sed 's/^-A /-D /' | while read -r r; do
+      # shellcheck disable=SC2086
+      iptables -t "$tbl" $r 2>/dev/null || true
+    done || true
+  done
+  return 0
+}
+
+# Tear link $1 down; $2 = 1 also forgets it (key + bookkeeping).
+direct_teardown() {
+  local id="$1" forget="$2" iface table
+  iface=$(cat "$DIRECT_DIR/$id.iface" 2>/dev/null || true)
+  table=$(_direct_num "$(cat "$DIRECT_DIR/$id.table" 2>/dev/null || true)")
+  direct_routes_off "$id"
+  if [ "$table" != 0 ]; then
+    while ip rule del pref $DIRECT_RULE_PREF lookup "$table" 2>/dev/null; do :; done
+  fi
+  if _direct_iface_ok "$iface"; then
+    direct_iface_down "$iface"
+    rm -f "/etc/wireguard/$iface.conf" "$DIRECT_DIR/stage/$iface.conf"
+  fi
+  rm -f "$DIRECT_DIR/$id.hash" "$DIRECT_DIR/$id.routes" "$DIRECT_DIR/$id.peer" "$DIRECT_DIR/$id.endpoint" \\
+    "$DIRECT_RUN/$id.fail" "$DIRECT_RUN/$id.ok" "$DIRECT_RUN/$id.rtt" "$DIRECT_RUN/$id.age"
+  if [ "$forget" = 1 ]; then
+    rm -f "$DIRECT_DIR/$id.key" "$DIRECT_DIR/$id.iface" "$DIRECT_DIR/$id.table" "$DIRECT_RUN/$id.path" "$DIRECT_RUN/$id.err"
+  fi
+}
+
+# (Re)start link $1 on iface $2 with the staged config; $3 = config hash.
+direct_up() {
+  # Staged under its interface name: wg-quick strip only accepts <iface>.conf.
+  local id="$1" iface="$2" hash="$3" conf="/etc/wireguard/$2.conf" stage="$DIRECT_DIR/stage/$2.conf" stripped=""
+  mkdir -p "$DIRECT_DIR/stage"
+  rm -f "$DIRECT_RUN/$id.err"
+  if ! direct_ingress_ok "$iface"; then
+    printf '%s\\n' "ingress filter does not cover $iface yet" > "$DIRECT_RUN/$id.err"
+    log "Direct link $id: Freigaben filter does not cover $iface yet — not brought up"
+    direct_teardown "$id" 0
+    return 1
+  fi
+  if ! FG_KEY_FILE="$DIRECT_DIR/$id.key" python3 -c '
+import os, sys
+with open(os.environ["FG_KEY_FILE"]) as f:
+    key = f.read().strip()
+with open(sys.argv[1]) as f:
+    lines = f.read().split(chr(10))
+out = []
+for l in lines:
+    if l.strip().startswith("PrivateKey"):
+        continue
+    out.append(l)
+    if l.strip() == "[Interface]":
+        out.append("PrivateKey = " + key)
+tmp = sys.argv[2] + ".tmp"
+with open(tmp, "w") as f:
+    f.write(chr(10).join(out))
+os.chmod(tmp, 0o600)
+os.replace(tmp, sys.argv[2])
+' "$DIRECT_DIR/in/$id.conf" "$stage" 2>/dev/null; then
+    printf '%s\\n' "cannot write $conf" > "$DIRECT_RUN/$id.err"
+    log "Direct link $id: cannot write $conf"
+    return 1
+  fi
+  # Only the [Peer] part changed (partner networks, endpoint, key): update the
+  # running interface in place — no bounce, routes and health state stay.
+  # The stripped config is checked before syncconf: an empty one would wipe
+  # key, port and peer of the running interface.
+  if ip link show "$iface" > /dev/null 2>&1 && [ -f "$conf" ] && \\
+    [ "$(awk '$1 == "[Peer]" {exit} {print}' "$conf")" = "$(awk '$1 == "[Peer]" {exit} {print}' "$stage")" ]; then
+    stripped=$(wg-quick strip "$stage" 2>/dev/null || true)
+    case "$stripped" in
+      *PrivateKey*"[Peer]"*PublicKey*)
+        if WG_ENDPOINT_RESOLUTION_RETRIES=1 wg syncconf "$iface" <(printf '%s\\n' "$stripped") 2>/dev/null; then
+          mv -f "$stage" "$conf"
+          printf '%s\\n' "$hash" > "$DIRECT_DIR/$id.hash"
+          if [ "$(cat "$DIRECT_RUN/$id.path" 2>/dev/null || true)" = direct ]; then direct_routes_on "$id" || true; fi
+          log "Direct link $id: peer settings of $iface updated in place"
+          return 0
+        fi
+        ;;
+    esac
+  fi
+  direct_routes_off "$id"
+  direct_iface_down "$iface"
+  rm -f "$DIRECT_DIR/$id.hash"
+  mv -f "$stage" "$conf"
+  if ! WG_ENDPOINT_RESOLUTION_RETRIES=1 wg-quick up "$iface" >&2; then
+    printf '%s\\n' "wg-quick up $iface failed" > "$DIRECT_RUN/$id.err"
+    log "Direct link $id: wg-quick up $iface failed — will retry on next poll"
+    return 1
+  fi
+  printf '%s\\n' "$hash" > "$DIRECT_DIR/$id.hash"
+  printf '0\\n' > "$DIRECT_RUN/$id.ok"
+  printf '0\\n' > "$DIRECT_RUN/$id.fail"
+  log "Direct link $id up on $iface — waiting for a healthy handshake before routing through it"
+  return 0
+}
+
+# Apply the hub's direct_links payload (from $RESP_FILE).
+direct_step() {
+  local list id iface table enabled hash peer cur want f
+  rm -rf "$DIRECT_DIR/in"
+  mkdir -p "$DIRECT_DIR/in"
+  list=$(python3 - "$RESP_FILE" "$DIRECT_DIR/in" <<'PYEOF' 2>/dev/null || echo "ERROR"
+import sys, json, hashlib, ipaddress, os, re
+with open(sys.argv[1]) as f:
+    d = json.load(f)
+if 'direct_links' not in d:
+    print('ABSENT')
+    sys.exit(0)
+links = d['direct_links']
+if not isinstance(links, list):
+    print('ERROR')
+    sys.exit(0)
+out = []
+for e in links:
+    try:
+        i = int(e['id'])
+        if i < 1 or i > 9999 or e['iface'] != 'fgd%d' % i or int(e['table']) != 52000 + i:
+            continue
+    except Exception:
+        continue
+    # From here on a bad entry is KEPT as it runs (never treated as removed —
+    # that would delete the key and make the partner re-key on every poll).
+    try:
+        if not e.get('enabled'):
+            out.append('%d %s %d 0 - -' % (i, e['iface'], 52000 + i))
+            continue
+        cfg = e.get('config_text')
+        if not cfg:
+            out.append('%d %s %d 1 - -' % (i, e['iface'], 52000 + i))
+            continue
+        if hashlib.sha256(cfg.encode()).hexdigest() != e.get('config_hash'):
+            raise ValueError('config hash mismatch')
+        if re.search(r'^\\s*(PrivateKey|PreUp|PreDown|SaveConfig)\\s*=', cfg, re.M | re.I):
+            raise ValueError('forbidden key in config')
+        peer = str(ipaddress.IPv4Address(e['peer_ip']))
+        routes = []
+        for r in e.get('routes') or []:
+            n = ipaddress.IPv4Network(r, strict=True)
+            if n.prefixlen < 8:
+                raise ValueError('route too wide')
+            routes.append(str(n))
+        ep = e.get('endpoint') or ''
+        if ep and not re.match(r'^[A-Za-z0-9.-]{1,253}:[0-9]{1,5}$', ep):
+            raise ValueError('bad endpoint')
+        base = os.path.join(sys.argv[2], str(i))
+        with open(base + '.conf', 'w') as f:
+            f.write(cfg)
+        with open(base + '.routes', 'w') as f:
+            f.write(''.join(r + chr(10) for r in routes))
+        with open(base + '.endpoint', 'w') as f:
+            f.write(ep)
+        out.append('%d %s %d 1 %s %s' % (i, e['iface'], 52000 + i, e['config_hash'], peer))
+    except Exception as ex:
+        with open(os.path.join(sys.argv[2], '%d.err' % i), 'w') as f:
+            f.write(('payload rejected: %s' % ex)[:200])
+        out.append('%d fgd%d %d keep - -' % (i, i, 52000 + i))
+print(chr(10).join(out) if out else 'NONE')
+PYEOF
+)
+  case "$list" in
+    ABSENT|"") rm -rf "$DIRECT_DIR/in"; return 0 ;;
+    ERROR)
+      log "Direct link payload could not be read — keeping current links"
+      rm -rf "$DIRECT_DIR/in"
+      return 0
+      ;;
+  esac
+  want=" "
+  while read -r id iface table enabled hash peer; do
+    if [ -z "$id" ] || [ "$id" = NONE ]; then continue; fi
+    _direct_iface_ok "$iface" || continue
+    want="$want$id "
+    printf '%s\\n' "$iface" > "$DIRECT_DIR/$id.iface"
+    printf '%s\\n' "$table" > "$DIRECT_DIR/$id.table"
+    direct_key_pub "$id" > /dev/null || { printf 'key generation failed\\n' > "$DIRECT_RUN/$id.err"; continue; }
+    if [ "$enabled" = keep ]; then
+      # rejected entry: keep what runs, report why
+      cp "$DIRECT_DIR/in/$id.err" "$DIRECT_RUN/$id.err" 2>/dev/null || true
+      log "Direct link $id: $(cat "$DIRECT_RUN/$id.err" 2>/dev/null || true) — keeping the current state"
+      continue
+    fi
+    if [ "$enabled" != 1 ] || [ "$hash" = "-" ]; then
+      # switched off, separated, or the partner's key is not known yet
+      if [ -f "$DIRECT_DIR/$id.hash" ] || ip link show "$iface" > /dev/null 2>&1; then
+        direct_teardown "$id" 0
+        log "Direct link $id ($iface) taken down — traffic via hub"
+      fi
+      rm -f "$DIRECT_RUN/$id.err"
+      continue
+    fi
+    cp "$DIRECT_DIR/in/$id.routes" "$DIRECT_DIR/$id.routes"
+    cp "$DIRECT_DIR/in/$id.endpoint" "$DIRECT_DIR/$id.endpoint"
+    printf '%s\\n' "$peer" > "$DIRECT_DIR/$id.peer"
+    cur=$(cat "$DIRECT_DIR/$id.hash" 2>/dev/null || true)
+    if [ "$cur" = "$hash" ] && ip link show "$iface" > /dev/null 2>&1; then
+      continue
+    fi
+    direct_up "$id" "$iface" "$hash" || true
+  done <<< "$list"
+  # links the hub no longer sends: gone for good
+  for f in "$DIRECT_DIR"/*.iface; do
+    [ -e "$f" ] || continue
+    id=$(basename "$f" .iface)
+    case "$want" in
+      *" $id "*) ;;
+      *)
+        direct_teardown "$id" 1
+        log "Direct link $id removed"
+        ;;
+    esac
+  done
+  rm -rf "$DIRECT_DIR/in"
+  return 0
+}
+
+# Health check of every running link; switches the routes with hysteresis.
+direct_health() {
+  local f id iface peer path hs now age rtt ok fails oks ep pk
+  for f in "$DIRECT_DIR"/*.hash; do
+    [ -e "$f" ] || continue
+    id=$(basename "$f" .hash)
+    iface=$(cat "$DIRECT_DIR/$id.iface" 2>/dev/null || true)
+    peer=$(cat "$DIRECT_DIR/$id.peer" 2>/dev/null || true)
+    _direct_iface_ok "$iface" || continue
+    path=$(cat "$DIRECT_RUN/$id.path" 2>/dev/null || echo hub)
+    now=$(date +%s)
+    hs=$(_direct_num "$(wg show "$iface" latest-handshakes 2>/dev/null | awk 'NR==1 {print $2}' || true)")
+    age=-1
+    if [ "$hs" -gt 0 ]; then age=$((now - hs)); fi
+    rtt=""
+    ok=0
+    if ip link show "$iface" > /dev/null 2>&1 && ! direct_ingress_ok "$iface"; then
+      # the Freigaben filter lost the direct interface: an unfiltered tunnel must
+      # not stay up (the partner would keep routing into it)
+      direct_teardown "$id" 0
+      printf '%s\\n' "ingress filter does not cover $iface" > "$DIRECT_RUN/$id.err"
+      log "Direct link $id: Freigaben filter does not cover $iface — taken down"
+      continue
+    fi
+    if ! ip link show "$iface" > /dev/null 2>&1; then
+      ok=0
+    elif ! command -v ping > /dev/null 2>&1; then
+      printf 'ping not installed — health check impossible\\n' > "$DIRECT_RUN/$id.err"
+    elif [ "$age" -ge 0 ] && [ "$age" -lt $DIRECT_HS_MAX ] && [ -n "$peer" ]; then
+      rtt=$(ping -n -c 1 -W 1 -I "$iface" "$peer" 2>/dev/null | sed -n 's/.*time=\\([0-9.]*\\).*/\\1/p' || true)
+      if [ -n "$rtt" ]; then ok=1; fi
+    fi
+    # A host name endpoint (dynamic IP) is resolved by wg only once: re-resolve
+    # while the handshake is stale.
+    ep=$(cat "$DIRECT_DIR/$id.endpoint" 2>/dev/null || true)
+    if [ -n "$ep" ] && { [ "$age" -lt 0 ] || [ "$age" -gt 135 ]; }; then
+      pk=$(wg show "$iface" peers 2>/dev/null | awk 'NR==1 {print $1}' || true)
+      # one resolution attempt: a flaky resolver must not stall the loop
+      if [ -n "$pk" ]; then WG_ENDPOINT_RESOLUTION_RETRIES=1 wg set "$iface" peer "$pk" endpoint "$ep" 2>/dev/null || true; fi
+    fi
+    fails=$(_direct_num "$(cat "$DIRECT_RUN/$id.fail" 2>/dev/null || true)")
+    oks=$(_direct_num "$(cat "$DIRECT_RUN/$id.ok" 2>/dev/null || true)")
+    if [ "$ok" = 1 ]; then
+      fails=0
+      if [ "$oks" -lt 1000 ]; then oks=$((oks + 1)); fi
+    else
+      oks=0
+      if [ "$fails" -lt 1000 ]; then fails=$((fails + 1)); fi
+    fi
+    if [ "$path" = direct ]; then
+      if [ "$fails" -ge $DIRECT_FAILS ]; then
+        direct_routes_off "$id"
+        log "Direct link $id ($iface) unhealthy (handshake age $age s) — traffic back via hub"
+      else
+        direct_routes_on "$id" || true
+      fi
+    elif [ "$ok" = 1 ] && [ "$oks" -ge $DIRECT_OKS ]; then
+      if direct_routes_on "$id"; then
+        rm -f "$DIRECT_RUN/$id.err"
+        log "Direct link $id ($iface) healthy (rtt $rtt ms) — traffic goes direct"
+      fi
+    fi
+    printf '%s\\n' "$fails" > "$DIRECT_RUN/$id.fail"
+    printf '%s\\n' "$oks" > "$DIRECT_RUN/$id.ok"
+    printf '%s\\n' "$age" > "$DIRECT_RUN/$id.age"
+    printf '%s\\n' "$rtt" > "$DIRECT_RUN/$id.rtt"
+  done
+  return 0
+}
+
+# Sleep $1 seconds in DIRECT_TICK steps, health-checking the links each step.
+direct_wait() {
+  local left step
+  left=$(_direct_num "$1")
+  [ "$left" -gt 0 ] || left=30
+  while [ "$left" -gt 0 ]; do
+    direct_health || true
+    step=$DIRECT_TICK
+    if [ "$left" -lt "$step" ]; then step=$left; fi
+    sleep "$step"
+    left=$((left - step))
+  done
+}
+
+# Heartbeat part: { "<id>": {public_key, up, path, handshake_age, rtt_ms, error} }
+direct_status_json() {
+  python3 - "$DIRECT_DIR" "$DIRECT_RUN" <<'PYEOF' 2>/dev/null || echo "{}"
+import sys, os, json, subprocess
+d, r = sys.argv[1], sys.argv[2]
+def rd(p):
+    try:
+        with open(p) as f:
+            return f.read().strip()
+    except Exception:
+        return ''
+out = {}
+for name in sorted(os.listdir(d)):
+    if not name.endswith('.iface'):
+        continue
+    i = name[:-6]
+    if not i.isdigit():
+        continue
+    pub = ''
+    try:
+        with open(os.path.join(d, i + '.key'), 'rb') as k:
+            pub = subprocess.run(['wg', 'pubkey'], stdin=k, capture_output=True, timeout=5).stdout.decode().strip()
+    except Exception:
+        pub = ''
+    up = bool(rd(os.path.join(d, i + '.hash')))
+    age = rd(os.path.join(r, i + '.age'))
+    rtt = rd(os.path.join(r, i + '.rtt'))
+    try:
+        rtt_v = float(rtt) if rtt else None
+    except Exception:
+        rtt_v = None
+    out[i] = {
+        'public_key': pub,
+        'up': up,
+        'path': (rd(os.path.join(r, i + '.path')) or 'hub') if up else 'hub',
+        'handshake_age': int(age) if age.isdigit() else -1,
+        'rtt_ms': rtt_v,
+        'error': rd(os.path.join(r, i + '.err')),
+    }
+print(json.dumps(out))
+PYEOF
+}
+
+# FG_IN first (a flushed chain is re-applied from the cache), then the links.
+ingress_selfheal || true
+# Start: bring links back up that were down (reboot) — the Freigaben filter has
+# been restored above; routes follow once healthy. A link that is still up (agent
+# restart / self-update) keeps its routes and health state.
+for f in "$DIRECT_DIR"/*.hash; do
+  [ -e "$f" ] || continue
+  id=$(basename "$f" .hash)
+  iface=$(cat "$DIRECT_DIR/$id.iface" 2>/dev/null || true)
+  _direct_iface_ok "$iface" || continue
+  ip link show "$iface" > /dev/null 2>&1 && continue
+  direct_routes_off "$id"
+  if [ -f "/etc/wireguard/$iface.conf" ] && direct_ingress_ok "$iface" && WG_ENDPOINT_RESOLUTION_RETRIES=1 wg-quick up "$iface" >&2; then
+    log "Direct link $id restored on $iface"
+  else
+    rm -f "$f"
+  fi
+done`;
+
+// Loop part: after the ingress step (a restricted gateway's FG_IN must already
+// cover the direct interfaces), before the heartbeat.
+const directLoopStep = `\
+      direct_step || true
+      DIRECT_STATUS=$(direct_status_json)
+`;
+
 function buildLoopScript() {
 	// ── apply_config: write wg-quick config file and apply via wg syncconf / wg-quick
 	const applyFunction = `\
@@ -1168,6 +1667,7 @@ INGRESS_ERROR=""
 CONFIG_ERROR=""
 INGRESS_APPLY_ERR=""
 INGRESS_APPLIED=""
+DIRECT_STATUS="{}"
 
 log() { echo "[$(date -Iseconds)] floppyguard-agent[$AGENT_MODE]: $*" >&2; }
 reach() { curl -sf --max-time 5 "$1/api" > /dev/null 2>&1; }
@@ -1345,6 +1845,8 @@ UNITEOF
 ensure_ingress_boot_unit || true
 
 ${applyFunction}
+
+${directFunctions}
 
 # ── Service discovery ────────────────────────────────────────────────────────
 # port:scheme:fallback_name  (https ports use https scheme)
@@ -1539,15 +2041,15 @@ while true; do
       fi
 
 ${ingressLoopStep}
-      MY_HOSTNAME=$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo "")
+${directLoopStep}      MY_HOSTNAME=$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo "")
       MY_LAN_IP=$(ip route get 8.8.8.8 2>/dev/null | grep -oP 'src \\K\\S+' | head -1 || echo "")
       # Report the hash the agent actually RUNS (HASH_FILE is written only on a
       # successful apply) plus the last apply error, next to the received one.
       APPLIED_HASH=$(cat "$HASH_FILE" 2>/dev/null || echo "")
       HEARTBEAT=$(python3 -c "
 import sys, json
-print(json.dumps({'hash': sys.argv[1], 'server': sys.argv[2], 'services': json.loads(sys.argv[3]), 'hostname': sys.argv[4], 'lan_ip': sys.argv[5], 'script_version': sys.argv[6], 'ingress_counters': json.loads(sys.argv[7]), 'ingress_hash': sys.argv[8], 'ingress_error': sys.argv[9], 'config_applied_hash': sys.argv[10], 'config_error': sys.argv[11]}))
-" "$NEW_HASH" "$SERVER" "$SERVICES_JSON" "$MY_HOSTNAME" "$MY_LAN_IP" "$SCRIPT_VERSION" "$INGRESS_COUNTERS" "$INGRESS_APPLIED" "$INGRESS_ERROR" "$APPLIED_HASH" "$CONFIG_ERROR" 2>/dev/null || echo "{\\"hash\\":\\"$NEW_HASH\\",\\"server\\":\\"$SERVER\\"}")
+print(json.dumps({'hash': sys.argv[1], 'server': sys.argv[2], 'services': json.loads(sys.argv[3]), 'hostname': sys.argv[4], 'lan_ip': sys.argv[5], 'script_version': sys.argv[6], 'ingress_counters': json.loads(sys.argv[7]), 'ingress_hash': sys.argv[8], 'ingress_error': sys.argv[9], 'config_applied_hash': sys.argv[10], 'config_error': sys.argv[11], 'direct_links': json.loads(sys.argv[12])}))
+" "$NEW_HASH" "$SERVER" "$SERVICES_JSON" "$MY_HOSTNAME" "$MY_LAN_IP" "$SCRIPT_VERSION" "$INGRESS_COUNTERS" "$INGRESS_APPLIED" "$INGRESS_ERROR" "$APPLIED_HASH" "$CONFIG_ERROR" "$DIRECT_STATUS" 2>/dev/null || echo "{\\"hash\\":\\"$NEW_HASH\\",\\"server\\":\\"$SERVER\\"}")
 
       fg_curl -sf --max-time 5 -X POST \\
         -H "Content-Type: application/json" \\
@@ -1558,7 +2060,8 @@ print(json.dumps({'hash': sys.argv[1], 'server': sys.argv[2], 'services': json.l
   else
     log "No server reachable (primary: $PRIMARY_URL, fallback: $FALLBACK_URL)"
   fi
-  sleep "$POLL_INTERVAL"
+  # sleeps POLL_INTERVAL in steps, health-checking direct links (also while the hub is down)
+  direct_wait "$POLL_INTERVAL"
 done`;
 }
 
@@ -1892,6 +2395,9 @@ const internalAgent = {
 			await Agent.query().patch({ is_deleted: true }).where("id", id);
 		}
 		await AgentIngressRule.query().where("agent_id", id).delete();
+		// its direct links can never come up again; the partner tears its side
+		// down on the next poll (the link is no longer in its payload)
+		await internalDirectLink.deleteForAgent(id);
 		return true;
 	},
 
@@ -2125,6 +2631,7 @@ echo "[floppyguard-agent]   journalctl -u floppyguard-agent -f"
 		}
 
 		const { primaryUrl, fallbackUrl } = await getAgentHubUrls();
+		let meshPromise = null;
 
 		// Ingress filter ("Freigaben"). On ANY error leave the key out entirely:
 		// "ingress: null" would make the agent REMOVE its filter, an absent key
@@ -2140,8 +2647,33 @@ echo "[floppyguard-agent]   journalctl -u floppyguard-agent -f"
 			);
 		}
 
+		// Direct links to other agents. Same rule as ingress: on ANY error leave
+		// the key out (the agent keeps what it runs); [] tears every link down.
+		// A restricted agent whose filter could not be built gets no direct links
+		// either — its FG_IN must cover the direct interfaces first.
+		let directLinks;
+		let directOk = false;
+		if (ingressOk || (agent.ingress_mode || "open") !== "restricted") {
+			try {
+				directLinks = await internalDirectLink.payloadFor(agent, {
+					otherSiteNetsFor: async (a) => {
+						if (!meshPromise) meshPromise = internalWireGuard.readMetadataStore().then(_meshIndex);
+						const mesh = await meshPromise;
+						const linkMeta = a.wg_link_name ? mesh.linksByName.get(a.wg_link_name) : null;
+						return linkMeta ? _agentOtherSiteNets(a, linkMeta, mesh).nets : [];
+					},
+				});
+				directOk = true;
+			} catch (err) {
+				logger.error(
+					`Agent ${agent.name} (id=${agent.id}): direct link payload failed, keeping agent state — ${err.message}`,
+				);
+			}
+		}
+
 		return {
 			...(ingressOk ? { ingress } : {}),
+			...(directOk ? { direct_links: directLinks } : {}),
 			config_text: agent.config_text || null,
 			config_hash: agent.config_hash || null,
 			wg_interface: agent.wg_interface || "wg0",
@@ -2243,6 +2775,14 @@ echo "[floppyguard-agent]   journalctl -u floppyguard-agent -f"
 
 		await Agent.query().patch(patch).where("id", agent.id);
 
+		if (data?.direct_links) {
+			try {
+				await internalDirectLink.recordStatus(agent, data.direct_links);
+			} catch (err) {
+				logger.warn(`Agent ${agent.name} (id=${agent.id}): direct link status not stored — ${err.message}`);
+			}
+		}
+
 		if (data?.ingress_counters) {
 			try {
 				await internalAgentIngress.recordCounters(agent, data.ingress_counters);
@@ -2331,27 +2871,7 @@ echo "[floppyguard-agent]   journalctl -u floppyguard-agent -f"
 	 */
 	async syncAgentConfigs(metadata) {
 		const agents = await Agent.query().where("is_deleted", 0).whereNotNull("wg_link_name");
-
-		// Detect duplicate link names — if two links share a name, any agent with that
-		// wg_link_name is ambiguous and must not receive a potentially wrong config update.
-		const nameCount = new Map();
-		for (const linkMeta of Object.values(metadata.links || {})) {
-			if (linkMeta.name) nameCount.set(linkMeta.name, (nameCount.get(linkMeta.name) || 0) + 1);
-		}
-		const ambiguousLinkNames = new Set([...nameCount.entries()].filter(([, c]) => c > 1).map(([n]) => n));
-
-		// Index links by name → linkMeta (only for unambiguous names)
-		const linksByName = new Map();
-		for (const linkMeta of Object.values(metadata.links || {})) {
-			if (linkMeta.name && !ambiguousLinkNames.has(linkMeta.name)) {
-				linksByName.set(linkMeta.name, linkMeta);
-			}
-		}
-
-		// The networks that actually live behind the mesh — used to identify "site
-		// networks". Only site-to-site links contribute; client links (road-warrior
-		// phone/laptop) are excluded (see _collectSiteNetworks for why).
-		const allSiteNets = _collectSiteNetworks(metadata.links);
+		const { linksByName, allSiteNets, ambiguousLinkNames } = _meshIndex(metadata);
 
 		const results = [];
 
@@ -2572,6 +3092,44 @@ function _collectSiteNetworks(links) {
 }
 
 /**
+ * Index of the WireGuard metadata shared by syncAgentConfigs and the direct-link
+ * payload: links by (unambiguous) name and the set of site networks.
+ * Duplicate link names are ambiguous — an agent bound to one must not receive a
+ * potentially wrong config. Only site-to-site links contribute site networks;
+ * client links (road-warrior phone/laptop) are excluded (see _collectSiteNetworks).
+ */
+function _meshIndex(metadata) {
+	const nameCount = new Map();
+	for (const linkMeta of Object.values(metadata.links || {})) {
+		if (linkMeta.name) nameCount.set(linkMeta.name, (nameCount.get(linkMeta.name) || 0) + 1);
+	}
+	const ambiguousLinkNames = new Set([...nameCount.entries()].filter(([, c]) => c > 1).map(([n]) => n));
+	const linksByName = new Map();
+	for (const linkMeta of Object.values(metadata.links || {})) {
+		if (linkMeta.name && !ambiguousLinkNames.has(linkMeta.name)) {
+			linksByName.set(linkMeta.name, linkMeta);
+		}
+	}
+	return { linksByName, allSiteNets: _collectSiteNetworks(metadata.links), ambiguousLinkNames };
+}
+
+/**
+ * An agent's hub-side reach: the other-site networks of its hub peer
+ * AllowedIPs (ACL priority, own-net/overlap stripping — see _computeOtherSiteNets).
+ */
+function _agentOtherSiteNets(agent, linkMeta, { linksByName, allSiteNets }) {
+	return _computeOtherSiteNets({
+		allowedNetworks: _parseAllowedSites(agent.allowed_networks),
+		allowedSites: _parseAllowedSites(agent.allowed_sites),
+		allSiteNets,
+		ownNets: new Set(linkMeta.importedNetworks || []),
+		linksByName,
+		// A client link's importedNetworks is a reach list, not a LAN: no overlap guard
+		dropOverlaps: linkMeta.type !== "client",
+	});
+}
+
+/**
  * Recompute and persist one agent's hub-peer config. Extracted from the
  * syncAgentConfigs loop so each agent can be wrapped in its own try/catch — a
  * single failing agent (e.g. an IPv6 net that trips the IPv4-only assertCIDR)
@@ -2591,22 +3149,12 @@ async function _syncOneAgent(agent, { linksByName, allSiteNets, ambiguousLinkNam
 	const ownNets = new Set(linkMeta.importedNetworks || []);
 
 	// Network access control: allowed_networks > allowed_sites > full-mesh.
-	const allowedNetworks = _parseAllowedSites(agent.allowed_networks);
-	const allowedSites = _parseAllowedSites(agent.allowed_sites);
 	const {
 		nets: otherSiteNets,
 		orphans,
 		overlaps,
 		supernets,
-	} = _computeOtherSiteNets({
-		allowedNetworks,
-		allowedSites,
-		allSiteNets,
-		ownNets,
-		linksByName,
-		// A client link's importedNetworks is a reach list, not a LAN: no overlap guard
-		dropOverlaps: linkMeta.type !== "client",
-	});
+	} = _agentOtherSiteNets(agent, linkMeta, { linksByName, allSiteNets });
 	if (overlaps.length) {
 		logger.warn(
 			`Agent ${agent.name} (id=${agent.id}): other site net(s) overlap this site's own networks and are NOT routed into its tunnel (would hijack its LAN): ${overlaps.join(", ")}`,
@@ -2763,6 +3311,8 @@ export const _testExports = {
 	_computeHubPeerAllowedIPs,
 	_collectSiteNetworks,
 	_computeOtherSiteNets,
+	_meshIndex,
+	_agentOtherSiteNets,
 	sanitizeAgentMode,
 	sanitizeWgInterface,
 	sanitizeAgentName,

@@ -21,6 +21,7 @@ export * from "./deleteStream";
 export * from "./deleteUser";
 export * from "./deleteWireGuardInterface";
 export * from "./deleteWireGuardPeer";
+export * from "./directLinks";
 export * from "./downloadCertificate";
 export * from "./downloadWireGuardLinkConfig";
 export * from "./expansions";

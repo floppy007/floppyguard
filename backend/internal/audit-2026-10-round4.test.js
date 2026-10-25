@@ -63,6 +63,17 @@ describe("forced agent delete", () => {
 		};
 		Agent.query = () => q;
 		AgentIngressRule.query = () => q;
+		// no direct links (agent-direct-link.js queries them per agent)
+		const { default: AgentDirectLink } = await import("../models/agent_direct_link.js");
+		const origDirect = AgentDirectLink.query;
+		const noLinks = {
+			where: () => noLinks,
+			orWhere: () => noLinks,
+			select: () => noLinks,
+			// biome-ignore lint/suspicious/noThenProperty: mimics a thenable knex query builder
+			then: (resolve) => resolve([]),
+		};
+		AgentDirectLink.query = () => noLinks;
 		try {
 			// without force: refused (restricted filter, gateway cannot confirm)
 			await assert.rejects(() => internalAgent.delete(7), /offen/);
@@ -75,6 +86,7 @@ describe("forced agent delete", () => {
 		} finally {
 			Agent.query = orig;
 			AgentIngressRule.query = origRule;
+			AgentDirectLink.query = origDirect;
 		}
 	});
 });

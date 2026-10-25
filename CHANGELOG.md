@@ -5,6 +5,46 @@ This project diverges from upstream nginx-proxy-manager starting at v1.0.0.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.5.0] - 2026-10-25
+
+Direct links between sites. **Agent script 1.6.0:** every agent self-updates once. Without a direct link nothing changes on a gateway (same routes, same NAT, byte-identical Freigaben ruleset); only the 30 s poll pause is now split into 10 s steps.
+
+### English
+
+#### Added
+
+- **Direct links ("Direktverbindungen")** between two site agents, managed on the Freigaben page. Site A listens (fixed public IP, port forward on its router), site B dials A's address (IPv4 or DNS name, re-resolved while the handshake is stale). Traffic between the two sites goes directly instead of through the hub; when the direct path fails it goes through the hub again automatically. The hub stays the configuration source and the fallback.
+- Each agent generates the WireGuard key of a direct link itself and reports only the public key; private keys never leave the gateway. Interface `fgd<id>` (never `wgN`, so foreign WireGuard tunnels on a gateway are not touched), own private /30 transfer net.
+- **Routing:** the partner's networks go into a routing table per link (`52000+id`, `ip rule pref 31000`) in front of the main table. The agent fills it only while the link is healthy (handshake younger than 180 s and ping to the partner's tunnel address, checked every 10 s): 3 failed checks empty the table and the unchanged hub routes on the WireGuard interface carry the traffic, 3 successful checks switch back. Conntrack entries of flows to the partner are dropped on a switch (needs the `conntrack` tool) so NATed flows are re-NATed for the new path.
+- **Networks:** each side routes exactly the networks it reaches through the hub today (same `allowed_networks`/`allowed_sites` ACL) that the partner site exports, minus anything overlapping its own site networks or its hub tunnel subnet.
+- **NAT stays as through the hub:** the transfer net is masqueraded into the LAN like the hub tunnel subnet; a per-side option masquerades the site's own traffic into the direct tunnel, for gateways that masquerade into the hub tunnel today. Firewalls, RADIUS and AD on the other side see the same senders on both paths.
+- **Freigaben apply on both paths:** the `FG_IN` ruleset repeats every rule and the final drop per direct interface. A restricted gateway does not bring up (or takes down) a direct interface its filter does not cover, judged from the live chain and the cached ruleset.
+- Sites separated under "Standorte untereinander" never get an active direct link (the separation only exists on the hub); a link created before a separation is taken down and can still be switched off or edited.
+- A link is not activated while a side set to "Freigaben only" has a partner that masquerades into the direct tunnel (its Freigaben would drop the partner's traffic), or while side A's endpoint lies inside a site or tunnel network.
+- Status per side in the UI (path direct / via hub, round-trip time, handshake age, error). API: `GET/POST /api/direct-links`, `PUT/DELETE /api/direct-links/:id` (admin, audit-logged). Deleting an agent removes its direct links.
+
+#### Changed
+
+- The Freigaben line limit (`MAX_LINES_TOTAL`) counts every interface the ruleset is generated for; enabling a direct link is refused when it would push either agent past the limit.
+
+### Deutsch
+
+#### Neu
+
+- **Direktverbindungen** zwischen zwei Standort-Agents, verwaltet auf der Freigaben-Seite. Standort A lauscht (feste öffentliche IP, Portweiterleitung am Router), Standort B baut zu A auf (IPv4 oder DNS-Name, der bei veraltetem Handshake neu aufgelöst wird). Verkehr zwischen den beiden Standorten läuft direkt statt über den Hub; fällt der Direktweg aus, läuft er automatisch wieder über den Hub. Der Hub bleibt Konfigurationsquelle und Rückfall.
+- Jeder Agent erzeugt den WireGuard-Schlüssel einer Direktverbindung selbst und meldet nur den öffentlichen Schlüssel; private Schlüssel verlassen das Gateway nie. Interface `fgd<id>` (nie `wgN`, fremde WireGuard-Tunnel auf einem Gateway bleiben unberührt), eigenes privates /30-Transfernetz.
+- **Routing:** Die Netze des Partners kommen in eine eigene Routing-Tabelle pro Verbindung (`52000+id`, `ip rule pref 31000`) vor der Haupttabelle. Der Agent füllt sie nur, solange die Verbindung gesund ist (Handshake jünger als 180 s und Ping auf die Tunneladresse des Partners, Prüfung alle 10 s): nach 3 Fehlversuchen wird die Tabelle geleert und die unveränderten Hub-Routen tragen den Verkehr, nach 3 Erfolgen geht es zurück auf direkt. Beim Umschalten werden die Conntrack-Einträge zum Partner gelöscht (braucht das Tool `conntrack`), damit maskierte Verbindungen für den neuen Weg neu maskiert werden.
+- **Netze:** Jede Seite routet genau die Netze, die sie heute über den Hub erreicht (gleiche ACL `allowed_networks`/`allowed_sites`) und die der Partnerstandort exportiert, ohne Netze, die sich mit den eigenen Standortnetzen oder dem eigenen Hub-Tunnelnetz überschneiden.
+- **NAT bleibt wie über den Hub:** Das Transfernetz wird wie das Hub-Tunnelnetz ins LAN maskiert; eine Option pro Seite maskiert den eigenen Verkehr in den Direkttunnel, für Gateways, die heute in den Hub-Tunnel maskieren. Firewalls, RADIUS und AD auf der Gegenseite sehen auf beiden Wegen dieselben Absender.
+- **Freigaben gelten auf beiden Wegen:** Der `FG_IN`-Regelsatz wiederholt jede Regel und das abschließende Verwerfen pro Direkt-Interface. Ein Gateway mit "nur Freigaben" bringt ein Direkt-Interface, das sein Filter nicht abdeckt, nicht hoch bzw. baut es ab (geprüft an der laufenden Kette und am gespeicherten Regelsatz).
+- Unter "Standorte untereinander" getrennte Standorte bekommen nie eine aktive Direktverbindung (die Trennung gibt es nur am Hub); eine vor der Trennung angelegte Verbindung wird abgebaut und lässt sich weiter ausschalten oder bearbeiten.
+- Eine Verbindung wird nicht aktiv, solange eine Seite auf "nur Freigaben" steht und der Partner in den Direkttunnel maskiert (die Freigaben würden dessen Verkehr verwerfen), oder solange der Endpunkt von A in einem Standort- oder Tunnelnetz liegt.
+- Status pro Seite in der Oberfläche (Weg direkt / über Hub, Laufzeit, Alter des Handshakes, Fehler). API: `GET/POST /api/direct-links`, `PUT/DELETE /api/direct-links/:id` (Admin, im Audit-Log). Das Löschen eines Agents entfernt seine Direktverbindungen.
+
+#### Geändert
+
+- Das Zeilenlimit der Freigaben (`MAX_LINES_TOTAL`) zählt jedes Interface, für das der Regelsatz erzeugt wird; das Einschalten einer Direktverbindung wird abgelehnt, wenn es einen der Agents über das Limit bringen würde.
+
 ## [2.4.0] - 2026-10-24
 
 Audit follow-up, a three-pass ultracode audit (299 reported, 265 confirmed, 253 fixed), the relevant upstream nginx-proxy-manager fixes from v2.15.0 to v2.16.0 and dependency security updates. **Agent script stays 1.5.1:** the agent loop script is unchanged since 2.3.0, so this release triggers no fleet self-update. The agent-side behaviour below that refers to "1.5.0" already shipped with agent script 1.5.1 in 2.3.0.

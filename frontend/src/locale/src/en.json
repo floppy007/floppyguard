@@ -1733,6 +1733,153 @@
 	"wireguard.agent.ingress.delete-title": {
 		"defaultMessage": "Delete rule"
 	},
+	"wireguard.agent.ingress.direct.add": {
+		"defaultMessage": "New direct link"
+	},
+	"wireguard.agent.ingress.direct.blocked.agent-missing": {
+		"defaultMessage": "One of the agents no longer exists."
+	},
+	"wireguard.agent.ingress.direct.blocked.nat-restricted": {
+		"defaultMessage": "One side is set to \"Freigaben only\" and the partner masquerades into the direct tunnel: its traffic would come from the transfer net instead of the hub address and be dropped. Turn masquerading off on the partner."
+	},
+	"wireguard.agent.ingress.direct.blocked.site-link-missing": {
+		"defaultMessage": "One of the agents is not bound to a site link."
+	},
+	"wireguard.agent.ingress.direct.blocked.sites-isolated": {
+		"defaultMessage": "The sites are separated (\"sites among each other\") — the direct link stays down while the separation exists."
+	},
+	"wireguard.agent.ingress.direct.delete": {
+		"defaultMessage": "Delete"
+	},
+	"wireguard.agent.ingress.direct.delete-button": {
+		"defaultMessage": "Delete"
+	},
+	"wireguard.agent.ingress.direct.delete-text": {
+		"defaultMessage": "Both agents tear the tunnel down and forget their key. Traffic then goes through the hub again."
+	},
+	"wireguard.agent.ingress.direct.delete-title": {
+		"defaultMessage": "Delete direct link \"{name}\"?"
+	},
+	"wireguard.agent.ingress.direct.disable": {
+		"defaultMessage": "Turn off"
+	},
+	"wireguard.agent.ingress.direct.edit": {
+		"defaultMessage": "Edit"
+	},
+	"wireguard.agent.ingress.direct.empty": {
+		"defaultMessage": "No direct link yet. Without one, all traffic between sites goes through the hub."
+	},
+	"wireguard.agent.ingress.direct.enable": {
+		"defaultMessage": "Turn on"
+	},
+	"wireguard.agent.ingress.direct.form.agent-a": {
+		"defaultMessage": "Site A (listens)"
+	},
+	"wireguard.agent.ingress.direct.form.agent-a-help": {
+		"defaultMessage": "The site with a fixed public IP / port forward."
+	},
+	"wireguard.agent.ingress.direct.form.agent-b": {
+		"defaultMessage": "Site B (dials)"
+	},
+	"wireguard.agent.ingress.direct.form.agent-b-help": {
+		"defaultMessage": "May have a changing IP, it connects to A."
+	},
+	"wireguard.agent.ingress.direct.form.choose": {
+		"defaultMessage": "– choose site –"
+	},
+	"wireguard.agent.ingress.direct.form.edit-title": {
+		"defaultMessage": "Edit direct link"
+	},
+	"wireguard.agent.ingress.direct.form.enabled": {
+		"defaultMessage": "Turned on (only turn on after checking the configuration)"
+	},
+	"wireguard.agent.ingress.direct.form.endpoint": {
+		"defaultMessage": "Public address of A"
+	},
+	"wireguard.agent.ingress.direct.form.endpoint-help": {
+		"defaultMessage": "IPv4 address or DNS name (a name is re-resolved for changing IPs)."
+	},
+	"wireguard.agent.ingress.direct.form.lan-ip-unknown": {
+		"defaultMessage": "agent LAN IP"
+	},
+	"wireguard.agent.ingress.direct.form.name": {
+		"defaultMessage": "Name"
+	},
+	"wireguard.agent.ingress.direct.form.nat": {
+		"defaultMessage": "{site} masquerades outgoing (as through the hub today)"
+	},
+	"wireguard.agent.ingress.direct.form.nat-help": {
+		"defaultMessage": "Tick when the site masquerades into the hub tunnel today (e.g. a rule \"-o wg0 -j MASQUERADE\"). Firewalls, RADIUS and AD on the other side then see the same senders as before."
+	},
+	"wireguard.agent.ingress.direct.form.new-title": {
+		"defaultMessage": "New direct link"
+	},
+	"wireguard.agent.ingress.direct.form.port": {
+		"defaultMessage": "UDP port"
+	},
+	"wireguard.agent.ingress.direct.form.portforward": {
+		"defaultMessage": "The router of {site} needs a port forward: UDP {port} → {ip}. You set it up there yourself; it is not part of FloppyGuard."
+	},
+	"wireguard.agent.ingress.direct.form.side-a": {
+		"defaultMessage": "Site A"
+	},
+	"wireguard.agent.ingress.direct.form.side-b": {
+		"defaultMessage": "Site B"
+	},
+	"wireguard.agent.ingress.direct.form.subnet": {
+		"defaultMessage": "Transfer net (/30)"
+	},
+	"wireguard.agent.ingress.direct.form.subnet-help": {
+		"defaultMessage": "A private /30 of its own that overlaps no site network and no tunnel network."
+	},
+	"wireguard.agent.ingress.direct.lead": {
+		"defaultMessage": "Two sites talk to each other directly instead of through the hub. If the direct link fails, traffic automatically goes through the hub again. Source addresses (NAT) stay as they are through the hub, and the Freigaben apply on both paths."
+	},
+	"wireguard.agent.ingress.direct.route": {
+		"defaultMessage": "{a} listens on {endpoint} · {b} dials · transfer net {subnet}"
+	},
+	"wireguard.agent.ingress.direct.side.direct": {
+		"defaultMessage": "direct"
+	},
+	"wireguard.agent.ingress.direct.side.down": {
+		"defaultMessage": "tunnel not active"
+	},
+	"wireguard.agent.ingress.direct.side.handshake": {
+		"defaultMessage": "handshake {s} s ago"
+	},
+	"wireguard.agent.ingress.direct.side.hub": {
+		"defaultMessage": "via hub (direct path unhealthy)"
+	},
+	"wireguard.agent.ingress.direct.side.no-key": {
+		"defaultMessage": "no key reported yet (agent 1.6.0 or newer needed)"
+	},
+	"wireguard.agent.ingress.direct.side.stale": {
+		"defaultMessage": "not reporting"
+	},
+	"wireguard.agent.ingress.direct.state.blocked": {
+		"defaultMessage": "blocked"
+	},
+	"wireguard.agent.ingress.direct.state.direct": {
+		"defaultMessage": "direct"
+	},
+	"wireguard.agent.ingress.direct.state.hub": {
+		"defaultMessage": "via hub (fallback)"
+	},
+	"wireguard.agent.ingress.direct.state.off": {
+		"defaultMessage": "off"
+	},
+	"wireguard.agent.ingress.direct.state.partly": {
+		"defaultMessage": "partly direct"
+	},
+	"wireguard.agent.ingress.direct.state.waiting": {
+		"defaultMessage": "waiting"
+	},
+	"wireguard.agent.ingress.direct.summary": {
+		"defaultMessage": "{direct} of {total} direct"
+	},
+	"wireguard.agent.ingress.direct.title": {
+		"defaultMessage": "Direct links"
+	},
 	"wireguard.agent.ingress.empty": {
 		"defaultMessage": "No ingress rules yet."
 	},

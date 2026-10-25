@@ -900,6 +900,60 @@ export interface SiteIsolationOverview {
 	lastChange?: { at: number | null; by: string | null } | null;
 }
 
+/** Health one side of a direct link reports in its heartbeat. */
+export interface DirectLinkSideStatus {
+	publicKeyKnown: boolean;
+	/** last heartbeat with a status for this link (unix s), null = never */
+	seen: number | null;
+	/** no status for more than 2 minutes */
+	stale: boolean;
+	up?: boolean;
+	/** where this side routes the partner's networks right now */
+	path?: "direct" | "hub";
+	handshakeAge?: number | null;
+	rttMs?: number | null;
+	error?: string | null;
+}
+
+/** Direct link between two site agents: side A listens, side B dials A's endpoint. */
+export interface DirectLink {
+	id: number;
+	name: string;
+	iface: string;
+	agentAId: number;
+	agentBId: number;
+	agentAName: string | null;
+	agentBName: string | null;
+	listenPort: number;
+	endpointHost: string;
+	tunnelSubnet: string;
+	addressA: string;
+	addressB: string;
+	mtu: number | null;
+	enabled: boolean;
+	natA: boolean;
+	natB: boolean;
+	/** why the link is not built although enabled */
+	blocked: "agent-missing" | "site-link-missing" | "sites-isolated" | "nat-restricted" | null;
+	statusA: DirectLinkSideStatus;
+	statusB: DirectLinkSideStatus;
+	createdOn: number;
+	modifiedOn: number;
+}
+
+export interface DirectLinkInput {
+	name: string;
+	agentAId: number;
+	agentBId: number;
+	listenPort: number;
+	endpointHost: string;
+	tunnelSubnet: string;
+	mtu: number | null;
+	enabled: boolean;
+	natA: boolean;
+	natB: boolean;
+}
+
 /** PUT body entry: the full set replaces the stored pairs. */
 export interface SiteIsolationPairInput {
 	linkA: string;

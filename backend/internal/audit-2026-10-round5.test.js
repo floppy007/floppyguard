@@ -598,6 +598,17 @@ describe("ingress create", () => {
 		Agent.query = (trx) => chain("agent", trx);
 		AgentIngressRule.query = (trx) => chain("rule", trx);
 		AgentIngressRule.transaction = async (fn) => fn(TRX);
+		// no direct links (agent-direct-link.js queries them per agent)
+		const { default: AgentDirectLink } = await import("../models/agent_direct_link.js");
+		const origDirect = AgentDirectLink.query;
+		const noLinks = {
+			where: () => noLinks,
+			orWhere: () => noLinks,
+			select: () => noLinks,
+			// biome-ignore lint/suspicious/noThenProperty: mimics a thenable knex query builder
+			then: (resolve) => resolve([]),
+		};
+		AgentDirectLink.query = () => noLinks;
 		try {
 			const before = Math.floor(Date.now() / 1000);
 			// access null = internal caller (no audit-log write)
@@ -613,6 +624,7 @@ describe("ingress create", () => {
 			AgentIngressRule.query = origRule.query;
 			AgentIngressRule.transaction = origRule.transaction;
 			Agent.query = origAgent;
+			AgentDirectLink.query = origDirect;
 		}
 	});
 });

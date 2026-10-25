@@ -10,6 +10,7 @@ export * from "./useCheckVersion";
 export * from "./useCreateWireGuardPeer";
 export * from "./useDeadHost";
 export * from "./useDeadHosts";
+export * from "./useDirectLinks";
 export * from "./useDnsProviders";
 export * from "./useFail2Ban";
 export * from "./useHealth";

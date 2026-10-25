@@ -1,6 +1,6 @@
 {
   "name": "floppyguard",
-	"version": "2.4.0",
+	"version": "2.5.0",
 	"packageManager": "yarn@1.22.22",
   "description": "WireGuard VPN management + nginx reverse proxy in one platform",
   "author": "Florian Hesse <f.hesse@comnic.de>",

@@ -42,6 +42,7 @@ import {
 	splitLinkId,
 	upstreamCovered,
 } from "./agent-ingress-rules.js";
+import internalDirectLink from "./agent-direct-link.js";
 import internalAuditLog from "./audit-log.js";
 import internalSiteIsolation from "./site-isolation.js";
 import internalWireGuard from "./wireguard.js";
@@ -568,6 +569,9 @@ export function ingressAppliedState({
 	return { state, applied_hash: applied, desired_hash: desired, error: err || null };
 }
 
+/** Interfaces FG_IN filters: the hub interface + every enabled direct link. */
+const ifaceCountOf = async (agentId) => 1 + (await internalDirectLink.ifacesFor(agentId)).length;
+
 const ifaceOf = (agent) => (isWgIface(agent?.wg_interface) ? agent.wg_interface : "wg0");
 
 async function loadAgent(agentId) {
@@ -771,8 +775,7 @@ const wgContext = memo(async () => {
 			const [iface, pub] = parts;
 			const hosts = peerTunnelHosts(await confTextFor(iface), pub);
 			const nets = l.fullTunnel ? ["0.0.0.0/0"] : (l.importedNetworks || []).map(canonicalCidr).filter(Boolean);
-			if (hosts.length && nets.length)
-				clients.push({ id, label: l.name || pubKey8(pub), hosts, nets });
+			if (hosts.length && nets.length) clients.push({ id, label: l.name || pubKey8(pub), hosts, nets });
 		}
 	}
 	return {
@@ -882,7 +885,7 @@ const internalAgentIngress = {
 			const existing = await loadRules(agent.id, trx);
 			if (existing.length >= MAX_RULES_PER_AGENT)
 				throw new error.ValidationError(`Maximal ${MAX_RULES_PER_AGENT} Freigaben pro Agent`);
-			assertTotalLineCount([...existing, clean]);
+			assertTotalLineCount([...existing, clean], await ifaceCountOf(agent.id));
 			const row = await AgentIngressRule.query(trx).insertAndFetch({
 				...toDbPatch(clean),
 				agent_id: agent.id,
@@ -909,7 +912,7 @@ const internalAgentIngress = {
 			// caps existed must stay possible — that is how an admin gets out of it.
 			if (updateCanGrow(clean)) {
 				assertRuleLineCount(merged);
-				assertTotalLineCount(rules);
+				assertTotalLineCount(rules, await ifaceCountOf(agent.id));
 			}
 			assertNotEmptyRestricted(locked.ingress_mode, rules);
 			const row = await AgentIngressRule.query(trx).patchAndFetchById(ruleId, {
@@ -949,7 +952,7 @@ const internalAgentIngress = {
 			assertNotEmptyRestricted(m, rules);
 			// Never switch into a mode whose ruleset cannot be built (the agent would
 			// silently keep its old filter).
-			assertTotalLineCount(rules);
+			assertTotalLineCount(rules, await ifaceCountOf(agent.id));
 			await Agent.query(trx).patch({ ingress_mode: m }).where("id", agent.id);
 		});
 		await audit(access, "updated", agent, { name: `Modus: ${m}`, ingress_mode: m });
@@ -962,7 +965,11 @@ const internalAgentIngress = {
 	 */
 	async payloadFor(agent, rules = null) {
 		const built = buildIngressRestore(
-			{ ingress_mode: agent.ingress_mode || "open", iface: ifaceOf(agent) },
+			{
+				ingress_mode: agent.ingress_mode || "open",
+				iface: ifaceOf(agent),
+				directIfaces: await internalDirectLink.ifacesFor(agent.id),
+			},
 			rules ?? (await loadRules(agent.id)),
 		);
 		return built ? { hash: built.hash, rules: built.text } : null;
@@ -971,7 +978,11 @@ const internalAgentIngress = {
 	async preview(agentId) {
 		const agent = await loadAgent(agentId);
 		const built = buildIngressRestore(
-			{ ingress_mode: agent.ingress_mode || "open", iface: ifaceOf(agent) },
+			{
+				ingress_mode: agent.ingress_mode || "open",
+				iface: ifaceOf(agent),
+				directIfaces: await internalDirectLink.ifacesFor(agent.id),
+			},
 			await loadRules(agent.id),
 		);
 		return {
@@ -1120,7 +1131,7 @@ const internalAgentIngress = {
 			if (existing.length + fresh.length > MAX_RULES_PER_AGENT)
 				throw new error.ValidationError(`Maximal ${MAX_RULES_PER_AGENT} Freigaben pro Agent`);
 			const after = existing.map((r) => (reIds.includes(r.id) ? { ...r, enabled: true } : r));
-			assertTotalLineCount([...after, ...fresh]);
+			assertTotalLineCount([...after, ...fresh], await ifaceCountOf(agent.id));
 			const out = [];
 			for (const rule of fresh) {
 				const row = await AgentIngressRule.query(trx).insertAndFetch({
@@ -1288,7 +1299,13 @@ const internalAgentIngress = {
 			if (mode === "restricted") {
 				const ownNoHub = ownNets.filter((n) => !hubNets.some((h) => cidrContains(h, n)));
 				// An untyped single-LAN site is inferred as "client" too — never a gap against itself.
-				missing.push(...clientIngressGaps(clients.filter((c) => c.id !== linkId), ownNoHub, rules));
+				missing.push(
+					...clientIngressGaps(
+						clients.filter((c) => c.id !== linkId),
+						ownNoHub,
+						rules,
+					),
+				);
 			}
 
 			// Hub-sourced = EVERY source lies inside a hub/egress address. A broad

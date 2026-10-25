@@ -131,7 +131,8 @@ function sanitizePorts(value) {
 		if (!m) throw new error.ValidationError(`ports: invalid port ${echoValue(portStr)}`);
 		const from = Number(m[1]);
 		const to = m[2] !== undefined ? Number(m[2]) : from;
-		if (from < 1 || to > 65535 || to < from) throw new error.ValidationError(`ports: invalid port ${echoValue(portStr)}`);
+		if (from < 1 || to > 65535 || to < from)
+			throw new error.ValidationError(`ports: invalid port ${echoValue(portStr)}`);
 		const port = from === to ? String(from) : `${from}:${to}`;
 		if (!out.some((p) => p.proto === proto && p.port === port)) out.push({ proto, port });
 	}
@@ -198,11 +199,15 @@ export function assertRuleLineCount(rule) {
 
 /**
  * Reject a ruleset whose ENABLED rules expand to more than MAX_LINES_TOTAL lines
- * in total. Checked on save (create/update/mode change): buildIngressRestore
- * enforces the same cap, and a ruleset it cannot build never reaches the agent.
+ * in total. Checked on save (create/update/mode change, enabling a direct link):
+ * buildIngressRestore enforces the same cap, and a ruleset it cannot build never
+ * reaches the agent. `ifaceCount` = hub interface + enabled direct links — every
+ * rule line is emitted once per interface.
  */
-export function assertTotalLineCount(rules) {
-	const total = (rules || []).filter((r) => r?.enabled !== false).reduce((n, r) => n + ruleLineCount(r), 0);
+export function assertTotalLineCount(rules, ifaceCount = 1) {
+	const total =
+		(rules || []).filter((r) => r?.enabled !== false).reduce((n, r) => n + ruleLineCount(r), 0) *
+		Math.max(1, ifaceCount);
 	if (total > MAX_LINES_TOTAL) {
 		throw new error.ValidationError(
 			`Die aktiven Freigaben ergeben zusammen ${total} Filterzeilen, erlaubt sind höchstens ${MAX_LINES_TOTAL} – bitte Freigaben zusammenfassen oder deaktivieren`,
@@ -274,15 +279,24 @@ export function armedOnPatch(existing, clean, now) {
  * Build the iptables-restore payload for one agent, or null when the agent needs
  * no filter at all (mode "open" without rules — zero footprint on the agent).
  *
- * @param {{ingress_mode: string, iface: string}} agent  iface = sanitized WG interface
+ * Traffic arriving through the agent's direct links (`directIfaces`, fgd<id>,
+ * see agent-direct-link-rules.js) is filtered exactly like traffic from the hub:
+ * every rule line and the final DROP are repeated per interface. Without direct
+ * links the text (and its hash) is unchanged.
+ *
+ * @param {{ingress_mode: string, iface: string, directIfaces?: string[]}} agent  iface = sanitized WG interface
  * @param {Array} rules  API-shaped rules (rowToRule)
  * @returns {{text: string, hash: string, ruleCount: number}|null}
  */
-export function buildIngressRestore({ ingress_mode, iface }, rules) {
+export function buildIngressRestore({ ingress_mode, iface, directIfaces = [] }, rules) {
 	const mode = INGRESS_MODES.has(ingress_mode) ? ingress_mode : "open";
 	const active = (rules || []).filter((r) => r.enabled).sort((a, b) => a.id - b.id);
 	if (mode === "open" && active.length === 0) return null;
 	if (!isWgIface(iface)) throw new Error(`invalid wg interface: ${iface}`);
+	for (const d of directIfaces) {
+		if (!/^fgd\d{1,4}$/.test(String(d))) throw new Error(`invalid direct interface: ${d}`);
+	}
+	const ifaces = [iface, ...directIfaces];
 	if (active.length > MAX_RULES_PER_AGENT) throw new Error("too many ingress rules");
 
 	const restricted = mode === "restricted";
@@ -306,24 +320,26 @@ export function buildIngressRestore({ ingress_mode, iface }, rules) {
 		for (const src of sources) {
 			for (const dst of dests) {
 				for (const p of ports) {
-					let l = `-A ${INGRESS_CHAIN} -s ${src}`;
-					if (dst) l += ` -d ${dst}`;
-					l += ` -i ${iface}`;
-					if (p) {
-						if (!INGRESS_PROTOS.has(p.proto) || !/^\d{1,5}(:\d{1,5})?$/.test(p.port)) {
-							throw new Error(`rule ${rule.id}: bad port`);
+					for (const inIface of ifaces) {
+						let l = `-A ${INGRESS_CHAIN} -s ${src}`;
+						if (dst) l += ` -d ${dst}`;
+						l += ` -i ${inIface}`;
+						if (p) {
+							if (!INGRESS_PROTOS.has(p.proto) || !/^\d{1,5}(:\d{1,5})?$/.test(p.port)) {
+								throw new Error(`rule ${rule.id}: bad port`);
+							}
+							l += ` -p ${p.proto} -m ${p.proto} --dport ${p.port}`;
 						}
-						l += ` -p ${p.proto} -m ${p.proto} --dport ${p.port}`;
+						l += ` -m comment --comment "fg:${rule.id}" -j ${target}`;
+						lines.push(l);
+						ruleCount++;
+						if (ruleCount > MAX_LINES_TOTAL) throw new Error(`more than ${MAX_LINES_TOTAL} ingress lines`);
 					}
-					l += ` -m comment --comment "fg:${rule.id}" -j ${target}`;
-					lines.push(l);
-					ruleCount++;
-					if (ruleCount > MAX_LINES_TOTAL) throw new Error(`more than ${MAX_LINES_TOTAL} ingress lines`);
 				}
 			}
 		}
 	}
-	if (restricted) lines.push(`-A ${INGRESS_CHAIN} -i ${iface} -j DROP`);
+	if (restricted) for (const inIface of ifaces) lines.push(`-A ${INGRESS_CHAIN} -i ${inIface} -j DROP`);
 	lines.push("COMMIT");
 	const text = `${lines.join("\n")}\n`;
 	return { text, hash: createHash("sha256").update(text).digest("hex"), ruleCount };
