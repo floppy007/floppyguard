@@ -1,6 +1,6 @@
 import type { DirectLinkSideStatus } from "src/api/backend";
 import { describe, expect, it } from "vitest";
-import { directEdge, directEdgeState } from "./topology";
+import { directEdge, directEdgeRtt, directEdgeState } from "./topology";
 
 const side = (over: Partial<DirectLinkSideStatus> = {}): DirectLinkSideStatus => ({
 	publicKeyKnown: true,
@@ -22,7 +22,16 @@ describe("directEdgeState", () => {
 			"partly",
 		);
 	});
-	it("is hub when no side is direct (stale counts as not direct)", () => {
+	it("is hub when both sides report in but none routes direct", () => {
+		expect(
+			directEdgeState({
+				enabled: true,
+				blocked: null,
+				statusA: side({ path: "hub" }),
+				statusB: side({ path: "hub" }),
+			}),
+		).toBe("hub");
+		// a stale or down side is "waiting" (same as the badge on the Freigaben page)
 		expect(
 			directEdgeState({
 				enabled: true,
@@ -30,13 +39,25 @@ describe("directEdgeState", () => {
 				statusA: side({ stale: true }),
 				statusB: side({ up: false }),
 			}),
-		).toBe("hub");
+		).toBe("waiting");
 	});
-	it("is off when disabled or blocked", () => {
+	it("is off when disabled, blocked when blocked, waiting while a side has no key / is stale / down", () => {
 		expect(directEdgeState({ enabled: false, blocked: null, statusA: side(), statusB: side() })).toBe("off");
 		expect(directEdgeState({ enabled: true, blocked: "sites-isolated", statusA: side(), statusB: side() })).toBe(
-			"off",
+			"blocked",
 		);
+		expect(
+			directEdgeState({
+				enabled: true,
+				blocked: null,
+				statusA: side({ publicKeyKnown: false }),
+				statusB: side(),
+			}),
+		).toBe("waiting");
+	});
+	it("takes the round-trip time only from a side on the direct path", () => {
+		expect(directEdgeRtt({ statusA: side({ path: "hub", rttMs: 5 }), statusB: side({ rttMs: 61 }) })).toBe(61);
+		expect(directEdgeRtt({ statusA: side({ path: "hub" }), statusB: side({ path: "hub" }) })).toBe(null);
 	});
 });
 

@@ -20,6 +20,7 @@ import {
 	assertDirectLinkFits,
 	directIface,
 	directPayloadEntry,
+	directNetConflict,
 	directPeerNets,
 	endpointIpv4,
 	evaluateDirectChecks,
@@ -36,6 +37,8 @@ import internalAuditLog from "./audit-log.js";
 import internalWireGuard, { canonicalizeIpv4Network, isAcceptableNetworkPrefix } from "./wireguard.js";
 
 const OBJECT_TYPE = "direct-link";
+/** Status error while a side reports a key other than the pinned one (UI matches the prefix). */
+export const KEY_CHANGED_ERROR = "public key changed — confirm in FloppyGuard (Schlüssel neu lernen)";
 
 const parseStatus = (raw) => {
 	if (!raw) return null;
@@ -54,9 +57,10 @@ const pairKey = (x, y) => (x < y ? `${x}|${y}` : `${y}|${x}`);
  * an unambiguous, non-client link name), isolation pairs, all site networks.
  */
 async function loadMeshContext() {
-	const [metadata, pairs] = await Promise.all([
+	const [metadata, pairs, agentRows] = await Promise.all([
 		internalWireGuard.readMetadataStore(),
 		SiteIsolation.query().select("link_a", "link_b"),
+		Agent.query().where("is_deleted", 0).select("config_text"),
 	]);
 	const links = Object.entries(metadata.links || {});
 	const byName = new Map();
@@ -82,6 +86,8 @@ async function loadMeshContext() {
 		siteLinkIdOf: (agent) => siteLinkOf(agent)?.[0] ?? null,
 		isolated: (x, y) => isolatedKeys.has(pairKey(x, y)),
 		siteNets,
+		// everything a /30 must never overlap, re-checked on every view/payload
+		meshNets: [...siteNets, ...agentTunnelSubnets(agentRows)],
 	};
 }
 
@@ -149,7 +155,9 @@ function toView(row, byId, ctx, nowS = Math.floor(Date.now() / 1000)) {
 	let blocked = null;
 	if (!a || !b) blocked = "agent-missing";
 	else if (!la || !lb) blocked = "site-link-missing";
+	else if (la === lb) blocked = "same-site";
 	else if (ctx.isolated(la, lb)) blocked = "sites-isolated";
+	else if (ctx.meshNets && directNetConflict(row, ctx.meshNets)) blocked = "subnet-overlap";
 	else if (natRestrictedConflict(row, a, b)) blocked = "nat-restricted";
 	return {
 		id: row.id,
@@ -278,7 +286,13 @@ const internalDirectLink = {
 
 	async update(access, id, body) {
 		const existing = await loadRow(id);
-		const patch = sanitizeDirectLinkInput(body, { partial: true });
+		const resetKeys = body?.reset_keys === true;
+		const { reset_keys: _ignored, ...rest } = body || {};
+		const patch = sanitizeDirectLinkInput(rest, { partial: true });
+		if (resetKeys) {
+			// "Schlüssel neu lernen": both sides re-report their key on the next heartbeat
+			Object.assign(patch, { a_public_key: null, b_public_key: null, a_status: null, b_status: null });
+		}
 		const merged = { ...existing, ...patch, id: existing.id };
 		if (merged.agent_a_id === merged.agent_b_id) {
 			throw new error.ValidationError("a direct link needs two different agents");
@@ -300,6 +314,7 @@ const internalDirectLink = {
 		await audit(access, "updated", row, {
 			fields: Object.keys(patch).filter((k) => !/_(public_key|status|seen)$/.test(k)),
 			enabled: Boolean(row.enabled),
+			...(resetKeys ? { keys_reset: true } : {}),
 		});
 		return toView(row, byId, await loadMeshContext());
 	},
@@ -396,6 +411,29 @@ const internalDirectLink = {
 	},
 
 	/**
+	 * Per enabled link of this agent: the partner's hub tunnel address and its
+	 * /30 address on the link — the partner gateway's own traffic arrives from the
+	 * latter on the direct path, so Freigaben for the hub address must cover it.
+	 */
+	async ingressAliasesFor(agentId) {
+		const rows = await AgentDirectLink.query()
+			.where("enabled", 1)
+			.where((q) => q.where("agent_a_id", agentId).orWhere("agent_b_id", agentId));
+		if (!rows.length) return [];
+		const { byId } = await loadAgentsMap();
+		const out = [];
+		for (const row of rows.sort((x, y) => x.id - y.id)) {
+			const side = row.agent_a_id === agentId ? "a" : "b";
+			const partner = byId.get(side === "a" ? row.agent_b_id : row.agent_a_id);
+			const m = String(partner?.config_text || "").match(/^\s*Address\s*=\s*(\d{1,3}(?:\.\d{1,3}){3})\//im);
+			const addrs = tunnelAddresses(row.tunnel_subnet);
+			const direct = side === "a" ? addrs.b : addrs.a;
+			if (m && direct) out.push({ iface: directIface(row.id), hub: m[1], direct });
+		}
+		return out;
+	},
+
+	/**
 	 * `direct_links` for /agent/config: one entry per link this agent is a side
 	 * of. `otherSiteNetsFor(agentRow)` = the agent's hub-side reach (agent.js).
 	 */
@@ -418,6 +456,7 @@ const internalDirectLink = {
 				Boolean(partner && ownLink && partnerLink) &&
 				ownLink[0] !== partnerLink[0] &&
 				!ctx.isolated(ownLink[0], partnerLink[0]) &&
+				!directNetConflict(row, ctx.meshNets) &&
 				!natRestrictedConflict(row, side === "a" ? self : partner, side === "a" ? partner : self);
 			const peerNets = active
 				? directPeerNets(await otherSiteNetsFor(self), partnerLink[1].importedNetworks || [], [
@@ -433,6 +472,16 @@ const internalDirectLink = {
 					peerPublicKey: side === "a" ? row.b_public_key : row.a_public_key,
 					peerNets,
 					active,
+					// relay guard: traffic from the partner may only reach this site's nets
+					ownNets: active
+						? [
+								...new Set(
+									(ownLink[1].importedNetworks || []).filter((n) =>
+										/^\d{1,3}(\.\d{1,3}){3}\/\d{1,2}$/.test(n),
+									),
+								),
+							].sort()
+						: [],
 				}),
 			);
 		}
@@ -453,10 +502,18 @@ const internalDirectLink = {
 			if (!r) continue;
 			const side = row.agent_a_id === agent.id ? "a" : "b";
 			const patch = { [`${side}_status`]: JSON.stringify(r.status), [`${side}_seen`]: now };
-			if (r.public_key && r.public_key !== row[`${side}_public_key`]) {
+			const known = row[`${side}_public_key`];
+			if (r.public_key && !known) {
 				patch[`${side}_public_key`] = r.public_key;
 				logger.info(
-					`Direct link ${row.id} (${row.name}): new public key from agent ${agent.name} (side ${side})`,
+					`Direct link ${row.id} (${row.name}): public key learned from agent ${agent.name} (side ${side})`,
+				);
+			} else if (r.public_key && r.public_key !== known) {
+				// Pinned: a changed key (re-installed gateway — or a stolen agent token)
+				// is only taken after the admin confirms it ("Schlüssel neu lernen").
+				patch[`${side}_status`] = JSON.stringify({ ...r.status, error: KEY_CHANGED_ERROR });
+				logger.warn(
+					`Direct link ${row.id} (${row.name}): agent ${agent.name} reports a DIFFERENT public key (side ${side}) — kept the pinned key, admin must confirm`,
 				);
 			}
 			// Plain knex update: status bookkeeping must not bump modified_on.

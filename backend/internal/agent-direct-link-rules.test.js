@@ -361,11 +361,97 @@ test("second audit: restricted side vs partner NAT, endpoint inside a mesh net, 
 	ctx.agents.get(1).ingress_mode = "restricted";
 	assert.throws(() => assertDirectLinkFits(link({ nat_a: true }), ctx), /nur Freigaben/);
 	assert.throws(() => assertDirectLinkFits(link({ endpoint_host: "192.168.200.9" }), fitsCtx()), /lies inside/);
-	// disabled: even a /30 that collides with a newer site net can be saved (switch off)
-	assert.doesNotThrow(() =>
-		assertDirectLinkFits(
-			link({ enabled: false, tunnel_subnet: "10.4.9.0/30" }),
-			fitsCtx({ others: [link({ id: 2 })] }),
+	// disabled: a /30 that collides with a newer site net can still be saved (switch off) …
+	assert.doesNotThrow(() => assertDirectLinkFits(link({ enabled: false, tunnel_subnet: "10.4.9.0/30" }), fitsCtx()));
+	// … but a disabled DRAFT for the same pair / /30 / port is refused (it would block the running link)
+	assert.throws(
+		() =>
+			assertDirectLinkFits(
+				link({ enabled: false, tunnel_subnet: "10.10.9.8/30" }),
+				fitsCtx({ others: [link({ id: 2 })] }),
+			),
+		/already have direct link/,
+	);
+});
+
+test("third audit: relay guard, runtime net conflicts, pinned keys, partner /30 in Freigaben", async () => {
+	const { buildDirectHooks, buildDirectConfig, directNetConflict, directGuardChain } = await import(
+		"./agent-direct-link-rules.js"
+	);
+	const { buildIngressRestore } = await import("./agent-ingress-rules.js");
+	// relay guard: only own nets pass, chain jumped to first, removed on down
+	const h = buildDirectHooks({
+		iface: "fgd1",
+		hubIface: "wg0",
+		tunnelSubnet: "10.10.9.0/30",
+		nat: false,
+		ownNets: ["192.168.20.0/24", "10.3.10.0/24"],
+	});
+	assert.equal(directGuardChain("fgd12"), "FGD12");
+	assert.ok(h.postUp.includes("iptables -N FGD1 2>/dev/null || iptables -F FGD1"));
+	assert.ok(h.postUp.includes("iptables -A FGD1 -d 192.168.20.0/24 -j RETURN"));
+	assert.ok(h.postUp.includes("iptables -A FGD1 -j DROP"));
+	assert.ok(
+		h.postUp.includes("iptables -C FORWARD -i fgd1 -j FGD1 2>/dev/null || iptables -I FORWARD 1 -i fgd1 -j FGD1"),
+	);
+	assert.ok(h.postUp.indexOf("-I FORWARD 1 -i fgd1 -j FGD1") < h.postUp.indexOf("FORWARD -i fgd1 -j ACCEPT"));
+	assert.ok(h.postDown.includes("iptables -X FGD1"));
+	assert.throws(() =>
+		buildDirectHooks({ iface: "fgd1", hubIface: "wg0", tunnelSubnet: "10.10.9.0/30", ownNets: ["x; rm -rf /"] }),
+	);
+	const cfg = buildDirectConfig({
+		link: link(),
+		side: "a",
+		hubIface: "wg0",
+		peerPublicKey: "a".repeat(42) + "A=",
+		peerNets: ["192.168.20.0/24"],
+		ownNets: ["192.168.200.0/24"],
+	});
+	assert.ok(cfg.includes("iptables -A FGD1 -d 192.168.200.0/24 -j RETURN"));
+	// runtime conflict: a net added after saving takes the link out of use
+	assert.equal(directNetConflict(link(), ["192.168.20.0/24"]), null);
+	assert.match(directNetConflict(link(), ["10.10.9.0/24"]), /overlaps/);
+	assert.match(directNetConflict(link({ endpoint_host: "192.168.20.9" }), ["192.168.20.0/24"]), /lies inside/);
+	// partner gateway's own traffic: a Freigabe for its hub address also admits its /30 address on that link only
+	const built = buildIngressRestore(
+		{
+			ingress_mode: "restricted",
+			iface: "wg0",
+			directIfaces: ["fgd2"],
+			directAliases: [{ iface: "fgd2", hub: "10.10.0.5", direct: "10.10.9.5" }],
+		},
+		[
+			{
+				id: 2,
+				enabled: true,
+				sources: ["10.10.0.5/32", "192.168.111.0/24"],
+				destinations: ["10.3.10.245/32"],
+				ports: [],
+			},
+		],
+	);
+	assert.ok(
+		built.text.includes('-A FG_IN -s 10.10.9.5/32 -d 10.3.10.245/32 -i fgd2 -m comment --comment "fg:2" -j ACCEPT'),
+	);
+	assert.ok(!built.text.includes("-s 10.10.9.5/32 -d 10.3.10.245/32 -i wg0"));
+	// the LAN source gets no alias
+	assert.equal((built.text.match(/10\.10\.9\.5/g) || []).length, 1);
+});
+
+test("agent script 1.6.1: rule self-heal, hub-source rule, stop trap, retry restore, no DNS on in-place update", () => {
+	const s = agentExports.buildLoopScript();
+	assert.ok(s.includes('direct_hooks_heal "$iface"'));
+	assert.ok(s.includes('bash -c "$postup"'));
+	assert.ok(s.includes('ip rule add pref $DIRECT_HUBSRC_PREF from "$addr" lookup main'));
+	assert.ok(s.includes("trap 'direct_all_off' EXIT"));
+	// the stop trap is installed after the --ingress-only boot exit (boot must not flush the tables)
+	assert.ok(s.indexOf("trap 'direct_all_off' EXIT") > s.indexOf('[ "$1" = "--ingress-only" ]; then'));
+	assert.ok(s.includes("retrying"));
+	assert.ok(s.includes('sed "s/^Endpoint = .*/Endpoint = $curep/"'));
+	// the overlap guard looks at every main-table route, not only connected LANs
+	assert.ok(
+		!s.includes(
+			'route show table main proto kernel scope link 2>/dev/null | awk \'$2 == "dev" && $3 !~ /^(wg|fgd)[0-9]/',
 		),
 	);
 });

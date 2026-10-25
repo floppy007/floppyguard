@@ -67,8 +67,8 @@ const hashConfig = (text) => {
 // buildLoopScript() output therefore needs a new version — AGENT_SCRIPT_SHA256
 // pins the script of this version and agent.test.js fails when the script
 // changes without a new version/pin (released versions are listed there).
-const AGENT_SCRIPT_VERSION = "1.6.0";
-const AGENT_SCRIPT_SHA256 = "ae0bc15b0dfea1b25ede6d8aa13260be466b2cb97cb8e4999dcb4f5a2e8ba538";
+const AGENT_SCRIPT_VERSION = "1.6.1";
+const AGENT_SCRIPT_SHA256 = "886a8a08396c7189667a5028d33d97308edb76e6a015f8120247871245b37b84";
 
 /** Setting key holding the hub URLs propagated to agents. */
 const AGENT_HUB_URL_SETTING = "agent-hub-url";
@@ -927,6 +927,8 @@ const directFunctions = `\
 DIRECT_DIR="/var/lib/floppyguard-agent/direct"
 DIRECT_RUN="/run/floppyguard-agent/direct"
 DIRECT_RULE_PREF=31000
+# replies from the gateway's own hub tunnel address must stay on the hub path
+DIRECT_HUBSRC_PREF=30999
 DIRECT_HS_MAX=180
 DIRECT_FAILS=3
 DIRECT_OKS=3
@@ -983,6 +985,85 @@ direct_ct_flush() {
   return 0
 }
 
+# Keep traffic SOURCED from the gateway's own hub tunnel address (replies to
+# connections that came in over the hub, services bound to it) in the main
+# table: in the per-link table it would leave through the direct tunnel, whose
+# partner does not accept that source. Follows a changed hub address.
+direct_hubsrc_rule() {
+  local addr cur r
+  addr=$(ip -4 -o addr show dev "$WG_INTERFACE" 2>/dev/null | awk '!d {split($4, a, "/"); print a[1]; d = 1}' || true)
+  cur=$(ip rule show pref $DIRECT_HUBSRC_PREF 2>/dev/null || true)
+  if [ -n "$cur" ]; then
+    while IFS= read -r r; do
+      if [ -n "$addr" ] && [[ "$r" == *"from $addr lookup main"* ]]; then continue; fi
+      ip rule del pref $DIRECT_HUBSRC_PREF 2>/dev/null || true
+    done <<< "$cur"
+  fi
+  if [ -n "$addr" ]; then
+    case "$(ip rule show pref $DIRECT_HUBSRC_PREF 2>/dev/null || true)" in
+      *"from $addr lookup main"*) ;;
+      *) ip rule add pref $DIRECT_HUBSRC_PREF from "$addr" lookup main 2>/dev/null || true ;;
+    esac
+  fi
+  return 0
+}
+
+# Agent stops (systemctl stop, crash, set -e abort): without the health check
+# nobody would take a broken direct path out of use — empty every per-link table
+# so the hub routes carry the traffic. A self-update uses exec (no EXIT trap),
+# so running links keep their routes across it.
+direct_all_off() {
+  local f id table
+  for f in "$DIRECT_DIR"/*.table; do
+    [ -e "$f" ] || continue
+    id=$(basename "$f" .table)
+    table=$(_direct_num "$(cat "$f" 2>/dev/null || true)")
+    if [ "$table" != 0 ]; then ip route flush table "$table" 2>/dev/null || true; fi
+    printf 'hub\\n' > "$DIRECT_RUN/$id.path" 2>/dev/null || true
+  done
+  return 0
+}
+
+# The FORWARD/MASQUERADE/relay-guard rules of a running direct interface come
+# from its PostUp only. A netfilter reload (netfilter-persistent, admin) drops
+# them while the interface and the health ping (INPUT) keep working: check the
+# PostUp's own "-C" probes every tick and re-run the (idempotent) PostUp when one
+# is missing. The relay guard must also stay in front of the FG_IN jump (an ACCEPT
+# there would otherwise skip it).
+direct_hooks_heal() {
+  local iface="$1" conf="/etc/wireguard/$1.conf" postup seg chk need=0 guard pos_g pos_i
+  local -a words
+  [ -f "$conf" ] || return 0
+  postup=$(awk '!d && sub(/^PostUp = /, "") {print; d = 1}' "$conf" 2>/dev/null || true)
+  [ -n "$postup" ] || return 0
+  while IFS= read -r seg; do
+    case "$seg" in
+      "iptables "*" -C "*" || iptables "*)
+        chk="\${seg%% 2>/dev/null*}"
+        read -r -a words <<< "$chk"
+        if ! "\${words[@]}" > /dev/null 2>&1; then need=1; break; fi
+        ;;
+    esac
+  done <<< "$(printf '%s\\n' "$postup" | sed 's/; /\\n/g')"
+  if [ "$need" = 1 ]; then
+    if bash -c "$postup" > /dev/null 2>&1; then
+      log "Direct interface $iface: firewall rules were missing (netfilter reload?) — re-applied"
+    else
+      log "Direct interface $iface: re-applying its firewall rules failed"
+    fi
+  fi
+  guard="FGD\${iface#fgd}"
+  if iptables -S "$guard" > /dev/null 2>&1; then
+    pos_g=$(iptables -S FORWARD 2>/dev/null | awk -v p="-i $iface -j $guard" '!n && index($0, p) {n = NR} END {print n}' || true)
+    pos_i=$(iptables -S FORWARD 2>/dev/null | awk -v p="-j $INGRESS_CHAIN" '!n && index($0, p) {n = NR} END {print n}' || true)
+    if [ -n "$pos_g" ] && [ -n "$pos_i" ] && [ "$pos_g" -gt "$pos_i" ]; then
+      iptables -D FORWARD -i "$iface" -j "$guard" 2>/dev/null || true
+      iptables -I FORWARD 1 -i "$iface" -j "$guard" 2>/dev/null || true
+    fi
+  fi
+  return 0
+}
+
 direct_routes_off() {
   local table was
   was=$(cat "$DIRECT_RUN/$1.path" 2>/dev/null || true)
@@ -1002,7 +1083,11 @@ direct_routes_on() {
   _direct_iface_ok "$iface" && [ "$table" != 0 ] || return 1
   ip link show "$iface" > /dev/null 2>&1 || return 1
   [ -f "$DIRECT_DIR/$id.routes" ] || return 1
-  conn=$(ip -4 route show table main proto kernel scope link 2>/dev/null | awk '$2 == "dev" && $3 !~ /^(wg|fgd)[0-9]/ && $3 !~ /^(docker|br-|veth)/ {print $1}' | grep '/' || true)
+  # Every main-table network that is NOT reached through a WireGuard tunnel must
+  # stay where it is: connected LANs, static via-routes, docker bridges and other
+  # tunnels — table <table> is consulted before main, so a partner net
+  # overlapping any of them would hijack it.
+  conn=$(ip -4 route show table main 2>/dev/null | awk '$1 != "default" && $0 !~ / dev (wg|fgd)[0-9]/ {print $1}' | grep '/' || true)
   while IFS= read -r net; do
     [ -z "$net" ] && continue
     if [ -n "$conn" ] && _net_overlaps "$net" "$conn"; then
@@ -1017,6 +1102,7 @@ direct_routes_on() {
       ip route del "$net" table "$table" 2>/dev/null || true
     fi
   done
+  direct_hubsrc_rule
   rules=" $(ip rule show pref $DIRECT_RULE_PREF 2>/dev/null | tr '\\n' ' ' || true) "
   case "$rules" in
     *"lookup $table "*) ;;
@@ -1046,6 +1132,8 @@ direct_iface_down() {
       iptables -t "$tbl" $r 2>/dev/null || true
     done || true
   done
+  iptables -F "FGD\${iface#fgd}" 2>/dev/null || true
+  iptables -X "FGD\${iface#fgd}" 2>/dev/null || true
   return 0
 }
 
@@ -1067,12 +1155,16 @@ direct_teardown() {
   if [ "$forget" = 1 ]; then
     rm -f "$DIRECT_DIR/$id.key" "$DIRECT_DIR/$id.iface" "$DIRECT_DIR/$id.table" "$DIRECT_RUN/$id.path" "$DIRECT_RUN/$id.err"
   fi
+  # no link left: nothing of the direct-link machinery stays on the gateway
+  if ! ls "$DIRECT_DIR"/*.hash > /dev/null 2>&1; then
+    while ip rule del pref $DIRECT_HUBSRC_PREF 2>/dev/null; do :; done
+  fi
 }
 
 # (Re)start link $1 on iface $2 with the staged config; $3 = config hash.
 direct_up() {
   # Staged under its interface name: wg-quick strip only accepts <iface>.conf.
-  local id="$1" iface="$2" hash="$3" conf="/etc/wireguard/$2.conf" stage="$DIRECT_DIR/stage/$2.conf" stripped=""
+  local id="$1" iface="$2" hash="$3" conf="/etc/wireguard/$2.conf" stage="$DIRECT_DIR/stage/$2.conf" stripped="" curep=""
   mkdir -p "$DIRECT_DIR/stage"
   rm -f "$DIRECT_RUN/$id.err"
   if ! direct_ingress_ok "$iface"; then
@@ -1111,6 +1203,13 @@ os.replace(tmp, sys.argv[2])
   if ip link show "$iface" > /dev/null 2>&1 && [ -f "$conf" ] && \\
     [ "$(awk '$1 == "[Peer]" {exit} {print}' "$conf")" = "$(awk '$1 == "[Peer]" {exit} {print}' "$stage")" ]; then
     stripped=$(wg-quick strip "$stage" 2>/dev/null || true)
+    # A host name endpoint would be resolved again by syncconf — a resolver hiccup
+    # then tore a healthy link down. Keep the endpoint the interface runs with
+    # (the health check re-resolves the name while the handshake is stale).
+    curep=$(wg show "$iface" endpoints 2>/dev/null | awk 'NR==1 {print $2}' || true)
+    if [ -n "$curep" ] && [ "$curep" != "(none)" ] && [[ "$curep" =~ ^[0-9.]+:[0-9]+$ ]]; then
+      stripped=$(printf '%s\\n' "$stripped" | sed "s/^Endpoint = .*/Endpoint = $curep/")
+    fi
     case "$stripped" in
       *PrivateKey*"[Peer]"*PublicKey*)
         if WG_ENDPOINT_RESOLUTION_RETRIES=1 wg syncconf "$iface" <(printf '%s\\n' "$stripped") 2>/dev/null; then
@@ -1282,6 +1381,24 @@ direct_health() {
       log "Direct link $id: Freigaben filter does not cover $iface — taken down"
       continue
     fi
+    if ! ip link show "$iface" > /dev/null 2>&1 && [ -f "/etc/wireguard/$iface.conf" ] && direct_ingress_ok "$iface"; then
+      # down although it should run (boot without hub, failed restore): retry
+      # here — direct_step only runs while the hub answers
+      if WG_ENDPOINT_RESOLUTION_RETRIES=1 wg-quick up "$iface" > /dev/null 2>&1; then
+        log "Direct link $id restored on $iface"
+      fi
+    fi
+    if ip link show "$iface" > /dev/null 2>&1; then
+      direct_hooks_heal "$iface"
+      # loose rp_filter on the hub interface too (a restarted wg0 starts strict)
+      if [ "$(cat "/proc/sys/net/ipv4/conf/$WG_INTERFACE/rp_filter" 2>/dev/null || echo 0)" = 1 ]; then
+        sysctl -qw "net.ipv4.conf.$WG_INTERFACE.rp_filter=2" 2>/dev/null || true
+      fi
+      if ! command -v conntrack > /dev/null 2>&1 && grep -q -- "-o $iface -j MASQUERADE" "/etc/wireguard/$iface.conf" 2>/dev/null && \
+        [ ! -s "$DIRECT_RUN/$id.err" ]; then
+        printf 'conntrack tool missing — NATed flows hang after a path switch (apt install conntrack)\\n' > "$DIRECT_RUN/$id.err"
+      fi
+    fi
     if ! ip link show "$iface" > /dev/null 2>&1; then
       ok=0
     elif ! command -v ping > /dev/null 2>&1; then
@@ -1399,10 +1516,16 @@ for f in "$DIRECT_DIR"/*.hash; do
   direct_routes_off "$id"
   if [ -f "/etc/wireguard/$iface.conf" ] && direct_ingress_ok "$iface" && WG_ENDPOINT_RESOLUTION_RETRIES=1 wg-quick up "$iface" >&2; then
     log "Direct link $id restored on $iface"
-  else
+  elif [ ! -f "/etc/wireguard/$iface.conf" ]; then
     rm -f "$f"
+  else
+    # resolver/ingress not ready yet (boot): direct_health retries every tick
+    log "Direct link $id: restore on $iface failed — retrying"
   fi
-done`;
+done
+# Agent ends (stop, crash) → empty the per-link tables, the hub routes take over.
+trap 'direct_all_off' EXIT
+trap 'exit 143' TERM INT`;
 
 // Loop part: after the ingress step (a restricted gateway's FG_IN must already
 // cover the direct interfaces), before the heartbeat.
@@ -2350,6 +2473,15 @@ const internalAgent = {
 			assertIngressTornDown(existing, await internalAgentIngress.appliedFor(existing));
 		} catch (err) {
 			return { reason: err.message, forceable };
+		}
+		// An enabled direct link must be switched off (and torn down by the agent)
+		// first — a deleted agent never polls again and would keep fgd<id>, its
+		// FORWARD/MASQUERADE rules and the ip rule forever.
+		if ((await internalDirectLink.ifacesFor(existing.id)).length) {
+			return {
+				reason: "the agent still has enabled direct links (Direktverbindungen) — switch them off first, the agent tears them down on its next poll",
+				forceable,
+			};
 		}
 		return null;
 	},

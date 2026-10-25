@@ -969,6 +969,7 @@ const internalAgentIngress = {
 				ingress_mode: agent.ingress_mode || "open",
 				iface: ifaceOf(agent),
 				directIfaces: await internalDirectLink.ifacesFor(agent.id),
+				directAliases: await internalDirectLink.ingressAliasesFor(agent.id),
 			},
 			rules ?? (await loadRules(agent.id)),
 		);
@@ -982,6 +983,7 @@ const internalAgentIngress = {
 				ingress_mode: agent.ingress_mode || "open",
 				iface: ifaceOf(agent),
 				directIfaces: await internalDirectLink.ifacesFor(agent.id),
+				directAliases: await internalDirectLink.ingressAliasesFor(agent.id),
 			},
 			await loadRules(agent.id),
 		);

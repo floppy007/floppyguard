@@ -33,6 +33,8 @@ export const DIRECT_KEEPALIVE_S = 25;
 export const DIRECT_PATHS = new Set(["direct", "hub"]);
 
 export const directIface = (id) => `fgd${id}`;
+/** Relay-guard chain of a direct interface (fgd12 → FGD12). */
+export const directGuardChain = (iface) => `FGD${String(iface).replace(/^fgd/, "")}`;
 export const isDirectIface = (name) => /^fgd\d{1,4}$/.test(String(name ?? ""));
 export const directTable = (id) => DIRECT_TABLE_BASE + Number(id);
 
@@ -167,6 +169,10 @@ export function sanitizeDirectLinkInput(body, { partial = false } = {}) {
  * @throws {error.ValidationError}
  */
 export function assertDirectLinkFits(link, ctx) {
+	// Structural checks against the other links apply to every link, enabled or
+	// not: an unchecked disabled draft (same pair, same /30, same port) would
+	// otherwise block every later save of the running link.
+	assertNoLinkClash(link, ctx.others);
 	if (!link.enabled) return;
 	const a = ctx.agents.get(link.agent_a_id);
 	const b = ctx.agents.get(link.agent_b_id);
@@ -189,16 +195,30 @@ export function assertDirectLinkFits(link, ctx) {
 			"a side with „nur Freigaben“ cannot take a partner that masquerades into the direct tunnel: its Freigaben match the partner's hub address, on the direct path the traffic would arrive from the transfer net and be dropped",
 		);
 	}
+	const conflict = directNetConflict(link, [...ctx.siteNets, ...ctx.agentTunnelSubnets]);
+	if (conflict) throw new error.ValidationError(conflict);
+}
+
+/**
+ * Network conflict of a link with the mesh (pure, also used at runtime: a site
+ * or tunnel net added AFTER the link was saved must take the link out of use,
+ * the /30 would otherwise hijack it on both gateways). null = none.
+ */
+export function directNetConflict(link, nets) {
 	const t = link.tunnel_subnet;
-	const nets = [...ctx.siteNets, ...ctx.agentTunnelSubnets];
 	const clash = nets.find((n) => cidrContains(n, t) || cidrContains(t, n));
-	if (clash) throw new error.ValidationError(`tunnel_subnet ${t} overlaps ${clash}`);
+	if (clash) return `tunnel_subnet ${t} overlaps ${clash}`;
 	// The tunnel's own UDP must never be routed into the per-link table.
 	if (isIpv4Literal(link.endpoint_host)) {
 		const inside = nets.find((n) => cidrContains(n, `${link.endpoint_host}/32`));
-		if (inside) throw new error.ValidationError(`endpoint_host ${link.endpoint_host} lies inside ${inside}`);
+		if (inside) return `endpoint_host ${link.endpoint_host} lies inside ${inside}`;
 	}
-	for (const o of ctx.others) {
+	return null;
+}
+
+function assertNoLinkClash(link, others = []) {
+	const t = link.tunnel_subnet;
+	for (const o of others) {
 		if (o.id === link.id) continue;
 		if (cidrContains(o.tunnel_subnet, t) || cidrContains(t, o.tunnel_subnet)) {
 			throw new error.ValidationError(`tunnel_subnet ${t} is already used by direct link "${o.name}"`);
@@ -237,10 +257,27 @@ const assertCidr = (n) => {
  * disagree on the path (one already back on the hub), a reply may arrive on the
  * other tunnel than its route points to, which strict rp_filter would drop.
  */
-export function buildDirectHooks({ iface, hubIface, tunnelSubnet, nat }) {
+export function buildDirectHooks({ iface, hubIface, tunnelSubnet, nat, ownNets = [] }) {
 	if (!isDirectIface(iface)) throw new Error(`invalid direct interface: ${iface}`);
 	if (!/^wg\d{1,3}$/.test(hubIface)) throw new Error(`invalid hub interface: ${hubIface}`);
 	assertCidr(tunnelSubnet);
+	for (const n of ownNets) assertCidr(n);
+	// Relay guard: what arrives through the direct tunnel may only go to this
+	// site's own networks — never on into the hub tunnel, another direct link or
+	// the internet (the partner would otherwise use this gateway to reach sites
+	// the hub separates it from). Own chain FGD<id>, jumped to before FG_IN.
+	const guard = directGuardChain(iface);
+	const guardUp = [
+		`iptables -N ${guard} 2>/dev/null || iptables -F ${guard}`,
+		...ownNets.map((n) => `iptables -A ${guard} -d ${n} -j RETURN`),
+		`iptables -A ${guard} -j DROP`,
+		`iptables -C FORWARD -i ${iface} -j ${guard} 2>/dev/null || iptables -I FORWARD 1 -i ${iface} -j ${guard}`,
+	];
+	const guardDown = [
+		`iptables -D FORWARD -i ${iface} -j ${guard} 2>/dev/null || true`,
+		`iptables -F ${guard} 2>/dev/null || true`,
+		`iptables -X ${guard} 2>/dev/null || true`,
+	];
 	const rules = [
 		[`FORWARD -i ${iface} -j ACCEPT`, ""],
 		[`FORWARD -o ${iface} -j ACCEPT`, ""],
@@ -254,9 +291,10 @@ export function buildDirectHooks({ iface, hubIface, tunnelSubnet, nat }) {
 		// wg-quick runs the hook under set -e: a missing hub interface (wg0 not up
 		// yet at boot) must not abort bringing the direct link up
 		`[ ! -e /proc/sys/net/ipv4/conf/${hubIface} ] || sysctl -w net.ipv4.conf.${hubIface}.rp_filter=2`,
+		...guardUp,
 		...rules.map(([r, t]) => `iptables ${t}-C ${r} 2>/dev/null || iptables ${t}-A ${r}`),
 	];
-	const down = rules.map(([r, t]) => `iptables ${t}-D ${r} 2>/dev/null || true`);
+	const down = [...guardDown, ...rules.map(([r, t]) => `iptables ${t}-D ${r} 2>/dev/null || true`)];
 	return { postUp: up.join("; "), postDown: down.join("; ") };
 }
 
@@ -264,13 +302,13 @@ export function buildDirectHooks({ iface, hubIface, tunnelSubnet, nat }) {
  * wg-quick config of one side WITHOUT PrivateKey (the agent inserts its own).
  * null while the partner's public key is not known yet.
  */
-export function buildDirectConfig({ link, side, hubIface, peerPublicKey, peerNets, mtu }) {
+export function buildDirectConfig({ link, side, hubIface, peerPublicKey, peerNets, mtu, ownNets = [] }) {
 	if (!isWgPublicKey(peerPublicKey)) return null;
 	const iface = directIface(link.id);
 	const addrs = tunnelAddresses(link.tunnel_subnet);
 	const own = side === "a" ? addrs.a : addrs.b;
 	const nat = side === "a" ? link.nat_a : link.nat_b;
-	const { postUp, postDown } = buildDirectHooks({ iface, hubIface, tunnelSubnet: link.tunnel_subnet, nat });
+	const { postUp, postDown } = buildDirectHooks({ iface, hubIface, tunnelSubnet: link.tunnel_subnet, nat, ownNets });
 	for (const n of peerNets) assertCidr(n);
 	const lines = ["[Interface]", `Address = ${own}/30`];
 	if (side === "a") lines.push(`ListenPort = ${link.listen_port}`);
@@ -304,10 +342,10 @@ export function directPeerNets(otherSiteNets, partnerNets, ownNets = []) {
  * Disabled / isolated / incomplete links are sent as `enabled: false`, so the
  * agent tears the tunnel down but keeps its key.
  */
-export function directPayloadEntry({ link, side, hubIface, peerPublicKey, peerNets, active }) {
+export function directPayloadEntry({ link, side, hubIface, peerPublicKey, peerNets, active, ownNets = [] }) {
 	const base = { id: link.id, iface: directIface(link.id), table: directTable(link.id) };
 	if (!active) return { ...base, enabled: false };
-	const config = buildDirectConfig({ link, side, hubIface, peerPublicKey, peerNets, mtu: link.mtu });
+	const config = buildDirectConfig({ link, side, hubIface, peerPublicKey, peerNets, mtu: link.mtu, ownNets });
 	const addrs = tunnelAddresses(link.tunnel_subnet);
 	return {
 		...base,

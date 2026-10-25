@@ -5,6 +5,42 @@ This project diverges from upstream nginx-proxy-manager starting at v1.0.0.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.5.2] - 2026-10-25
+
+Audit fixes for direct links. **Agent script 1.6.1:** every agent self-updates once.
+
+### English
+
+#### Fixed
+
+- **Firewall rules of a direct interface are self-healing:** a netfilter reload (netfilter-persistent, admin) dropped the FORWARD/MASQUERADE rules of `fgd<id>` while the health ping (INPUT) stayed green — forwarded traffic to the partner site fell into a DROP policy while the UI showed "direct". The agent now checks the PostUp rules every 10 s and re-applies them.
+- **Relay guard:** traffic arriving through a direct tunnel may only reach the receiving site's own networks (chain `FGD<id>`, jumped to before FG_IN) — no longer on into the hub tunnel, another direct link or the internet, which a compromised partner could have used to bypass site separation.
+- **Pinned keys:** a public key reported in the heartbeat is learned once; a different key is no longer taken over silently (a stolen agent token was enough to take over the tunnel). The link shows the change, the admin confirms with "Re-learn keys" (audit-logged).
+- **Replies from the gateway's hub tunnel address stay on the hub path** (`ip rule pref 30999 from <hub address> lookup main`); before they went into the direct tunnel and were dropped by the partner.
+- **Freigaben for the partner gateway's hub address** also admit its /30 address on that direct interface (the gateway's own traffic arrives from it on the direct path).
+- **Fallback without agent:** when the agent stops or crashes, the per-link tables are emptied so the hub routes take over (self-update via exec keeps them).
+- **DynDNS links:** an in-place peer update keeps the running endpoint IP instead of resolving the name again — a resolver hiccup no longer tears a healthy link down. A link whose restore failed at boot (hub or resolver not reachable yet) is retried every tick.
+- **Overlap guard of the per-link table** considers every main-table route (static via-routes, docker bridges, foreign tunnels), not only connected LANs.
+- rp_filter of the hub interface is kept loose while a direct link runs; a missing `conntrack` tool on a NATing side is reported.
+- **Backend:** network conflicts of a link (transfer net / endpoint inside a site or tunnel net added later) are re-checked at runtime — the link is taken out of use and shown as blocked; a disabled draft is validated against the other links (same pair, /30, port) so it can no longer block the running link; "same site" is shown as blocked; an agent with enabled direct links cannot be deleted without force.
+- **UI:** the map shows the same states as the Freigaben page (waiting / blocked / partly direct) and takes the round-trip time only from a side on the direct path; the endpoint prefill follows a change of side A; editing sends only changed fields; check texts no longer show raw codes; the port-forward check says what it really proves.
+
+### Deutsch
+
+#### Behoben
+
+- **Firewall-Regeln eines Direkt-Interfaces heilen sich selbst:** Ein Neuladen der Firewall (netfilter-persistent, Admin) entfernte die FORWARD-/MASQUERADE-Regeln von `fgd<id>`, der Gesundheits-Ping (INPUT) blieb grün – weitergeleiteter Verkehr zum Partnerstandort lief in die DROP-Policy, die Oberfläche zeigte „direkt“. Der Agent prüft die PostUp-Regeln jetzt alle 10 s und setzt fehlende neu.
+- **Relay-Schutz:** Verkehr aus einem Direkttunnel darf nur in die eigenen Netze des Standorts (Kette `FGD<id>`, vor FG_IN) – nicht mehr weiter in den Hub-Tunnel, eine andere Direktverbindung oder ins Internet, womit ein kompromittierter Partner die Standort-Trennung hätte umgehen können.
+- **Gepinnte Schlüssel:** Ein im Heartbeat gemeldeter öffentlicher Schlüssel wird einmal gelernt; ein anderer Schlüssel wird nicht mehr still übernommen (ein gestohlener Agent-Token reichte, um den Tunnel zu übernehmen). Die Verbindung zeigt den Wechsel an, der Admin bestätigt mit „Schlüssel neu lernen“ (im Audit-Log).
+- **Antworten von der Hub-Tunneladresse des Gateways bleiben auf dem Hub-Weg** (`ip rule pref 30999 from <Hub-Adresse> lookup main`); vorher liefen sie in den Direkttunnel und wurden vom Partner verworfen.
+- **Freigaben für die Hub-Adresse des Partner-Gateways** gelten auf dessen Direkt-Interface auch für seine /30-Adresse (eigener Verkehr des Gateways kommt auf dem Direktweg von dort).
+- **Rückfall ohne Agent:** Stoppt oder stürzt der Agent ab, werden die Tabellen der Direktverbindungen geleert, die Hub-Routen übernehmen (das Selbst-Update per exec behält sie).
+- **DynDNS-Verbindungen:** Eine Änderung an den Peer-Einstellungen behält die laufende Endpunkt-IP statt den Namen neu aufzulösen – ein DNS-Aussetzer reißt keine gesunde Verbindung mehr ab. Ein beim Booten gescheiterter Neustart (Hub oder Resolver noch nicht da) wird bei jedem Prüftakt wiederholt.
+- **Überlappungsschutz der Direkttabelle** berücksichtigt alle Routen der Haupttabelle (statische via-Routen, Docker-Bridges, fremde Tunnel), nicht nur angeschlossene LANs.
+- rp_filter des Hub-Interfaces bleibt locker, solange eine Direktverbindung läuft; ein fehlendes `conntrack` auf einer NAT-Seite wird gemeldet.
+- **Backend:** Netzkonflikte einer Verbindung (Transfernetz/Ziel in einem später hinzugekommenen Standort- oder Tunnelnetz) werden zur Laufzeit geprüft – die Verbindung geht außer Betrieb und wird als gesperrt angezeigt; ein ausgeschalteter Entwurf wird gegen die anderen Verbindungen geprüft (gleiches Paar, /30, Port) und kann die laufende Verbindung nicht mehr blockieren; „gleicher Standort“ wird als gesperrt angezeigt; ein Agent mit eingeschalteten Direktverbindungen lässt sich nur mit „force“ löschen.
+- **Oberfläche:** Die Karte zeigt dieselben Zustände wie die Freigaben-Seite (wartet / gesperrt / teilweise direkt) und nimmt die Laufzeit nur von einer Seite auf dem Direktweg; die Vorbelegung des Ziels folgt dem Wechsel von Seite A; Bearbeiten sendet nur geänderte Felder; Prüftexte zeigen keine rohen Codes mehr; die Portweiterleitungs-Prüfung sagt, was sie wirklich belegt.
+
 ## [2.5.1] - 2026-10-25
 
 Direct links: router settings per site, connection check and the map. No agent script change.

@@ -5,7 +5,7 @@ import {
 	IconCircleMinus,
 	IconCircleX,
 } from "@tabler/icons-react";
-import { type FormEvent, type ReactElement, useEffect, useId, useState } from "react";
+import { type FormEvent, type ReactElement, useEffect, useId, useRef, useState } from "react";
 import Alert from "react-bootstrap/Alert";
 import type {
 	Agent,
@@ -138,17 +138,37 @@ function LinkForm({
 	const lanA = agentLanIp(a);
 
 	// New link: side A's stored public address (DynDNS / fixed IP) is the endpoint
-	// to dial — prefilled as long as the admin has not typed one.
+	// to dial. It follows a change of side A as long as the field still holds the
+	// previous suggestion (or is empty) — a typed value is never overwritten.
+	const autoEndpoint = useRef("");
 	useEffect(() => {
-		if (editId || !a?.publicHost) return;
-		setF((p) => (p.endpointHost ? p : { ...p, endpointHost: a.publicHost ?? "" }));
+		if (editId) return;
+		const next = a?.publicHost ?? "";
+		setF((p) => {
+			if (p.endpointHost && p.endpointHost !== autoEndpoint.current) return p;
+			autoEndpoint.current = next;
+			return p.endpointHost === next ? p : { ...p, endpointHost: next };
+		});
 	}, [a?.publicHost, editId]);
 
 	const submit = async (e: FormEvent) => {
 		e.preventDefault();
 		setError(null);
 		try {
-			await save.mutateAsync({ id: editId ?? undefined, data: f });
+			// Editing sends only what changed: a stale `enabled` (switched in the list
+			// while the form was open) must not be written back.
+			const data = editId
+				? (Object.fromEntries(
+						(Object.keys(f) as (keyof DirectLinkInput)[])
+							.filter((k) => f[k] !== initial[k])
+							.map((k) => [k, f[k]]),
+					) as Partial<DirectLinkInput>)
+				: f;
+			if (editId && Object.keys(data).length === 0) {
+				onDone();
+				return;
+			}
+			await save.mutateAsync({ id: editId ?? undefined, data });
 			onDone();
 		} catch (err) {
 			setError(errMessage(err));
@@ -327,6 +347,17 @@ const checkIcon: Record<DirectCheckState, ReactElement> = {
 };
 
 /** Result list of one "Prüfen" run. */
+/** Message id + values of one check line; backend codes in the values are translated first. */
+export const checkMessage = (c: DirectLinkCheck["checks"][number]): [string, Record<string, string | number>] => {
+	const v = { ...c.values };
+	if (c.code === "agents-online") {
+		for (const k of ["a", "b"]) v[k] = ti(v[k] === "ok" ? "direct.check.side-ok" : "direct.check.side-stale");
+	}
+	if (c.code === "blocked" && typeof v.reason === "string") v.reason = ti(`direct.blocked.${v.reason}`);
+	if (c.code === "path" && c.state === "ok" && typeof v.rtt !== "number") return ["direct.check.path.ok-nortt", v];
+	return [`direct.check.${c.code}.${c.state}`, v];
+};
+
 export function CheckResult({ result }: { result: DirectLinkCheck }) {
 	const time = new Date(result.checkedAt * 1000).toLocaleTimeString();
 	return (
@@ -339,7 +370,7 @@ export function CheckResult({ result }: { result: DirectLinkCheck }) {
 				{result.checks.map((c) => (
 					<li key={c.code} className="d-flex gap-2 align-items-start" data-testid={`direct-check-${c.code}`}>
 						{checkIcon[c.state]}
-						<span className="text-break">{ti(`direct.check.${c.code}.${c.state}`, c.values)}</span>
+						<span className="text-break">{ti(...checkMessage(c))}</span>
 					</li>
 				))}
 			</ul>
@@ -501,6 +532,17 @@ export function DirectLinksCard() {
 			children: <p className="mb-0">{ti("direct.delete-text")}</p>,
 		});
 
+	// "Schlüssel neu lernen": both sides re-report their key (a changed key is
+	// pinned out until the admin confirms — a stolen agent token must not suffice)
+	const resetKeys = async (l: DirectLink) => {
+		setError(null);
+		try {
+			await save.mutateAsync({ id: l.id, data: { resetKeys: true } });
+		} catch (err) {
+			setError(errMessage(err));
+		}
+	};
+
 	const runCheck = async (l: DirectLink) => {
 		setError(null);
 		try {
@@ -631,6 +673,21 @@ export function DirectLinksCard() {
 										<div className="mt-1">
 											<SideStatus name={l.agentAName} status={l.statusA} />
 											<SideStatus name={l.agentBName} status={l.statusB} />
+										</div>
+									)}
+									{[l.statusA, l.statusB].some((st) =>
+										st.error?.startsWith("public key changed"),
+									) && (
+										<div className="mt-1 small" data-testid="direct-link-key-changed">
+											<span className="text-danger">{ti("direct.key-changed")}</span>{" "}
+											<button
+												type="button"
+												className="btn btn-sm btn-outline-danger ms-1"
+												onClick={() => resetKeys(l)}
+												disabled={save.isPending}
+											>
+												{ti("direct.key-reset")}
+											</button>
 										</div>
 									)}
 									{checks[l.id] && <CheckResult result={checks[l.id]} />}

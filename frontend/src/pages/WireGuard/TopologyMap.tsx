@@ -22,6 +22,7 @@ import {
 	clientDevice,
 	type DirectEdgeState,
 	directEdge,
+	directEdgeRtt,
 	directEdgeState,
 	type DisplayStatus,
 	displayStatus,
@@ -412,11 +413,14 @@ export function TopologyMap({ links, interfaces, agents, directLinks = [], onSho
 				if (!na || !nb) return [];
 				const state: DirectEdgeState = directEdgeState(dl);
 				const geo = directEdge(na, nb, hub);
-				const rtt = dl.statusA.rttMs ?? dl.statusB.rttMs;
+				const rtt = directEdgeRtt(dl);
+				const rttText = rtt != null ? `${Math.round(rtt)} ms` : "";
 				const label =
-					state === "direct" || state === "partly"
-						? t("direct.label-direct", { rtt: rtt != null ? `${Math.round(rtt)} ms` : "" })
-						: t(`direct.label-${state}`);
+					state === "direct"
+						? t("direct.label-direct", { rtt: rttText })
+						: state === "partly"
+							? t("direct.label-partly", { rtt: rttText })
+							: t(`direct.label-${state}`);
 				return [{ key: `direct-${dl.id}`, ...geo, state, label, title: dl.name }];
 			});
 

@@ -587,6 +587,24 @@ button.more:focus-visible {
 	stroke-dasharray: 6 4;
 }
 
+.direct-waiting {
+	stroke: var(--tblr-yellow, #f59f00);
+	stroke-dasharray: 6 4;
+}
+
+.direct-blocked {
+	stroke: var(--tblr-red, #d63939);
+	stroke-dasharray: 2 6;
+}
+
+.directLabel.direct-waiting {
+	color: var(--tblr-yellow, #f59f00);
+}
+
+.directLabel.direct-blocked {
+	color: var(--tblr-red, #d63939);
+}
+
 .direct-off {
 	stroke: var(--topo-idle);
 	stroke-dasharray: 2 6;

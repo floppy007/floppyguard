@@ -488,13 +488,25 @@ export function useLinkRates(links: WireGuardLink[]): Map<string, LinkRate> {
 
 // ── Direct links between two sites ─────────────────────────────────────────────
 
-export type DirectEdgeState = "direct" | "partly" | "hub" | "off";
+export type DirectEdgeState = "direct" | "partly" | "hub" | "waiting" | "blocked" | "off";
 
-/** State of a direct link for the map (both sides direct = "direct"). */
+/**
+ * State of a direct link for the map — the same evaluation as the badge on the
+ * Freigaben page (DirectLinks.tsx directLinkState), so both say the same.
+ */
 export function directEdgeState(l: Pick<DirectLink, "enabled" | "blocked" | "statusA" | "statusB">): DirectEdgeState {
-	if (!l.enabled || l.blocked) return "off";
-	const n = [l.statusA, l.statusB].filter((s) => !s.stale && s.up && s.path === "direct").length;
+	if (!l.enabled) return "off";
+	if (l.blocked) return "blocked";
+	const sides = [l.statusA, l.statusB];
+	if (sides.some((s) => !s.publicKeyKnown || s.stale || !s.up)) return "waiting";
+	const n = sides.filter((s) => s.path === "direct").length;
 	return n === 2 ? "direct" : n === 1 ? "partly" : "hub";
+}
+
+/** Round-trip time to show: only from a side that really uses the direct path. */
+export function directEdgeRtt(l: Pick<DirectLink, "statusA" | "statusB">): number | null {
+	const s = [l.statusA, l.statusB].find((x) => x.path === "direct" && !x.stale && x.rttMs != null);
+	return s?.rttMs ?? null;
 }
 
 /**

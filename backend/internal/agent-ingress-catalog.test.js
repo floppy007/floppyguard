@@ -614,7 +614,11 @@ test("bulkDedupe: equal target sets against existing rules and earlier entries",
 });
 
 test("bulkDedupe: a switched-off rule with the same targets is re-enabled, not skipped", () => {
-	const target = { sources: ["10.10.0.1/32"], destinations: ["192.168.60.9/32"], ports: [{ proto: "tcp", port: "443" }] };
+	const target = {
+		sources: ["10.10.0.1/32"],
+		destinations: ["192.168.60.9/32"],
+		ports: [{ proto: "tcp", port: "443" }],
+	};
 	const existing = [rule({ id: 21, ...target, enabled: false })];
 	const { create, skipped, reenable } = bulkDedupe(existing, [
 		{ name: "Proxy cloud", ...target },
@@ -624,9 +628,10 @@ test("bulkDedupe: a switched-off rule with the same targets is re-enabled, not s
 	assert.deepEqual(reenable, [{ index: 0, rule_id: 21 }]);
 	assert.deepEqual(skipped, [{ index: 1, reason: "duplicate", rule_id: 21 }]);
 	// an enabled twin wins over a disabled one: nothing to switch on
-	const both = bulkDedupe([rule({ id: 22, ...target }), rule({ id: 21, ...target, enabled: false })], [
-		{ name: "x", ...target },
-	]);
+	const both = bulkDedupe(
+		[rule({ id: 22, ...target }), rule({ id: 21, ...target, enabled: false })],
+		[{ name: "x", ...target }],
+	);
 	assert.deepEqual(both.reenable, []);
 	assert.deepEqual(both.skipped, [{ index: 0, reason: "duplicate", rule_id: 22 }]);
 });

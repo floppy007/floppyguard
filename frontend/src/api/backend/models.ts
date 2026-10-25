@@ -938,7 +938,14 @@ export interface DirectLink {
 	natA: boolean;
 	natB: boolean;
 	/** why the link is not built although enabled */
-	blocked: "agent-missing" | "site-link-missing" | "sites-isolated" | "nat-restricted" | null;
+	blocked:
+		| "agent-missing"
+		| "site-link-missing"
+		| "same-site"
+		| "sites-isolated"
+		| "nat-restricted"
+		| "subnet-overlap"
+		| null;
 	statusA: DirectLinkSideStatus;
 	statusB: DirectLinkSideStatus;
 	createdOn: number;
@@ -992,6 +999,8 @@ export interface DirectLinkSite {
 }
 
 export interface DirectLinkInput {
+	/** update only: forget both pinned public keys, the agents re-report theirs */
+	resetKeys?: boolean;
 	name: string;
 	agentAId: number;
 	agentBId: number;

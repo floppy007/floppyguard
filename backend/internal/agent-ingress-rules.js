@@ -288,7 +288,7 @@ export function armedOnPatch(existing, clean, now) {
  * @param {Array} rules  API-shaped rules (rowToRule)
  * @returns {{text: string, hash: string, ruleCount: number}|null}
  */
-export function buildIngressRestore({ ingress_mode, iface, directIfaces = [] }, rules) {
+export function buildIngressRestore({ ingress_mode, iface, directIfaces = [], directAliases = [] }, rules) {
 	const mode = INGRESS_MODES.has(ingress_mode) ? ingress_mode : "open";
 	const active = (rules || []).filter((r) => r.enabled).sort((a, b) => a.id - b.id);
 	if (mode === "open" && active.length === 0) return null;
@@ -330,6 +330,21 @@ export function buildIngressRestore({ ingress_mode, iface, directIfaces = [] }, 
 							}
 							l += ` -p ${p.proto} -m ${p.proto} --dport ${p.port}`;
 						}
+						l += ` -m comment --comment "fg:${rule.id}" -j ${target}`;
+						lines.push(l);
+						ruleCount++;
+						if (ruleCount > MAX_LINES_TOTAL) throw new Error(`more than ${MAX_LINES_TOTAL} ingress lines`);
+					}
+					// The partner gateway's OWN traffic arrives on its direct link from its
+					// /30 address instead of its hub tunnel address: a source covering the
+					// hub address also admits the /30 address — on that interface only.
+					for (const al of directAliases) {
+						if (!directIfaces.includes(al.iface)) continue;
+						if (!cidrContains(src, `${al.hub}/32`) || cidrContains(src, `${al.direct}/32`)) continue;
+						let l = `-A ${INGRESS_CHAIN} -s ${al.direct}/32`;
+						if (dst) l += ` -d ${dst}`;
+						l += ` -i ${al.iface}`;
+						if (p) l += ` -p ${p.proto} -m ${p.proto} --dport ${p.port}`;
 						l += ` -m comment --comment "fg:${rule.id}" -j ${target}`;
 						lines.push(l);
 						ruleCount++;

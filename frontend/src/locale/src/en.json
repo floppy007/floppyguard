@@ -1742,11 +1742,17 @@
 	"wireguard.agent.ingress.direct.blocked.nat-restricted": {
 		"defaultMessage": "One side is set to \"Freigaben only\" and the partner masquerades into the direct tunnel: its traffic would come from the transfer net instead of the hub address and be dropped. Turn masquerading off on the partner."
 	},
+	"wireguard.agent.ingress.direct.blocked.same-site": {
+		"defaultMessage": "both agents belong to the same site"
+	},
 	"wireguard.agent.ingress.direct.blocked.site-link-missing": {
 		"defaultMessage": "One of the agents is not bound to a site link."
 	},
 	"wireguard.agent.ingress.direct.blocked.sites-isolated": {
 		"defaultMessage": "The sites are separated (\"sites among each other\") — the direct link stays down while the separation exists."
+	},
+	"wireguard.agent.ingress.direct.blocked.subnet-overlap": {
+		"defaultMessage": "transfer net or endpoint overlaps a site or tunnel network – choose another /30 or endpoint"
 	},
 	"wireguard.agent.ingress.direct.check.agents-online.fail": {
 		"defaultMessage": "An agent does not report (A: {a}, B: {b}) – check the gateway and the agent service."
@@ -1790,6 +1796,9 @@
 	"wireguard.agent.ingress.direct.check.path.ok": {
 		"defaultMessage": "Both sides use the direct path ({rtt} ms)."
 	},
+	"wireguard.agent.ingress.direct.check.path.ok-nortt": {
+		"defaultMessage": "Both sides use the direct path."
+	},
 	"wireguard.agent.ingress.direct.check.path.skip": {
 		"defaultMessage": "Path cannot be checked."
 	},
@@ -1800,7 +1809,7 @@
 		"defaultMessage": "No handshake on the direct path – check the port forward UDP {port} to the gateway on side A's router (and that the line accepts incoming traffic, no CGNAT)."
 	},
 	"wireguard.agent.ingress.direct.check.port-forward.ok": {
-		"defaultMessage": "Port forward UDP {port} works (last handshake {age} s ago)."
+		"defaultMessage": "The direct tunnel is up (last handshake {age} s ago) – the port forward UDP {port} worked when it was built. Whether it survives a restart of the other side only shows on the next build."
 	},
 	"wireguard.agent.ingress.direct.check.port-forward.skip": {
 		"defaultMessage": "Port forward cannot be checked while the link is off."
@@ -1816,6 +1825,12 @@
 	},
 	"wireguard.agent.ingress.direct.check.running": {
 		"defaultMessage": "Checking …"
+	},
+	"wireguard.agent.ingress.direct.check.side-ok": {
+		"defaultMessage": "reports in"
+	},
+	"wireguard.agent.ingress.direct.check.side-stale": {
+		"defaultMessage": "does not report"
 	},
 	"wireguard.agent.ingress.direct.check.state.fail": {
 		"defaultMessage": "There are problems"
@@ -1909,6 +1924,12 @@
 	},
 	"wireguard.agent.ingress.direct.form.subnet-help": {
 		"defaultMessage": "A private /30 of its own that overlaps no site network and no tunnel network."
+	},
+	"wireguard.agent.ingress.direct.key-changed": {
+		"defaultMessage": "A gateway reports a new key (re-install – or a stolen agent token). Until confirmed the old key stays valid, traffic goes through the hub."
+	},
+	"wireguard.agent.ingress.direct.key-reset": {
+		"defaultMessage": "Re-learn keys"
 	},
 	"wireguard.agent.ingress.direct.lead": {
 		"defaultMessage": "Two sites talk to each other directly instead of through the hub. If the direct link fails, traffic automatically goes through the hub again. Source addresses (NAT) stay as they are through the hub, and the Freigaben apply on both paths."
@@ -3155,6 +3176,9 @@
 	"wireguard.topo.client": {
 		"defaultMessage": "Client"
 	},
+	"wireguard.topo.direct.label-blocked": {
+		"defaultMessage": "blocked"
+	},
 	"wireguard.topo.direct.label-direct": {
 		"defaultMessage": "direct {rtt}"
 	},
@@ -3165,7 +3189,10 @@
 		"defaultMessage": "direct path off"
 	},
 	"wireguard.topo.direct.label-partly": {
-		"defaultMessage": "partly direct"
+		"defaultMessage": "partly direct {rtt}"
+	},
+	"wireguard.topo.direct.label-waiting": {
+		"defaultMessage": "waiting"
 	},
 	"wireguard.topo.hub": {
 		"defaultMessage": "Hub"

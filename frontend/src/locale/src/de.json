@@ -1742,11 +1742,17 @@
 	"wireguard.agent.ingress.direct.blocked.nat-restricted": {
 		"defaultMessage": "Eine Seite steht auf „nur Freigaben“ und der Partner maskiert in den Direkttunnel: dessen Verkehr käme vom Transfernetz statt von der Hub-Adresse und würde verworfen. Maskierung beim Partner ausschalten."
 	},
+	"wireguard.agent.ingress.direct.blocked.same-site": {
+		"defaultMessage": "beide Agents gehören zum selben Standort"
+	},
 	"wireguard.agent.ingress.direct.blocked.site-link-missing": {
 		"defaultMessage": "Einer der Agents ist keiner Standort-Verbindung zugeordnet."
 	},
 	"wireguard.agent.ingress.direct.blocked.sites-isolated": {
 		"defaultMessage": "Die Standorte sind getrennt („Standorte untereinander“) – die Direktverbindung bleibt abgebaut, solange die Trennung besteht."
+	},
+	"wireguard.agent.ingress.direct.blocked.subnet-overlap": {
+		"defaultMessage": "Transfernetz oder Ziel überschneidet sich mit einem Standort- oder Tunnelnetz – anderes /30 bzw. Ziel wählen"
 	},
 	"wireguard.agent.ingress.direct.check.agents-online.fail": {
 		"defaultMessage": "Ein Agent meldet sich nicht (A: {a}, B: {b}) – Gateway und Agent-Dienst prüfen."
@@ -1790,6 +1796,9 @@
 	"wireguard.agent.ingress.direct.check.path.ok": {
 		"defaultMessage": "Beide Seiten nutzen den Direktweg ({rtt} ms)."
 	},
+	"wireguard.agent.ingress.direct.check.path.ok-nortt": {
+		"defaultMessage": "Beide Seiten nutzen den Direktweg."
+	},
 	"wireguard.agent.ingress.direct.check.path.skip": {
 		"defaultMessage": "Weg nicht prüfbar."
 	},
@@ -1800,7 +1809,7 @@
 		"defaultMessage": "Kein Handshake über den Direktweg – am Router von Seite A die Portweiterleitung UDP {port} auf das Gateway prüfen (und ob der Anschluss eingehend erreichbar ist, kein CGNAT)."
 	},
 	"wireguard.agent.ingress.direct.check.port-forward.ok": {
-		"defaultMessage": "Portweiterleitung UDP {port} funktioniert (letzter Handshake vor {age} s)."
+		"defaultMessage": "Der Direkttunnel steht (letzter Handshake vor {age} s) – die Portweiterleitung UDP {port} hat beim Aufbau funktioniert. Ob sie einen Neustart der Gegenseite übersteht, zeigt erst der nächste Aufbau."
 	},
 	"wireguard.agent.ingress.direct.check.port-forward.skip": {
 		"defaultMessage": "Portweiterleitung nicht prüfbar, solange die Verbindung aus ist."
@@ -1816,6 +1825,12 @@
 	},
 	"wireguard.agent.ingress.direct.check.running": {
 		"defaultMessage": "Prüfe …"
+	},
+	"wireguard.agent.ingress.direct.check.side-ok": {
+		"defaultMessage": "meldet sich"
+	},
+	"wireguard.agent.ingress.direct.check.side-stale": {
+		"defaultMessage": "meldet sich nicht"
 	},
 	"wireguard.agent.ingress.direct.check.state.fail": {
 		"defaultMessage": "Es gibt Probleme"
@@ -1909,6 +1924,12 @@
 	},
 	"wireguard.agent.ingress.direct.form.subnet-help": {
 		"defaultMessage": "Eigenes privates /30, darf sich mit keinem Standortnetz und keinem Tunnelnetz überschneiden."
+	},
+	"wireguard.agent.ingress.direct.key-changed": {
+		"defaultMessage": "Ein Gateway meldet einen neuen Schlüssel (Neuinstallation – oder ein gestohlener Agent-Token). Bis zur Bestätigung gilt der alte Schlüssel, der Verkehr läuft über den Hub."
+	},
+	"wireguard.agent.ingress.direct.key-reset": {
+		"defaultMessage": "Schlüssel neu lernen"
 	},
 	"wireguard.agent.ingress.direct.lead": {
 		"defaultMessage": "Zwei Standorte sprechen direkt miteinander statt über den Hub. Fällt die Direktverbindung aus, läuft der Verkehr automatisch wieder über den Hub. Die Absender-Adressen (NAT) bleiben dabei wie über den Hub, und die Freigaben gelten für beide Wege."
@@ -3155,6 +3176,9 @@
 	"wireguard.topo.client": {
 		"defaultMessage": "Client"
 	},
+	"wireguard.topo.direct.label-blocked": {
+		"defaultMessage": "gesperrt"
+	},
 	"wireguard.topo.direct.label-direct": {
 		"defaultMessage": "direkt {rtt}"
 	},
@@ -3165,7 +3189,10 @@
 		"defaultMessage": "Direktweg aus"
 	},
 	"wireguard.topo.direct.label-partly": {
-		"defaultMessage": "teilweise direkt"
+		"defaultMessage": "teilweise direkt {rtt}"
+	},
+	"wireguard.topo.direct.label-waiting": {
+		"defaultMessage": "wartet"
 	},
 	"wireguard.topo.hub": {
 		"defaultMessage": "Hub"
