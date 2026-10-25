@@ -1,8 +1,30 @@
-import { IconArrowsLeftRight } from "@tabler/icons-react";
-import { type FormEvent, useId, useState } from "react";
+import {
+	IconAlertTriangle,
+	IconArrowsLeftRight,
+	IconCircleCheck,
+	IconCircleMinus,
+	IconCircleX,
+} from "@tabler/icons-react";
+import { type FormEvent, type ReactElement, useEffect, useId, useState } from "react";
 import Alert from "react-bootstrap/Alert";
-import type { Agent, DirectLink, DirectLinkInput, DirectLinkSideStatus } from "src/api/backend";
-import { useAgents, useDeleteDirectLink, useDirectLinks, useSaveDirectLink } from "src/hooks";
+import type {
+	Agent,
+	DirectCheckState,
+	DirectLink,
+	DirectLinkCheck,
+	DirectLinkInput,
+	DirectLinkSideStatus,
+	DirectLinkSite,
+} from "src/api/backend";
+import {
+	useAgents,
+	useCheckDirectLink,
+	useDeleteDirectLink,
+	useDirectLinkSites,
+	useDirectLinks,
+	useSaveDirectLink,
+	useUpdateAgent,
+} from "src/hooks";
 import { intl } from "src/locale/IntlProvider";
 import { showDeleteConfirmModal } from "src/modals";
 import { errMessage, ti } from "./utils";
@@ -114,6 +136,13 @@ function LinkForm({
 	const a = agents.find((x) => x.id === f.agentAId);
 	const b = agents.find((x) => x.id === f.agentBId);
 	const lanA = agentLanIp(a);
+
+	// New link: side A's stored public address (DynDNS / fixed IP) is the endpoint
+	// to dial — prefilled as long as the admin has not typed one.
+	useEffect(() => {
+		if (editId || !a?.publicHost) return;
+		setF((p) => (p.endpointHost ? p : { ...p, endpointHost: a.publicHost ?? "" }));
+	}, [a?.publicHost, editId]);
 
 	const submit = async (e: FormEvent) => {
 		e.preventDefault();
@@ -288,12 +317,156 @@ function LinkForm({
 	);
 }
 
+// ── connection check ("Prüfen") + router settings per site ─────────────────────
+
+const checkIcon: Record<DirectCheckState, ReactElement> = {
+	ok: <IconCircleCheck size={16} className="text-success flex-shrink-0" aria-hidden />,
+	fail: <IconCircleX size={16} className="text-danger flex-shrink-0" aria-hidden />,
+	warn: <IconAlertTriangle size={16} className="text-warning flex-shrink-0" aria-hidden />,
+	skip: <IconCircleMinus size={16} className="text-secondary flex-shrink-0" aria-hidden />,
+};
+
+/** Result list of one "Prüfen" run. */
+export function CheckResult({ result }: { result: DirectLinkCheck }) {
+	const time = new Date(result.checkedAt * 1000).toLocaleTimeString();
+	return (
+		<div className="border rounded p-2 mt-2 small" data-testid="direct-check-result">
+			<div className="fw-medium mb-1">
+				{ti(`direct.check.state.${result.state}`)} ·{" "}
+				<span className="text-secondary">{ti("direct.check.at", { time })}</span>
+			</div>
+			<ul className="list-unstyled mb-0 d-flex flex-column gap-1">
+				{result.checks.map((c) => (
+					<li key={c.code} className="d-flex gap-2 align-items-start" data-testid={`direct-check-${c.code}`}>
+						{checkIcon[c.state]}
+						<span className="text-break">{ti(`direct.check.${c.code}.${c.state}`, c.values)}</span>
+					</li>
+				))}
+			</ul>
+		</div>
+	);
+}
+
+function SiteRow({ site, onSaved }: { site: DirectLinkSite; onSaved: () => void }) {
+	const update = useUpdateAgent();
+	const [value, setValue] = useState(site.publicHost ?? "");
+	const [error, setError] = useState<string | null>(null);
+	const id = useId();
+	useEffect(() => setValue(site.publicHost ?? ""), [site.publicHost]);
+	const lan = agentLanIp({ hostname: site.hostname });
+	const dirty = value.trim() !== (site.publicHost ?? "");
+
+	const save = async (e: FormEvent) => {
+		e.preventDefault();
+		setError(null);
+		try {
+			await update.mutateAsync({ id: site.agentId, data: { publicHost: value.trim() || null } });
+			onSaved();
+		} catch (err) {
+			setError(errMessage(err));
+		}
+	};
+
+	let dns: ReactElement | null = null;
+	if (site.publicHost && site.resolved === null)
+		dns = <span className="text-danger">{ti("direct.sites.dns.unresolved")}</span>;
+	else if (site.dnsOk === true) dns = <span className="text-success">{ti("direct.sites.dns.ok")}</span>;
+	else if (site.dnsOk === false)
+		dns = (
+			<span className="text-danger">{ti("direct.sites.dns.bad", { ips: (site.resolved ?? []).join(", ") })}</span>
+		);
+
+	return (
+		<tr data-testid={`direct-site-${site.agentId}`}>
+			<td>
+				<div className="fw-medium">{site.linkName ?? site.name}</div>
+				<div className="small text-secondary font-monospace">{lan ?? ""}</div>
+			</td>
+			<td style={{ minWidth: 220 }}>
+				<form className="d-flex gap-1" onSubmit={save}>
+					<label className="visually-hidden" htmlFor={`${id}-host`}>
+						{ti("direct.sites.col.public")}
+					</label>
+					<input
+						id={`${id}-host`}
+						className="form-control form-control-sm font-monospace"
+						value={value}
+						placeholder={ti("direct.sites.public-placeholder")}
+						onChange={(e) => setValue(e.target.value)}
+						data-testid="direct-site-public-host"
+					/>
+					<button type="submit" className="btn btn-sm" disabled={!dirty || update.isPending}>
+						{ti("direct.sites.save")}
+					</button>
+				</form>
+				{error && <div className="small text-danger">{error}</div>}
+				{dns && <div className="small">{dns}</div>}
+			</td>
+			<td className="font-monospace small">{site.publicIp ?? ti("direct.sites.unknown-ip")}</td>
+			<td className="small">
+				{site.forwards.length === 0 && site.outgoing.length === 0 && (
+					<span className="text-secondary">{ti("direct.sites.nothing")}</span>
+				)}
+				{site.forwards.map((fw) => (
+					<div key={`f${fw.linkId}`} data-testid="direct-site-forward">
+						{ti("direct.sites.forward", {
+							proto: fw.proto.toUpperCase(),
+							port: fw.port,
+							ip: lan ?? ti("direct.form.lan-ip-unknown"),
+						})}
+						{!fw.enabled && <span className="text-secondary">{ti("direct.sites.link-off")}</span>}
+					</div>
+				))}
+				{site.forwards.length > 0 && !site.publicHost && (
+					<div className="text-warning">{ti("direct.sites.dyndns-hint")}</div>
+				)}
+				{site.outgoing.map((o) => (
+					<div key={`o${o.linkId}`} className="text-secondary">
+						{ti("direct.sites.outgoing", { endpoint: o.endpoint })}
+					</div>
+				))}
+			</td>
+		</tr>
+	);
+}
+
+/** "Standorte & Router": public address per site + what its router needs. */
+function SitesPanel() {
+	const sites = useDirectLinkSites();
+	if (sites.isError || !sites.data?.length) return null;
+	return (
+		<div data-testid="direct-sites">
+			<div className="fw-medium">{ti("direct.sites.title")}</div>
+			<p className="small text-secondary mb-2">{ti("direct.sites.lead")}</p>
+			<div className="table-responsive">
+				<table className="table table-sm table-vcenter mb-0">
+					<thead>
+						<tr>
+							<th>{ti("direct.sites.col.site")}</th>
+							<th>{ti("direct.sites.col.public")}</th>
+							<th>{ti("direct.sites.col.seen")}</th>
+							<th>{ti("direct.sites.col.router")}</th>
+						</tr>
+					</thead>
+					<tbody>
+						{sites.data.map((s) => (
+							<SiteRow key={s.agentId} site={s} onSaved={() => sites.refetch()} />
+						))}
+					</tbody>
+				</table>
+			</div>
+		</div>
+	);
+}
+
 /** "Direktverbindungen": tunnels between two sites, the hub stays the fallback. */
 export function DirectLinksCard() {
 	const links = useDirectLinks();
 	const agents = useAgents();
 	const save = useSaveDirectLink();
 	const remove = useDeleteDirectLink();
+	const check = useCheckDirectLink();
+	const [checks, setChecks] = useState<Record<number, DirectLinkCheck>>({});
 	const [form, setForm] = useState<{ editId: number | null; initial: DirectLinkInput } | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const titleId = useId();
@@ -327,6 +500,16 @@ export function DirectLinksCard() {
 			},
 			children: <p className="mb-0">{ti("direct.delete-text")}</p>,
 		});
+
+	const runCheck = async (l: DirectLink) => {
+		setError(null);
+		try {
+			const r = await check.mutateAsync(l.id);
+			setChecks((p) => ({ ...p, [l.id]: r }));
+		} catch (err) {
+			setError(errMessage(err));
+		}
+	};
 
 	const directCount = list.filter((l) => directLinkState(l) === "direct").length;
 
@@ -364,6 +547,7 @@ export function DirectLinksCard() {
 						{links.error?.message}
 					</Alert>
 				)}
+				<SitesPanel />
 				{form && (
 					<LinkForm
 						key={form.editId ?? "new"}
@@ -394,6 +578,17 @@ export function DirectLinksCard() {
 										</span>
 										<span className="small text-secondary font-monospace">{l.iface}</span>
 										<div className="ms-auto d-flex gap-1">
+											<button
+												type="button"
+												className="btn btn-sm"
+												onClick={() => runCheck(l)}
+												disabled={check.isPending}
+												data-testid="direct-link-check"
+											>
+												{check.isPending && check.variables === l.id
+													? ti("direct.check.running")
+													: ti("direct.check.button")}
+											</button>
 											<button
 												type="button"
 												className="btn btn-sm"
@@ -438,6 +633,7 @@ export function DirectLinksCard() {
 											<SideStatus name={l.agentBName} status={l.statusB} />
 										</div>
 									)}
+									{checks[l.id] && <CheckResult result={checks[l.id]} />}
 								</div>
 							);
 						})}

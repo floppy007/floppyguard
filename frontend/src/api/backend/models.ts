@@ -541,6 +541,8 @@ export interface Agent {
 	configAppliedHash?: string | null;
 	/** last config apply error reported by the agent */
 	configError?: string | null;
+	/** public address of the site (DynDNS name or fixed IPv4), admin-entered */
+	publicHost?: string | null;
 }
 
 export interface AgentCreateData {
@@ -565,6 +567,8 @@ export interface AgentUpdateData {
 	allowedSites?: string[];
 	/** Site gateways: exempt the local LAN from MASQUERADE so VPN clients keep their real source IP (needs a return route). Default false (OFF). */
 	preserveLanSourceIp?: boolean;
+	/** public address (DynDNS / fixed IPv4); null clears it */
+	publicHost?: string | null;
 }
 
 // ── Agent ingress filter ("Freigaben") ────────────────────────────────────────
@@ -939,6 +943,52 @@ export interface DirectLink {
 	statusB: DirectLinkSideStatus;
 	createdOn: number;
 	modifiedOn: number;
+}
+
+export type DirectCheckState = "ok" | "fail" | "warn" | "skip";
+
+/** One line of the connection check ("Prüfen") of a direct link. */
+export interface DirectLinkCheckItem {
+	code:
+		| "enabled"
+		| "blocked"
+		| "agents-online"
+		| "keys"
+		| "endpoint-differs"
+		| "dns"
+		| "public-ip"
+		| "port-forward"
+		| "path";
+	state: DirectCheckState;
+	values: Record<string, string | number>;
+}
+
+export interface DirectLinkCheck {
+	linkId: number;
+	checkedAt: number;
+	state: "ok" | "fail" | "warn";
+	/** public IPv4 the hub sees side A / B coming from */
+	publicIpA: string | null;
+	publicIpB: string | null;
+	/** what the endpoint resolves to on the hub (null = lookup failed) */
+	resolved: string[] | null;
+	checks: DirectLinkCheckItem[];
+}
+
+/** Router settings + public address of one site agent. */
+export interface DirectLinkSite {
+	agentId: number;
+	name: string;
+	linkName: string | null;
+	hostname: string | null;
+	publicHost: string | null;
+	/** public IPv4 the hub sees this site's tunnel coming from */
+	publicIp: string | null;
+	resolved: string[] | null;
+	/** publicHost resolves to publicIp (null = not checkable) */
+	dnsOk: boolean | null;
+	forwards: { linkId: number; linkName: string; proto: "udp"; port: number; enabled: boolean }[];
+	outgoing: { linkId: number; linkName: string; endpoint: string; enabled: boolean }[];
 }
 
 export interface DirectLinkInput {

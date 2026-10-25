@@ -1607,6 +1607,84 @@
 	"wireguard.agent.ingress.direct.blocked.sites-isolated": {
 		"defaultMessage": "Les sites sont séparés — la liaison directe reste démontée tant que la séparation existe."
 	},
+	"wireguard.agent.ingress.direct.check.agents-online.fail": {
+		"defaultMessage": "An agent does not report (A: {a}, B: {b}) – check the gateway and the agent service."
+	},
+	"wireguard.agent.ingress.direct.check.agents-online.ok": {
+		"defaultMessage": "Both agents report in."
+	},
+	"wireguard.agent.ingress.direct.check.at": {
+		"defaultMessage": "checked {time}"
+	},
+	"wireguard.agent.ingress.direct.check.blocked.fail": {
+		"defaultMessage": "The link is not built ({reason})."
+	},
+	"wireguard.agent.ingress.direct.check.button": {
+		"defaultMessage": "Check"
+	},
+	"wireguard.agent.ingress.direct.check.dns.fail": {
+		"defaultMessage": "{host} does not resolve – check the DynDNS entry."
+	},
+	"wireguard.agent.ingress.direct.check.dns.ok": {
+		"defaultMessage": "{host} resolves to {ips}."
+	},
+	"wireguard.agent.ingress.direct.check.dns.skip": {
+		"defaultMessage": "Fixed IP {host}, no DNS needed."
+	},
+	"wireguard.agent.ingress.direct.check.enabled.warn": {
+		"defaultMessage": "The link is off – port forward and path can only be checked once it is on."
+	},
+	"wireguard.agent.ingress.direct.check.endpoint-differs.warn": {
+		"defaultMessage": "The endpoint {endpoint} differs from the site's stored address ({stored})."
+	},
+	"wireguard.agent.ingress.direct.check.keys.fail": {
+		"defaultMessage": "Keys are still missing – do both agents run version 1.6.0 or newer?"
+	},
+	"wireguard.agent.ingress.direct.check.keys.ok": {
+		"defaultMessage": "Both sides have exchanged their keys."
+	},
+	"wireguard.agent.ingress.direct.check.path.fail": {
+		"defaultMessage": "Traffic goes through the hub."
+	},
+	"wireguard.agent.ingress.direct.check.path.ok": {
+		"defaultMessage": "Both sides use the direct path ({rtt} ms)."
+	},
+	"wireguard.agent.ingress.direct.check.path.skip": {
+		"defaultMessage": "Path cannot be checked."
+	},
+	"wireguard.agent.ingress.direct.check.path.warn": {
+		"defaultMessage": "Only one side uses the direct path, the other still the hub."
+	},
+	"wireguard.agent.ingress.direct.check.port-forward.fail": {
+		"defaultMessage": "No handshake on the direct path – check the port forward UDP {port} to the gateway on side A's router (and that the line accepts incoming traffic, no CGNAT)."
+	},
+	"wireguard.agent.ingress.direct.check.port-forward.ok": {
+		"defaultMessage": "Port forward UDP {port} works (last handshake {age} s ago)."
+	},
+	"wireguard.agent.ingress.direct.check.port-forward.skip": {
+		"defaultMessage": "Port forward cannot be checked while the link is off."
+	},
+	"wireguard.agent.ingress.direct.check.public-ip.fail": {
+		"defaultMessage": "The site comes from {seen}, but the endpoint points to {ips} – DynDNS stale or wrong address."
+	},
+	"wireguard.agent.ingress.direct.check.public-ip.ok": {
+		"defaultMessage": "The site really comes from {seen} – matches the endpoint."
+	},
+	"wireguard.agent.ingress.direct.check.public-ip.skip": {
+		"defaultMessage": "The site's public IP is unknown (the hub sees no endpoint)."
+	},
+	"wireguard.agent.ingress.direct.check.running": {
+		"defaultMessage": "Checking …"
+	},
+	"wireguard.agent.ingress.direct.check.state.fail": {
+		"defaultMessage": "There are problems"
+	},
+	"wireguard.agent.ingress.direct.check.state.ok": {
+		"defaultMessage": "All good"
+	},
+	"wireguard.agent.ingress.direct.check.state.warn": {
+		"defaultMessage": "Good, with notes"
+	},
 	"wireguard.agent.ingress.direct.delete": {
 		"defaultMessage": "Supprimer"
 	},
@@ -1714,6 +1792,57 @@
 	},
 	"wireguard.agent.ingress.direct.side.stale": {
 		"defaultMessage": "ne se signale pas"
+	},
+	"wireguard.agent.ingress.direct.sites.col.public": {
+		"defaultMessage": "Public address"
+	},
+	"wireguard.agent.ingress.direct.sites.col.router": {
+		"defaultMessage": "Set up on the router"
+	},
+	"wireguard.agent.ingress.direct.sites.col.seen": {
+		"defaultMessage": "Seen by the hub"
+	},
+	"wireguard.agent.ingress.direct.sites.col.site": {
+		"defaultMessage": "Site"
+	},
+	"wireguard.agent.ingress.direct.sites.dns.bad": {
+		"defaultMessage": "DNS points to {ips} – update DynDNS"
+	},
+	"wireguard.agent.ingress.direct.sites.dns.ok": {
+		"defaultMessage": "DNS matches"
+	},
+	"wireguard.agent.ingress.direct.sites.dns.unresolved": {
+		"defaultMessage": "Name does not resolve"
+	},
+	"wireguard.agent.ingress.direct.sites.dyndns-hint": {
+		"defaultMessage": "Does this line's IP change? Enter a DynDNS name, otherwise the link breaks on an IP change."
+	},
+	"wireguard.agent.ingress.direct.sites.forward": {
+		"defaultMessage": "Port forward {proto} {port} → {ip}"
+	},
+	"wireguard.agent.ingress.direct.sites.lead": {
+		"defaultMessage": "What the routers at the sites must be set up with. The public address (DynDNS name or fixed IP) is suggested as the endpoint of new direct links and checked here against the IP the site really comes from."
+	},
+	"wireguard.agent.ingress.direct.sites.link-off": {
+		"defaultMessage": " (link off)"
+	},
+	"wireguard.agent.ingress.direct.sites.nothing": {
+		"defaultMessage": "Nothing needed"
+	},
+	"wireguard.agent.ingress.direct.sites.outgoing": {
+		"defaultMessage": "Dials {endpoint} – no port forward needed"
+	},
+	"wireguard.agent.ingress.direct.sites.public-placeholder": {
+		"defaultMessage": "DynDNS name or fixed IP"
+	},
+	"wireguard.agent.ingress.direct.sites.save": {
+		"defaultMessage": "Save"
+	},
+	"wireguard.agent.ingress.direct.sites.title": {
+		"defaultMessage": "Sites & routers"
+	},
+	"wireguard.agent.ingress.direct.sites.unknown-ip": {
+		"defaultMessage": "unknown"
 	},
 	"wireguard.agent.ingress.direct.state.blocked": {
 		"defaultMessage": "bloquée"
@@ -2885,6 +3014,18 @@
 	"wireguard.topo.client": {
 		"defaultMessage": "Client"
 	},
+	"wireguard.topo.direct.label-direct": {
+		"defaultMessage": "direct {rtt}"
+	},
+	"wireguard.topo.direct.label-hub": {
+		"defaultMessage": "direct path down – via hub"
+	},
+	"wireguard.topo.direct.label-off": {
+		"defaultMessage": "direct path off"
+	},
+	"wireguard.topo.direct.label-partly": {
+		"defaultMessage": "partly direct"
+	},
 	"wireguard.topo.hub": {
 		"defaultMessage": "Hub"
 	},
@@ -2908,6 +3049,9 @@
 	},
 	"wireguard.topo.legend.client-idle": {
 		"defaultMessage": "déconnecté / jamais connecté (clients)"
+	},
+	"wireguard.topo.legend.direct": {
+		"defaultMessage": "Direct link"
 	},
 	"wireguard.topo.legend.flow": {
 		"defaultMessage": "Flux de données"

@@ -357,3 +357,112 @@ export function sanitizeDirectStatus(raw, allowedIds) {
 	}
 	return out;
 }
+
+// ── Router settings + connection check ("Prüfen") ────────────────────────────
+
+/** Handshake younger than this counts as "the tunnel works" (wg rekeys every 2 min). */
+export const DIRECT_FRESH_HANDSHAKE_S = 180;
+
+/**
+ * Public address of a site (DynDNS name or fixed IPv4) as the admin stores it on
+ * the agent. Empty → null. Same rules as a direct link's endpoint_host.
+ */
+export function sanitizePublicHost(value) {
+	if (value === null || typeof value === "undefined") return null;
+	if (typeof value !== "string") throw new error.ValidationError("public_host must be a string or null");
+	const h = value.trim().toLowerCase();
+	if (!h) return null;
+	const looksNumeric = /^[\d.]+$/.test(h);
+	if (looksNumeric ? !isIpv4Literal(h) : !HOSTNAME_RE.test(h)) {
+		throw new error.ValidationError("public_host must be a public IPv4 address or a host name");
+	}
+	return h;
+}
+
+/** IPv4 of a `wg show` endpoint ("1.2.3.4:51820"); IPv6 / missing → null. */
+export function endpointIpv4(endpoint) {
+	const m = String(endpoint ?? "").match(/^(\d{1,3}(?:\.\d{1,3}){3}):\d+$/);
+	return m && isIpv4Literal(m[1]) ? m[1] : null;
+}
+
+/**
+ * Evaluate the checks of one direct link. Pure: all lookups are passed in.
+ * States: ok | fail | warn | skip. `values` feed the UI texts.
+ *
+ * @param {object} p
+ * @param {object} p.link          view row (toView): enabled, blocked, endpoint_host, listen_port, status_a/b
+ * @param {string|null} p.publicIpA  IPv4 the hub sees side A's hub tunnel coming from
+ * @param {string[]|null} p.resolved IPv4s endpoint_host resolves to (null = lookup failed)
+ * @param {string|null} p.publicHostA public address stored on agent A (DynDNS / fixed)
+ */
+export function evaluateDirectChecks({ link, publicIpA, resolved, publicHostA }) {
+	const checks = [];
+	const add = (code, state, values = {}) => checks.push({ code, state, values });
+	const sa = link.status_a || {};
+	const sb = link.status_b || {};
+	const host = link.endpoint_host;
+	const literal = isIpv4Literal(host);
+
+	if (!link.enabled) add("enabled", "warn");
+	if (link.blocked) add("blocked", "fail", { reason: link.blocked });
+
+	add("agents-online", !sa.stale && !sb.stale ? "ok" : "fail", {
+		a: sa.stale ? "stale" : "ok",
+		b: sb.stale ? "stale" : "ok",
+	});
+	add("keys", sa.public_key_known && sb.public_key_known ? "ok" : "fail");
+
+	if (publicHostA && publicHostA !== host) add("endpoint-differs", "warn", { stored: publicHostA, endpoint: host });
+
+	if (literal) add("dns", "skip", { host, ips: host });
+	else if (!resolved) add("dns", "fail", { host });
+	else if (!resolved.length) add("dns", "fail", { host });
+	else add("dns", "ok", { host, ips: resolved.join(", ") });
+
+	const ips = literal ? [host] : resolved || [];
+	if (!publicIpA) add("public-ip", "skip", { ips: ips.join(", ") || "–" });
+	else if (ips.includes(publicIpA)) add("public-ip", "ok", { seen: publicIpA });
+	else add("public-ip", "fail", { seen: publicIpA, ips: ips.join(", ") || "–", host });
+
+	const fresh = (s) =>
+		s.up === true && Number.isInteger(s.handshake_age) && s.handshake_age <= DIRECT_FRESH_HANDSHAKE_S;
+	const port = { port: link.listen_port, host };
+	if (!link.enabled || link.blocked) add("port-forward", "skip", port);
+	else if (fresh(sa) || fresh(sb))
+		add("port-forward", "ok", { ...port, age: Math.min(...[sa, sb].filter(fresh).map((s) => s.handshake_age)) });
+	else add("port-forward", "fail", port);
+
+	const direct = [sa, sb].filter((s) => s.path === "direct").length;
+	if (!link.enabled || link.blocked) add("path", "skip");
+	else add("path", direct === 2 ? "ok" : direct === 1 ? "warn" : "fail", { rtt: sa.rtt_ms ?? sb.rtt_ms ?? "–" });
+
+	const worst = checks.some((c) => c.state === "fail")
+		? "fail"
+		: checks.some((c) => c.state === "warn")
+			? "warn"
+			: "ok";
+	return { state: worst, checks };
+}
+
+/**
+ * Router settings per site: which port forwards its router needs (side A of a
+ * link) and which endpoints it dials out to (side B). `links` are view rows.
+ */
+export function siteRouterSettings(agentId, links) {
+	const forwards = [];
+	const outgoing = [];
+	for (const l of links) {
+		if (l.agent_a_id === agentId) {
+			forwards.push({ link_id: l.id, link_name: l.name, proto: "udp", port: l.listen_port, enabled: l.enabled });
+		}
+		if (l.agent_b_id === agentId) {
+			outgoing.push({
+				link_id: l.id,
+				link_name: l.name,
+				endpoint: `${l.endpoint_host}:${l.listen_port}`,
+				enabled: l.enabled,
+			});
+		}
+	}
+	return { forwards, outgoing };
+}

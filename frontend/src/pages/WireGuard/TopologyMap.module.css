@@ -574,3 +574,41 @@ button.more:focus-visible {
 		display: none;
 	}
 }
+
+/* Direct links between two sites (hub = fallback) */
+.direct {
+	stroke-width: 2.5px;
+	stroke: var(--tblr-teal, #0ca678);
+}
+
+.direct-partly,
+.direct-hub {
+	stroke: var(--tblr-orange, #f76707);
+	stroke-dasharray: 6 4;
+}
+
+.direct-off {
+	stroke: var(--topo-idle);
+	stroke-dasharray: 2 6;
+	opacity: 0.6;
+}
+
+.directFlow {
+	stroke: var(--tblr-teal, #0ca678);
+}
+
+.directLabel {
+	z-index: 5;
+	font-weight: 600;
+	color: var(--tblr-teal, #0ca678);
+	border: 1px solid currentColor;
+}
+
+.directLabel.direct-partly,
+.directLabel.direct-hub {
+	color: var(--tblr-orange, #f76707);
+}
+
+.directLabel.direct-off {
+	color: var(--tblr-secondary);
+}

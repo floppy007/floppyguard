@@ -25,6 +25,16 @@ route(["", "/"], {
 	post: (req, res) => internalDirectLink.create(res.locals.access, req.body || {}),
 });
 
+/** GET /api/direct-links/sites → router settings + public address per site agent */
+route("/sites", {
+	get: () => internalDirectLink.sites(),
+});
+
+/** GET /api/direct-links/:id/check → connection check ("Prüfen"), read only */
+route("/:id/check", {
+	get: (req) => internalDirectLink.check(idParam(req.params.id)),
+});
+
 /** PUT|DELETE /api/direct-links/:id */
 route("/:id", {
 	put: (req, res) => internalDirectLink.update(res.locals.access, idParam(req.params.id), req.body || {}),

@@ -32,6 +32,7 @@ import {
 import { Loading } from "src/components";
 import {
 	useAgents,
+	useDirectLinks,
 	useApplyWireGuardMetadata,
 	useCreateAgent,
 	useCreateWireGuardPeer,
@@ -2352,6 +2353,7 @@ const WireGuard = () => {
 	// a steady cadence so the topology map's online/offline state (lastSeen vs.
 	// AGENT_OFFLINE_AFTER_S) does not flip every agent to "offline" after 5
 	// minutes without a reload.
+	const directLinksQuery = useDirectLinks();
 	const agentsQuery = useAgents({
 		refetchInterval: (query: { state: { data?: Agent[] } }) => {
 			const list = query.state.data;
@@ -2923,6 +2925,7 @@ const WireGuard = () => {
 									links={links}
 									interfaces={interfaces}
 									agents={agentsQuery.data ?? []}
+									directLinks={directLinksQuery.data ?? []}
 									onShowMore={() => setActiveTab("links")}
 								/>
 							) : (

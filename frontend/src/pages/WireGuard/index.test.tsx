@@ -33,6 +33,7 @@ vi.mock("src/hooks", () => ({
 	useRestoreWireGuardMetadata: () => restoreMetadataMock(),
 	usePreviewWireGuardPlan: () => previewPlanMock(),
 	useAgents: () => agentsMock(),
+	useDirectLinks: () => ({ data: [], isLoading: false, isError: false }),
 	useAgentIngress: () => ({ data: undefined, isLoading: false, error: null }),
 	useAgentIngressCheck: () => ({ data: undefined, isLoading: false, error: null }),
 	useAgentIngressActiveRules: () => null,

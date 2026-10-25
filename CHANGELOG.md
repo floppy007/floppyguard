@@ -5,6 +5,30 @@ This project diverges from upstream nginx-proxy-manager starting at v1.0.0.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.5.1] - 2026-10-25
+
+Direct links: router settings per site, connection check and the map. No agent script change.
+
+### English
+
+#### Added
+
+- **Public address per site** (agent field `public_host`: DynDNS name or fixed IPv4). A new direct link takes side A's address as its endpoint; the address is checked against the IP the hub really sees the site coming from.
+- **"Sites & routers"** on the direct links card: per site its public address (editable), the public IP the hub sees, whether the DynDNS name is current, and what its router needs (port forward UDP port → gateway LAN IP for side A, nothing for side B). A site with a port forward but no stored address gets a DynDNS hint.
+- **"Check" per direct link:** both agents online, keys exchanged, endpoint resolves (DNS on the hub), resolved IP = the IP the hub sees for side A (catches a stale DynDNS entry), port forward works (fresh handshake on the direct tunnel), path direct on both sides — every failed item with a concrete hint. Read only.
+- **Topology map:** direct links are drawn as their own curve between the two site cards with state (direct / via hub / off) and round-trip time; new legend entry.
+- API: `GET /api/direct-links/sites`, `GET /api/direct-links/:id/check`; `public_host` on `GET/PUT /api/agents/:id`. Migration `agent_public_host`.
+
+### Deutsch
+
+#### Neu
+
+- **Öffentliche Adresse je Standort** (Agent-Feld `public_host`: DynDNS-Name oder feste IPv4). Eine neue Direktverbindung übernimmt die Adresse von Seite A als Ziel; die Adresse wird gegen die IP geprüft, von der der Hub den Standort wirklich sieht.
+- **„Standorte & Router“** in der Karte Direktverbindungen: je Standort die öffentliche Adresse (bearbeitbar), die vom Hub gesehene öffentliche IP, ob der DynDNS-Name aktuell ist, und was am Router einzurichten ist (Portweiterleitung UDP-Port → LAN-IP des Gateways für Seite A, nichts für Seite B). Ein Standort mit Portweiterleitung, aber ohne gespeicherte Adresse bekommt einen DynDNS-Hinweis.
+- **„Prüfen“ je Direktverbindung:** beide Agents online, Schlüssel ausgetauscht, Ziel löst auf (DNS am Hub), aufgelöste IP = vom Hub gesehene IP von Seite A (erkennt veraltete DynDNS-Einträge), Portweiterleitung funktioniert (frischer Handshake im Direkttunnel), Weg auf beiden Seiten direkt – jeder Fehler mit konkretem Hinweis. Nur lesend.
+- **Topologie-Karte:** Direktverbindungen erscheinen als eigene Linie zwischen den beiden Standort-Karten mit Zustand (direkt / über Hub / aus) und Laufzeit; neuer Legenden-Eintrag.
+- API: `GET /api/direct-links/sites`, `GET /api/direct-links/:id/check`; `public_host` bei `GET/PUT /api/agents/:id`. Migration `agent_public_host`.
+
 ## [2.5.0] - 2026-10-25
 
 Direct links between sites. **Agent script 1.6.0:** every agent self-updates once. Without a direct link nothing changes on a gateway (same routes, same NAT, byte-identical Freigaben ruleset); only the 30 s poll pause is now split into 10 s steps.

@@ -10,7 +10,7 @@ import {
 } from "@tabler/icons-react";
 import cn from "classnames";
 import { type CSSProperties, useEffect, useRef, useState } from "react";
-import type { Agent, WireGuardInterface, WireGuardLink } from "src/api/backend";
+import type { Agent, DirectLink, WireGuardInterface, WireGuardLink } from "src/api/backend";
 import { intl } from "src/locale/IntlProvider";
 import s from "./TopologyMap.module.css";
 import {
@@ -20,6 +20,9 @@ import {
 	bindAgents,
 	byteFmt,
 	clientDevice,
+	type DirectEdgeState,
+	directEdge,
+	directEdgeState,
 	type DisplayStatus,
 	displayStatus,
 	edgeMidpoint,
@@ -309,6 +312,12 @@ function Legend({ counts, online, total }: { counts: Record<NodeKind, number>; o
 				<LineSample className={s["edge-offline"]} />
 				{t("legend.offline")}
 			</span>
+			<span className={s.legendItem}>
+				<svg width="28" height="10" className={s.lineSample} aria-hidden>
+					<path d="M 1 5 L 27 5" className={cn(s.edge, s.direct, s["direct-direct"])} />
+				</svg>
+				{t("legend.direct")}
+			</span>
 			<span className={s.legendSep} aria-hidden />
 			<span className={s.legendItem}>
 				<IconCpu size={14} aria-hidden />
@@ -331,13 +340,15 @@ type Props = {
 	links: WireGuardLink[];
 	interfaces: WireGuardInterface[];
 	agents: Agent[];
+	/** Direct links between two sites, drawn as extra edges between the site cards */
+	directLinks?: DirectLink[];
 	/** Target of the "+N more" clients node (e.g. switch to the links tab) */
 	onShowMore?: () => void;
 };
 
 type LinkNode = Extract<LayoutNode, { link: WireGuardLink }>;
 
-export function TopologyMap({ links, interfaces, agents, onShowMore }: Props) {
+export function TopologyMap({ links, interfaces, agents, directLinks = [], onShowMore }: Props) {
 	const now = nowSeconds();
 	const rates = useLinkRates(links);
 	const { ref: mapRef, width } = useElementWidth<HTMLElement>();
@@ -387,6 +398,28 @@ export function TopologyMap({ links, interfaces, agents, onShowMore }: Props) {
 		});
 	}
 
+	// Direct links: an edge between the two site cards whose bound agents are its sides.
+	const nodeOfAgent = new Map<number, LinkNode>();
+	for (const n of linkNodes) {
+		const ag = bound.get(n.link.id);
+		if (ag && n.kind !== "client") nodeOfAgent.set(ag.id, n);
+	}
+	const directEdges = stacked
+		? []
+		: directLinks.flatMap((dl) => {
+				const na = nodeOfAgent.get(dl.agentAId);
+				const nb = nodeOfAgent.get(dl.agentBId);
+				if (!na || !nb) return [];
+				const state: DirectEdgeState = directEdgeState(dl);
+				const geo = directEdge(na, nb, hub);
+				const rtt = dl.statusA.rttMs ?? dl.statusB.rttMs;
+				const label =
+					state === "direct" || state === "partly"
+						? t("direct.label-direct", { rtt: rtt != null ? `${Math.round(rtt)} ms` : "" })
+						: t(`direct.label-${state}`);
+				return [{ key: `direct-${dl.id}`, ...geo, state, label, title: dl.name }];
+			});
+
 	const renderNode = (n: LinkNode) => (
 		<NodeCard
 			key={n.key}
@@ -433,7 +466,34 @@ export function TopologyMap({ links, interfaces, agents, onShowMore }: Props) {
 							)}
 						</g>
 					))}
+					{directEdges.map((e) => (
+						<g key={e.key}>
+							<path
+								d={e.d}
+								className={cn(s.edge, s.direct, s[`direct-${e.state}`])}
+								vectorEffect="non-scaling-stroke"
+							/>
+							{e.state === "direct" && (
+								<path
+									d={e.d}
+									className={cn(s.edge, s.flow, s.directFlow)}
+									vectorEffect="non-scaling-stroke"
+								/>
+							)}
+						</g>
+					))}
 				</svg>
+				{directEdges.map((e) => (
+					<span
+						key={`label-${e.key}`}
+						className={cn(s.edgeLabel, s.directLabel, s[`direct-${e.state}`])}
+						style={pos(e.mid)}
+						title={e.title}
+						data-testid={`topology-${e.key}`}
+					>
+						{e.label}
+					</span>
+				))}
 				{edges
 					.filter((e) => e.label.text)
 					.map((e) => (

@@ -5,6 +5,7 @@ import Agent from "../models/agent.js";
 import AgentIngressRule from "../models/agent_ingress_rule.js";
 import Setting from "../models/setting.js";
 import internalDirectLink from "./agent-direct-link.js";
+import { sanitizePublicHost } from "./agent-direct-link-rules.js";
 import internalAgentIngress from "./agent-ingress.js";
 import { cidrContains } from "./agent-ingress-rules.js";
 import { triggerSiteIsolation } from "./site-isolation-trigger.js";
@@ -321,6 +322,7 @@ const ADMIN_AGENT_COLUMNS = [
 	"allowed_networks",
 	"preserve_lan_source_ip",
 	"ingress_mode",
+	"public_host",
 	"config_applied_hash",
 	"config_error",
 	"last_server_url",
@@ -2133,6 +2135,7 @@ const internalAgent = {
 			mgmt_url: sanitizeMgmtUrl(data.mgmt_url),
 			wg_link_name: wgLinkName,
 			preserve_lan_source_ip: sanitizeBool(data.preserve_lan_source_ip, false),
+			public_host: sanitizePublicHost(data.public_host),
 			last_seen: null,
 			status: "pending",
 			is_deleted: false,
@@ -2181,6 +2184,8 @@ const internalAgent = {
 		}
 		if (typeof data.mode !== "undefined") patch.mode = sanitizeAgentMode(data.mode);
 		if (typeof data.mgmt_url !== "undefined") patch.mgmt_url = sanitizeMgmtUrl(data.mgmt_url);
+		// public address (DynDNS / fixed IP) — display + direct-link default only, no config impact
+		if (typeof data.public_host !== "undefined") patch.public_host = sanitizePublicHost(data.public_host);
 		if (typeof data.wg_link_name !== "undefined") {
 			patch.wg_link_name = sanitizeOptionalString(data.wg_link_name, "wg_link_name");
 		}

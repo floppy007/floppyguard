@@ -1,6 +1,6 @@
 import { IconDeviceLaptop, IconDeviceMobile } from "@tabler/icons-react";
 import { useMemo, useRef } from "react";
-import type { Agent, WireGuardLink } from "src/api/backend";
+import type { Agent, DirectLink, WireGuardLink } from "src/api/backend";
 
 // Pure helpers for the WireGuard topology map (TopologyMap.tsx). Times are
 // unix seconds, like latestHandshake / lastSeen from the backend.
@@ -484,4 +484,35 @@ export function useLinkRates(links: WireGuardLink[]): Map<string, LinkRate> {
 		cache.current.set(links, res.rates);
 		return res.rates;
 	}, [links]);
+}
+
+// ── Direct links between two sites ─────────────────────────────────────────────
+
+export type DirectEdgeState = "direct" | "partly" | "hub" | "off";
+
+/** State of a direct link for the map (both sides direct = "direct"). */
+export function directEdgeState(l: Pick<DirectLink, "enabled" | "blocked" | "statusA" | "statusB">): DirectEdgeState {
+	if (!l.enabled || l.blocked) return "off";
+	const n = [l.statusA, l.statusB].filter((s) => !s.stale && s.up && s.path === "direct").length;
+	return n === 2 ? "direct" : n === 1 ? "partly" : "hub";
+}
+
+/**
+ * Curve between two site cards, bent away from the hub so it does not run
+ * through the hub card. Returns the path and the label point (t = 0.5).
+ */
+export function directEdge(a: Point, b: Point, hub: Point): { d: string; mid: Point } {
+	const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+	let vx = m.x - hub.x;
+	let vy = m.y - hub.y;
+	const len = Math.hypot(vx, vy) || 1;
+	vx /= len;
+	vy /= len;
+	const bend = Math.min(140, Math.hypot(b.x - a.x, b.y - a.y) * 0.35);
+	const c = { x: m.x + vx * bend, y: m.y + vy * bend };
+	const r = (n: number) => Math.round(n * 10) / 10;
+	return {
+		d: `M ${r(a.x)} ${r(a.y)} Q ${r(c.x)} ${r(c.y)} ${r(b.x)} ${r(b.y)}`,
+		mid: { x: 0.25 * a.x + 0.5 * c.x + 0.25 * b.x, y: 0.25 * a.y + 0.5 * c.y + 0.25 * b.y },
+	};
 }

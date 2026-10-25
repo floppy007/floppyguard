@@ -1,6 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+	checkDirectLink,
 	createDirectLink,
+	type DirectLinkCheck,
+	type DirectLinkSite,
+	getDirectLinkSites,
 	type DirectLink,
 	type DirectLinkInput,
 	deleteDirectLink,
@@ -47,4 +51,23 @@ const useDeleteDirectLink = () => {
 	});
 };
 
-export { useDeleteDirectLink, useDirectLinks, useSaveDirectLink };
+/** Router settings + public address per site (DNS lookups on the hub → refreshed every minute). */
+const useDirectLinkSites = (options = {}) => {
+	return useQuery<DirectLinkSite[], Error>({
+		queryKey: ["direct-links", "sites"],
+		queryFn: getDirectLinkSites,
+		staleTime: 30 * 1000,
+		refetchInterval: 60 * 1000,
+		retry: false,
+		...options,
+	});
+};
+
+/** "Prüfen" on demand (button), not polled. */
+const useCheckDirectLink = () => {
+	return useMutation<DirectLinkCheck, Error, number>({
+		mutationFn: (id: number) => checkDirectLink(id),
+	});
+};
+
+export { useCheckDirectLink, useDeleteDirectLink, useDirectLinkSites, useDirectLinks, useSaveDirectLink };

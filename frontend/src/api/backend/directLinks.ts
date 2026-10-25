@@ -1,5 +1,5 @@
 import { del, get, post, put } from "./base";
-import type { DirectLink, DirectLinkInput } from "./models";
+import type { DirectLink, DirectLinkCheck, DirectLinkInput, DirectLinkSite } from "./models";
 
 /** Direct links ("Direktverbindungen") between two site agents; the hub stays the fallback. */
 export function getDirectLinks(): Promise<DirectLink[]> {
@@ -30,4 +30,14 @@ export function updateDirectLink(id: number, data: Partial<DirectLinkInput>): Pr
 
 export function deleteDirectLink(id: number): Promise<void> {
 	return del({ url: `direct-links/${id}` }) as Promise<void>;
+}
+
+/** Router settings + public address per site agent. */
+export function getDirectLinkSites(): Promise<DirectLinkSite[]> {
+	return get({ url: "direct-links/sites" }) as Promise<DirectLinkSite[]>;
+}
+
+/** Connection check of one link (DNS, public IP, port forward, path). Read only. */
+export function checkDirectLink(id: number): Promise<DirectLinkCheck> {
+	return get({ url: `direct-links/${id}/check` }) as Promise<DirectLinkCheck>;
 }

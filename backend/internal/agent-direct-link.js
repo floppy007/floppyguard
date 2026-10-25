@@ -9,6 +9,7 @@
 // exactly its hub-side reach (the same computation as its hub peer AllowedIPs,
 // passed in by agent.js) restricted to the partner site's own networks.
 
+import { promises as dnsPromises } from "node:dns";
 import { wireguard as logger } from "../logger.js";
 import error from "../lib/error.js";
 import Agent from "../models/agent.js";
@@ -20,10 +21,14 @@ import {
 	directIface,
 	directPayloadEntry,
 	directPeerNets,
+	endpointIpv4,
+	evaluateDirectChecks,
+	isIpv4Literal,
 	MAX_DIRECT_LINK_ID,
 	natRestrictedConflict,
 	sanitizeDirectLinkInput,
 	sanitizeDirectStatus,
+	siteRouterSettings,
 	tunnelAddresses,
 } from "./agent-direct-link-rules.js";
 import { assertTotalLineCount, rowToRule } from "./agent-ingress-rules.js";
@@ -96,7 +101,17 @@ function agentTunnelSubnets(agents) {
 async function loadAgentsMap() {
 	const agents = await Agent.query()
 		.where("is_deleted", 0)
-		.select("id", "name", "wg_link_name", "wg_interface", "config_text", "last_seen", "ingress_mode");
+		.select(
+			"id",
+			"name",
+			"hostname",
+			"wg_link_name",
+			"wg_interface",
+			"config_text",
+			"last_seen",
+			"ingress_mode",
+			"public_host",
+		);
 	return { agents, byId: new Map(agents.map((a) => [a.id, a])) };
 }
 
@@ -192,6 +207,48 @@ async function validateComplete(link, byId, agents) {
 	}
 }
 
+const DNS_TIMEOUT_MS = 4000;
+
+/** IPv4s a host name resolves to on the hub; null = lookup failed / timed out. */
+async function resolveIpv4(host) {
+	if (isIpv4Literal(host)) return [host];
+	let timer;
+	try {
+		const res = await Promise.race([
+			dnsPromises.lookup(host, { family: 4, all: true }),
+			new Promise((_, reject) => {
+				timer = setTimeout(() => reject(new Error("dns timeout")), DNS_TIMEOUT_MS);
+			}),
+		]);
+		return [...new Set(res.map((r) => r.address))];
+	} catch {
+		return null;
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
+/**
+ * Public IPv4 per agent as the hub sees its hub tunnel (live `wg show` endpoint
+ * of the agent's site link). Best effort: a failing status read yields {}.
+ */
+async function hubSeenPublicIps(agents) {
+	let links = [];
+	try {
+		links = (await internalWireGuard.getStatus()).links || [];
+	} catch (err) {
+		logger.warn(`direct link check: hub status unavailable: ${err.message}`);
+	}
+	const out = new Map();
+	for (const a of agents) {
+		if (!a.wg_link_name) continue;
+		const l = links.find((x) => x.name === a.wg_link_name && x.type !== "client");
+		const ip = endpointIpv4(l?.remoteEndpoint);
+		if (ip) out.set(a.id, ip);
+	}
+	return out;
+}
+
 const internalDirectLink = {
 	async list() {
 		const [rows, { byId }, ctx] = await Promise.all([
@@ -245,6 +302,64 @@ const internalDirectLink = {
 			enabled: Boolean(row.enabled),
 		});
 		return toView(row, byId, await loadMeshContext());
+	},
+
+	/**
+	 * "Prüfen": DNS of the endpoint, the public IP the hub sees for side A, port
+	 * forward (= a fresh handshake on the direct tunnel), path. Read only.
+	 */
+	async check(id) {
+		const row = await loadRow(id);
+		const [{ agents, byId }, ctx] = await Promise.all([loadAgentsMap(), loadMeshContext()]);
+		const view = toView(row, byId, ctx);
+		const [resolved, seen] = await Promise.all([resolveIpv4(row.endpoint_host), hubSeenPublicIps(agents)]);
+		const a = byId.get(row.agent_a_id);
+		const result = evaluateDirectChecks({
+			link: view,
+			publicIpA: seen.get(row.agent_a_id) ?? null,
+			resolved,
+			publicHostA: a?.public_host ?? null,
+		});
+		return {
+			link_id: row.id,
+			checked_at: Math.floor(Date.now() / 1000),
+			public_ip_a: seen.get(row.agent_a_id) ?? null,
+			public_ip_b: seen.get(row.agent_b_id) ?? null,
+			resolved,
+			...result,
+		};
+	},
+
+	/**
+	 * Per site agent: stored public address (DynDNS / fixed IP), what it resolves
+	 * to, the public IP the hub sees, and the router settings its links need.
+	 */
+	async sites() {
+		const [rows, { agents, byId }, ctx] = await Promise.all([
+			AgentDirectLink.query().orderBy("id"),
+			loadAgentsMap(),
+			loadMeshContext(),
+		]);
+		const views = rows.map((r) => toView(r, byId, ctx));
+		const seen = await hubSeenPublicIps(agents);
+		const site = agents.filter((a) => ctx.siteLinkIdOf(a));
+		return Promise.all(
+			site.map(async (a) => {
+				const resolved = a.public_host ? await resolveIpv4(a.public_host) : null;
+				const publicIp = seen.get(a.id) ?? null;
+				return {
+					agent_id: a.id,
+					name: a.name,
+					link_name: a.wg_link_name,
+					hostname: a.hostname ?? null,
+					public_host: a.public_host ?? null,
+					public_ip: publicIp,
+					resolved,
+					dns_ok: a.public_host && publicIp && resolved ? resolved.includes(publicIp) : null,
+					...siteRouterSettings(a.id, views),
+				};
+			}),
+		);
 	},
 
 	/** Agent deleted: its links can never come up again — remove them. */
@@ -351,4 +466,4 @@ const internalDirectLink = {
 };
 
 export default internalDirectLink;
-export const _testExports = { toView, agentTunnelSubnets, loadMeshContext };
+export const _testExports = { toView, agentTunnelSubnets, loadMeshContext, resolveIpv4 };
