@@ -100,6 +100,9 @@ install_prereqs() {
     command -v wg      >/dev/null 2>&1 || pkgs+=(wireguard-tools)
     command -v git     >/dev/null 2>&1 || pkgs+=(git)
     command -v certbot >/dev/null 2>&1 || pkgs+=(certbot)
+    # curl + gpg: the application updater (scripts/update.sh) needs both (health check, release signature)
+    command -v curl    >/dev/null 2>&1 || pkgs+=(curl)
+    command -v gpg     >/dev/null 2>&1 || pkgs+=(gnupg)
 
     if [ ${#pkgs[@]} -gt 0 ]; then
         info "Installing: ${pkgs[*]}"
@@ -270,6 +273,9 @@ ${db_wants}
 Type=simple
 User=root
 WorkingDirectory=${INSTALL_DIR}/backend
+# Without NODE_ENV the backend reads config/default.json (docker-compose dev config, MySQL host "db")
+# and never reaches the database configured in .env.
+Environment=NODE_ENV=production
 EnvironmentFile=${INSTALL_DIR}/backend/.env
 ExecStart=/usr/bin/node index.js
 Restart=on-failure
@@ -281,6 +287,15 @@ SyslogIdentifier=floppyguard-backend
 [Install]
 WantedBy=multi-user.target
 EOF
+    fi
+
+    # Units written by older installers lack NODE_ENV: the backend then ignores .env (see above).
+    if ! grep -q '^Environment=NODE_ENV=' "${unit_file}"; then
+        info "Adding NODE_ENV=production to the existing systemd unit..."
+        sed -i '/^\[Service\]/a Environment=NODE_ENV=production' "${unit_file}"
+        systemctl daemon-reload
+        systemctl restart "${SERVICE_NAME}" || true
+        ok "systemd unit repaired"
     fi
 
     systemctl daemon-reload
@@ -435,8 +450,8 @@ print_summary() {
     echo -e "  Config:    ${INSTALL_DIR}/backend/.env"
     echo -e "  Logs:      journalctl -u ${SERVICE_NAME} -f"
     echo ""
-    echo -e "  Default login:  ${YELLOW}admin@example.com${NC} / ${YELLOW}changeme${NC}"
-    echo -e "  ${RED}Change the password immediately after first login!${NC}"
+    echo -e "  First start:    open the Admin UI and create the first administrator account"
+    echo -e "  ${YELLOW}Do this right away – until then anyone who reaches port ${ADMIN_PORT} can claim the instance.${NC}"
     echo ""
 }
 

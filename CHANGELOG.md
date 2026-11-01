@@ -5,6 +5,28 @@ This project diverges from upstream nginx-proxy-manager starting at v1.0.0.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.6.1] - 2026-11-01
+
+Fresh installs following the README work again (found by installing on a clean Debian 13 container).
+
+### English
+
+#### Fixed
+
+- **Fresh install never reached its database:** the systemd unit written by `install.sh` did not set `NODE_ENV`, so the backend loaded `config/default.json` (docker-compose development config, MySQL host `db`) instead of the SQLite/MySQL settings in `.env` and kept retrying "getaddrinfo ENOTFOUND db". The unit now sets `NODE_ENV=production`; running `install.sh` again repairs units written by older installers.
+- `install.sh` installs `curl` and `gnupg` when missing – the application updater needs both (health check, release signature).
+- README quick install: install `curl` first (fresh Debian/Ubuntu images ship without it; `curl … | bash` then fails while the pipe still exits 0).
+- The install summary no longer shows a default login that does not exist; it points to the first-start setup of the administrator account instead.
+
+### Deutsch
+
+#### Behoben
+
+- **Neuinstallation erreichte ihre Datenbank nie:** Die von `install.sh` geschriebene systemd-Unit setzte kein `NODE_ENV`, deshalb las das Backend `config/default.json` (Docker-Entwicklungskonfiguration, MySQL-Host `db`) statt der SQLite-/MySQL-Einstellungen aus `.env` und versuchte endlos „getaddrinfo ENOTFOUND db“. Die Unit setzt jetzt `NODE_ENV=production`; ein erneuter Lauf von `install.sh` repariert Units älterer Installer.
+- `install.sh` installiert fehlendes `curl` und `gnupg` – der Anwendungs-Updater braucht beide (Healthcheck, Release-Signatur).
+- README-Schnellinstallation: zuerst `curl` installieren (frische Debian-/Ubuntu-Images haben es nicht; `curl … | bash` scheitert dann, die Pipe meldet trotzdem Exit 0).
+- Die Zusammenfassung am Ende der Installation zeigt keinen Standard-Login mehr, den es nicht gibt, sondern verweist auf das Anlegen des Admin-Kontos beim ersten Start.
+
 ## [2.6.0] - 2026-11-01
 
 Country filter per proxy host with a world map, email notifications with certificate warnings, a sortable dashboard.

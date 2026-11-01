@@ -7,7 +7,7 @@
 > Nginx reverse proxy manager with integrated WireGuard VPN management, a visual topology map, remote agent support and a hardened host-based runtime.
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.6.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.6.1-blue.svg)](CHANGELOG.md)
 [![CI](https://github.com/floppy007/floppyguard/actions/workflows/ci.yml/badge.svg)](https://github.com/floppy007/floppyguard/actions/workflows/ci.yml)
 
 ---
@@ -84,6 +84,8 @@ Port 3300 FloppyGuard backend (Node.js, systemd unit: floppyguard-backend)
 ### Quick install
 
 ```bash
+# Fresh Debian/Ubuntu images often ship without curl
+apt-get update && apt-get install -y curl
 curl -fsSL https://raw.githubusercontent.com/floppy007/floppyguard/master/scripts/install.sh | bash
 ```
 
