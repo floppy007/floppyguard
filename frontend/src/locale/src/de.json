@@ -161,6 +161,33 @@
 	"cancel": {
 		"defaultMessage": "Abbrechen"
 	},
+	"cert-problems.badge.expired": {
+		"defaultMessage": "abgelaufen"
+	},
+	"cert-problems.badge.expiring": {
+		"defaultMessage": "noch {days} Tag(e)"
+	},
+	"cert-problems.badge.failed": {
+		"defaultMessage": "Erneuerung fehlgeschlagen"
+	},
+	"cert-problems.dismiss": {
+		"defaultMessage": "Für diese Sitzung ausblenden"
+	},
+	"cert-problems.expired": {
+		"defaultMessage": "Zertifikat abgelaufen: {name}"
+	},
+	"cert-problems.expiring": {
+		"defaultMessage": "Zertifikat läuft in {days} Tag(en) ab: {name}"
+	},
+	"cert-problems.failed": {
+		"defaultMessage": "Zertifikat-Erneuerung fehlgeschlagen: {name}"
+	},
+	"cert-problems.more": {
+		"defaultMessage": "und {count} weitere"
+	},
+	"cert-problems.open": {
+		"defaultMessage": "Zertifikate ansehen"
+	},
 	"certificate": {
 		"defaultMessage": "Zertifikat"
 	},
@@ -368,11 +395,53 @@
 	"dashboard.gateway-overview": {
 		"defaultMessage": "Gateway-Übersicht"
 	},
+	"dashboard.geo.details": {
+		"defaultMessage": "Details"
+	},
+	"dashboard.geo.hosts": {
+		"defaultMessage": "{count, plural, one {# Host gefiltert} other {# Hosts gefiltert}}"
+	},
+	"dashboard.geo.no-hosts": {
+		"defaultMessage": "Noch kein Proxy-Host nutzt den Länder-Filter."
+	},
+	"dashboard.geo.title": {
+		"defaultMessage": "Länder-Filter · gesperrte Zugriffe (30 Tage)"
+	},
 	"dashboard.hub-active": {
 		"defaultMessage": "{name} aktiv"
 	},
 	"dashboard.hub-interface": {
 		"defaultMessage": "Hub-Interface"
+	},
+	"dashboard.layout.customize": {
+		"defaultMessage": "Dashboard anpassen"
+	},
+	"dashboard.layout.done": {
+		"defaultMessage": "Fertig"
+	},
+	"dashboard.layout.down": {
+		"defaultMessage": "Nach unten"
+	},
+	"dashboard.layout.drag": {
+		"defaultMessage": "Zum Verschieben ziehen"
+	},
+	"dashboard.layout.hidden": {
+		"defaultMessage": "ausgeblendet"
+	},
+	"dashboard.layout.hide": {
+		"defaultMessage": "Ausblenden"
+	},
+	"dashboard.layout.hint": {
+		"defaultMessage": "Blöcke ziehen oder mit den Pfeilen sortieren, mit dem Auge aus- und einblenden. Wird in diesem Browser für deinen Benutzer gespeichert."
+	},
+	"dashboard.layout.reset": {
+		"defaultMessage": "Zurücksetzen"
+	},
+	"dashboard.layout.show": {
+		"defaultMessage": "Einblenden"
+	},
+	"dashboard.layout.up": {
+		"defaultMessage": "Nach oben"
 	},
 	"dashboard.link-meta": {
 		"defaultMessage": "{type} · {iface} · Handshake {handshake}"
@@ -409,6 +478,24 @@
 	},
 	"dashboard.redirections-hint": {
 		"defaultMessage": "Alle in Betrieb"
+	},
+	"dashboard.section.bandwidth": {
+		"defaultMessage": "Live-Bandbreite"
+	},
+	"dashboard.section.fail2ban": {
+		"defaultMessage": "Fail2Ban"
+	},
+	"dashboard.section.gateway": {
+		"defaultMessage": "Gateway & Verbindungen"
+	},
+	"dashboard.section.geo": {
+		"defaultMessage": "Länder-Filter (Weltkarte)"
+	},
+	"dashboard.section.hosts": {
+		"defaultMessage": "Weiterleitungen, Streams, 404-Hosts"
+	},
+	"dashboard.section.stats": {
+		"defaultMessage": "Kennzahlen Proxy & WireGuard"
 	},
 	"dashboard.stat.active-peers": {
 		"defaultMessage": "Aktive Peers"
@@ -713,6 +800,9 @@
 	"gateway.unavailable": {
 		"defaultMessage": "Gateway-Daten sind in dieser Laufzeit noch nicht verfügbar."
 	},
+	"geo-filter": {
+		"defaultMessage": "Länder-Filter"
+	},
 	"health.refetch-error": {
 		"defaultMessage": "Die API ist gerade nicht erreichbar – es wird automatisch erneut versucht."
 	},
@@ -721,6 +811,12 @@
 	},
 	"host.flags.cache-assets": {
 		"defaultMessage": "Assets cachen"
+	},
+	"host.flags.geo-filter": {
+		"defaultMessage": "Nur aus erlaubten Ländern erreichbar"
+	},
+	"host.flags.geo-filter.hint": {
+		"defaultMessage": "Länder-Filter, Länder unter Einstellungen → Länder-Filter"
 	},
 	"host.flags.preserve-path": {
 		"defaultMessage": "Pfad beibehalten"
@@ -736,6 +832,12 @@
 	},
 	"host.forward-scheme": {
 		"defaultMessage": "Schema"
+	},
+	"host.geo-filter.badge": {
+		"defaultMessage": "Länder-Filter"
+	},
+	"host.geo-filter.badge.title": {
+		"defaultMessage": "Nur aus den erlaubten Ländern erreichbar (Einstellungen → Länder-Filter)"
 	},
 	"host.nginx-rejected": {
 		"defaultMessage": "Konfig abgelehnt"
@@ -874,6 +976,9 @@
 	},
 	"notification.success": {
 		"defaultMessage": "Erfolgreich"
+	},
+	"notifications": {
+		"defaultMessage": "Benachrichtigungen"
 	},
 	"object.actions-title": {
 		"defaultMessage": "{object} #{id}"
@@ -1081,6 +1186,303 @@
 	},
 	"settings.default-site.redirect": {
 		"defaultMessage": "Weiterleitung"
+	},
+	"settings.geo-filter": {
+		"defaultMessage": "Länder-Filter"
+	},
+	"settings.geo-filter.allowed": {
+		"defaultMessage": "Erlaubt"
+	},
+	"settings.geo-filter.countries-n": {
+		"defaultMessage": "{count, plural, one {# Land} other {# Länder}}"
+	},
+	"settings.geo-filter.description": {
+		"defaultMessage": "Proxy-Hosts mit eingeschaltetem Länder-Filter sind nur aus den erlaubten Ländern erreichbar, alle anderen bekommen 403. Eigene Netze (LAN, VPN) sind immer erlaubt."
+	},
+	"settings.geo-filter.discard": {
+		"defaultMessage": "Verwerfen"
+	},
+	"settings.geo-filter.fallback": {
+		"defaultMessage": "Die Länderliste konnte noch nicht geladen werden. Gefilterte Hosts sind deshalb zurzeit von außen komplett gesperrt (nur LAN/VPN). Bitte „Liste jetzt aktualisieren“."
+	},
+	"settings.geo-filter.host.blocked": {
+		"defaultMessage": "{count} Sperren in {days} Tagen"
+	},
+	"settings.geo-filter.host.off": {
+		"defaultMessage": "Host deaktiviert"
+	},
+	"settings.geo-filter.host.on": {
+		"defaultMessage": "aktiv"
+	},
+	"settings.geo-filter.hosts.hint": {
+		"defaultMessage": "Einschalten oder ausschalten im Proxy-Host-Dialog: Details → „Nur aus erlaubten Ländern erreichbar“. In der Proxy-Host-Liste sind gefilterte Hosts mit „Länder-Filter“ markiert."
+	},
+	"settings.geo-filter.kicker": {
+		"defaultMessage": "Zugriffsschutz"
+	},
+	"settings.geo-filter.kpi.blocked": {
+		"defaultMessage": "Gesperrt (30 Tage)"
+	},
+	"settings.geo-filter.kpi.countries": {
+		"defaultMessage": "Herkunftsländer"
+	},
+	"settings.geo-filter.kpi.hosts": {
+		"defaultMessage": "Gefilterte Hosts"
+	},
+	"settings.geo-filter.kpi.today": {
+		"defaultMessage": "Heute gesperrt"
+	},
+	"settings.geo-filter.last-error": {
+		"defaultMessage": "Letzte Aktualisierung fehlgeschlagen, die vorige Liste bleibt aktiv: {error}"
+	},
+	"settings.geo-filter.map.days": {
+		"defaultMessage": "letzte {days} Tage"
+	},
+	"settings.geo-filter.map.empty": {
+		"defaultMessage": "Noch keine gesperrten Zugriffe"
+	},
+	"settings.geo-filter.map.empty.hint": {
+		"defaultMessage": "Sobald ein gefilterter Host aus einem nicht erlaubten Land aufgerufen wird, erscheint es hier (Auswertung alle 5 Minuten)."
+	},
+	"settings.geo-filter.map.title": {
+		"defaultMessage": "Woher gesperrte Zugriffe kamen"
+	},
+	"settings.geo-filter.no-hosts": {
+		"defaultMessage": "Noch kein Proxy-Host nutzt den Länder-Filter."
+	},
+	"settings.geo-filter.none-selected": {
+		"defaultMessage": "Kein Land gewählt – mindestens eines auswählen."
+	},
+	"settings.geo-filter.note": {
+		"defaultMessage": "Geprüft wird am Hub die echte Absender-IP; Let's-Encrypt-Prüfungen bleiben immer erlaubt. Datenquelle:"
+	},
+	"settings.geo-filter.preset.dach": {
+		"defaultMessage": "DACH"
+	},
+	"settings.geo-filter.preset.eu": {
+		"defaultMessage": "EU"
+	},
+	"settings.geo-filter.preset.eu-ch": {
+		"defaultMessage": "EU + Schweiz"
+	},
+	"settings.geo-filter.preset.europe-west": {
+		"defaultMessage": "EU + EWR + CH + UK"
+	},
+	"settings.geo-filter.presets": {
+		"defaultMessage": "Vorlage"
+	},
+	"settings.geo-filter.quick": {
+		"defaultMessage": "Schnellauswahl Europa"
+	},
+	"settings.geo-filter.refresh": {
+		"defaultMessage": "Jetzt aktualisieren"
+	},
+	"settings.geo-filter.remove": {
+		"defaultMessage": "{country} entfernen"
+	},
+	"settings.geo-filter.search": {
+		"defaultMessage": "Land hinzufügen – Name oder Code, z. B. Norwegen oder US"
+	},
+	"settings.geo-filter.search.none": {
+		"defaultMessage": "Kein passendes Land gefunden."
+	},
+	"settings.geo-filter.selected-count": {
+		"defaultMessage": "{count, plural, one {# Land gewählt} other {# Länder gewählt}}"
+	},
+	"settings.geo-filter.stat.auto": {
+		"defaultMessage": "automatisch alle 7 Tage"
+	},
+	"settings.geo-filter.stat.networks-n": {
+		"defaultMessage": "{count} Netze"
+	},
+	"settings.geo-filter.stat.updated": {
+		"defaultMessage": "Stand der Liste"
+	},
+	"settings.geo-filter.state.active": {
+		"defaultMessage": "Aktiv"
+	},
+	"settings.geo-filter.state.fallback": {
+		"defaultMessage": "Liste fehlt – gesperrt"
+	},
+	"settings.geo-filter.state.unused": {
+		"defaultMessage": "Nicht in Benutzung"
+	},
+	"settings.geo-filter.state.warning": {
+		"defaultMessage": "Aktualisierung fehlgeschlagen"
+	},
+	"settings.geo-filter.tab.countries": {
+		"defaultMessage": "Länder"
+	},
+	"settings.geo-filter.tab.hosts": {
+		"defaultMessage": "Hosts"
+	},
+	"settings.geo-filter.tab.overview": {
+		"defaultMessage": "Übersicht"
+	},
+	"settings.geo-filter.today": {
+		"defaultMessage": "heute"
+	},
+	"settings.geo-filter.top.all": {
+		"defaultMessage": "Alle {count} gesperrten Länder anzeigen"
+	},
+	"settings.geo-filter.top.countries": {
+		"defaultMessage": "Gesperrte Länder mit Anfragen"
+	},
+	"settings.geo-filter.top.days": {
+		"defaultMessage": "Sperren pro Tag"
+	},
+	"settings.geo-filter.top.days.max": {
+		"defaultMessage": "max. {max} pro Tag"
+	},
+	"settings.geo-filter.top.hosts": {
+		"defaultMessage": "Am häufigsten angefragte Hosts"
+	},
+	"settings.geo-filter.top.ips": {
+		"defaultMessage": "Häufigste IPs"
+	},
+	"settings.geo-filter.top.less": {
+		"defaultMessage": "Weniger anzeigen"
+	},
+	"settings.geo-filter.unsaved": {
+		"defaultMessage": "Ungespeicherte Änderungen"
+	},
+	"settings.notifications": {
+		"defaultMessage": "Benachrichtigungen"
+	},
+	"settings.notifications.app-url": {
+		"defaultMessage": "Adresse der App (für Links in Mails)"
+	},
+	"settings.notifications.app-url.hint": {
+		"defaultMessage": "z. B. https://proxy.comnic.de – der Knopf in der Mail führt direkt zur passenden Seite."
+	},
+	"settings.notifications.days": {
+		"defaultMessage": "Tage vorher"
+	},
+	"settings.notifications.description": {
+		"defaultMessage": "FloppyGuard meldet per Mail, wenn ein Zertifikat nicht erneuert werden konnte oder bald abläuft. Versand direkt über deinen Mailserver."
+	},
+	"settings.notifications.enabled": {
+		"defaultMessage": "Benachrichtigungen verschicken"
+	},
+	"settings.notifications.enabled.hint": {
+		"defaultMessage": "Die Warnung oben in der App erscheint immer, unabhängig von diesem Schalter."
+	},
+	"settings.notifications.event.cert-expiring": {
+		"defaultMessage": "Zertifikat läuft ab"
+	},
+	"settings.notifications.event.cert-expiring.hint": {
+		"defaultMessage": "Einmal täglich eine Liste aller abgelaufenen oder bald ablaufenden Zertifikate."
+	},
+	"settings.notifications.event.cert-failed": {
+		"defaultMessage": "Zertifikat-Erneuerung fehlgeschlagen"
+	},
+	"settings.notifications.event.cert-failed.hint": {
+		"defaultMessage": "Beim ersten Fehlschlag, danach höchstens einmal täglich – und eine Entwarnung, sobald es wieder klappt."
+	},
+	"settings.notifications.events": {
+		"defaultMessage": "Wann melden?"
+	},
+	"settings.notifications.expiring-days": {
+		"defaultMessage": "Vorwarnzeit"
+	},
+	"settings.notifications.kicker": {
+		"defaultMessage": "Meldungen per E-Mail"
+	},
+	"settings.notifications.recipients": {
+		"defaultMessage": "Empfänger"
+	},
+	"settings.notifications.recipients.add": {
+		"defaultMessage": "E-Mail-Adresse hinzufügen"
+	},
+	"settings.notifications.recipients.add-button": {
+		"defaultMessage": "Hinzufügen"
+	},
+	"settings.notifications.recipients.none": {
+		"defaultMessage": "Noch keine Empfänger."
+	},
+	"settings.notifications.recipients.remove": {
+		"defaultMessage": "{email} entfernen"
+	},
+	"settings.notifications.smtp": {
+		"defaultMessage": "Mailserver (SMTP)"
+	},
+	"settings.notifications.smtp.from-address": {
+		"defaultMessage": "Absenderadresse"
+	},
+	"settings.notifications.smtp.from-name": {
+		"defaultMessage": "Absendername"
+	},
+	"settings.notifications.smtp.hint": {
+		"defaultMessage": "Passwort wird verschlüsselt übertragen und nie angezeigt"
+	},
+	"settings.notifications.smtp.host": {
+		"defaultMessage": "Server"
+	},
+	"settings.notifications.smtp.password": {
+		"defaultMessage": "Passwort"
+	},
+	"settings.notifications.smtp.password.clear": {
+		"defaultMessage": "Entfernen"
+	},
+	"settings.notifications.smtp.password.cleared": {
+		"defaultMessage": "Wird beim Speichern entfernt."
+	},
+	"settings.notifications.smtp.password.keep": {
+		"defaultMessage": "•••••••• (gespeichert, leer lassen zum Behalten)"
+	},
+	"settings.notifications.smtp.password.stored": {
+		"defaultMessage": "Passwort ist gespeichert."
+	},
+	"settings.notifications.smtp.password.undo": {
+		"defaultMessage": "Rückgängig"
+	},
+	"settings.notifications.smtp.port": {
+		"defaultMessage": "Port"
+	},
+	"settings.notifications.smtp.security": {
+		"defaultMessage": "Verschlüsselung"
+	},
+	"settings.notifications.smtp.security.none": {
+		"defaultMessage": "Keine"
+	},
+	"settings.notifications.smtp.security.none.hint": {
+		"defaultMessage": "nur im internen Netz"
+	},
+	"settings.notifications.smtp.security.ssl": {
+		"defaultMessage": "SSL/TLS"
+	},
+	"settings.notifications.smtp.security.ssl.hint": {
+		"defaultMessage": "empfohlen · Port 465"
+	},
+	"settings.notifications.smtp.security.starttls": {
+		"defaultMessage": "STARTTLS"
+	},
+	"settings.notifications.smtp.security.starttls.hint": {
+		"defaultMessage": "Port 587"
+	},
+	"settings.notifications.smtp.user": {
+		"defaultMessage": "Benutzer"
+	},
+	"settings.notifications.state.off": {
+		"defaultMessage": "Ausgeschaltet"
+	},
+	"settings.notifications.state.on": {
+		"defaultMessage": "Aktiv"
+	},
+	"settings.notifications.test": {
+		"defaultMessage": "Testnachricht"
+	},
+	"settings.notifications.test.hint": {
+		"defaultMessage": "geht auch, wenn der Versand noch ausgeschaltet ist"
+	},
+	"settings.notifications.test.save-first": {
+		"defaultMessage": "Erst speichern – die Testmail nutzt die gespeicherten Einstellungen."
+	},
+	"settings.notifications.test.send": {
+		"defaultMessage": "Testmail senden"
+	},
+	"settings.notifications.test.to": {
+		"defaultMessage": "Empfänger (optional)"
 	},
 	"settings.sso": {
 		"defaultMessage": "Anmeldung (SSO)"

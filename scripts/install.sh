@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # FloppyGuard installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/floppy007/floppyguard/develop/scripts/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/floppy007/floppyguard/master/scripts/install.sh | bash
 
 set -euo pipefail
 
 REPO="https://github.com/floppy007/floppyguard.git"
-BRANCH="develop"
+BRANCH="master"
 INSTALL_DIR="/var/www/floppyguard"
 DATA_DIR="/data"
 LE_DIR="/opt/npm/letsencrypt"
@@ -168,6 +168,27 @@ build() {
     info "Building frontend..."
     (cd "${INSTALL_DIR}/frontend" && yarn build)
     ok "Frontend built to ${INSTALL_DIR}/frontend/dist"
+}
+
+install_logrotate() {
+    # Rotates the per-host access/error logs and fg-geo-blocked.log (country filter statistics).
+    # delaycompress matters: the statistics reader finishes the previous file as <name>.1 after a rotation.
+    info "Writing logrotate config..."
+    cat > /etc/logrotate.d/floppyguard <<'EOF'
+/data/logs/*.log {
+    daily
+    missingok
+    rotate 14
+    compress
+    delaycompress
+    notifempty
+    sharedscripts
+    postrotate
+        nginx -s reopen 2>/dev/null || true
+    endscript
+}
+EOF
+    ok "logrotate for ${DATA_DIR}/logs"
 }
 
 setup_data_dirs() {
@@ -429,4 +450,5 @@ setup_data_dirs
 write_env
 install_systemd
 install_nginx
+install_logrotate
 print_summary

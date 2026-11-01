@@ -92,7 +92,8 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 							trustForwardedProto: data?.trustForwardedProto || false,
 							// Advanced tab
 							advancedConfig: data?.advancedConfig || "",
-							meta: data?.meta || {},
+							// geoFilter immer als true/false starten: fehlt der Wert, macht Formik aus der Checkbox eine Liste (["on"])
+							meta: { ...(data?.meta || {}), geoFilter: data?.meta?.geoFilter === true },
 						} as any
 					}
 					onSubmit={onSubmit}
@@ -297,6 +298,32 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 																				<input
 																					{...field}
 																					id="blockExploits"
+																					className={cn("form-check-input", {
+																						"bg-lime": field.checked,
+																					})}
+																					type="checkbox"
+																				/>
+																			</label>
+																		)}
+																	</Field>
+																</span>
+															</label>
+														</div>
+														<div>
+															<label className="row" htmlFor="geoFilter">
+																<span className="col">
+																	<T id="host.flags.geo-filter" />
+																	<span className="form-hint d-block mt-0">
+																		<T id="host.flags.geo-filter.hint" />
+																	</span>
+																</span>
+																<span className="col-auto">
+																	<Field name="meta.geoFilter" type="checkbox">
+																		{({ field }: any) => (
+																			<label className="form-check form-check-single form-switch">
+																				<input
+																					{...field}
+																					id="geoFilter"
 																					className={cn("form-check-input", {
 																						"bg-lime": field.checked,
 																					})}

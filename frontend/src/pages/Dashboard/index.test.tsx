@@ -7,6 +7,7 @@ import Dashboard from "./index";
 
 vi.mock("src/hooks", () => ({
 	useCheckVersion: () => ({ data: undefined }),
+	useGeoFilter: () => ({ data: undefined }),
 	useFail2BanStatus: () => ({ data: { available: false, jails: [] }, isLoading: false }),
 	useHostReport: () => ({ data: { proxy: 3, redirection: 2, stream: 1, dead: 4 } }),
 	useProxyHosts: () => ({ data: undefined }),
@@ -51,6 +52,7 @@ vi.mock("src/hooks", () => ({
 vi.mock("src/components", () => ({
 	HasPermission: ({ children }: { children: ReactNode }) => <>{children}</>,
 	DonutGauge: () => null,
+	Loading: () => null,
 	PeerSparkline: () => null,
 }));
 

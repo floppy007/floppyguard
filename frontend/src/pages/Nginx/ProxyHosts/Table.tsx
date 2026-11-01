@@ -1,4 +1,4 @@
-import { IconBrandCloudflare, IconDotsVertical, IconEdit, IconPower, IconTrash } from "@tabler/icons-react";
+import { IconBrandCloudflare, IconDotsVertical, IconEdit, IconPower, IconTrash, IconWorld } from "@tabler/icons-react";
 import { createColumnHelper, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import { useMemo } from "react";
 import type { ProxyHost } from "src/api/backend";
@@ -46,6 +46,7 @@ export default function Table({ data, isFetching, onEdit, onDelete, onDisableTog
 				cell: (info: any) => {
 					const value = info.getValue();
 					const cloudflareDns = value.meta?.cloudflareDns || value.meta?.cloudflare_dns;
+					const geoFilter = value.meta?.geoFilter === true || value.meta?.geo_filter === true;
 					return (
 						<span className="d-inline-flex align-items-center gap-2">
 							<DomainsFormatter domains={value.domainNames} createdOn={value.createdOn} />
@@ -61,6 +62,15 @@ export default function Table({ data, isFetching, onEdit, onDelete, onDisableTog
 										size={19}
 										className={cloudflareDns.proxied ? "text-orange" : "text-green"}
 									/>
+								</span>
+							) : null}
+							{geoFilter ? (
+								<span
+									className="badge bg-blue-lt d-inline-flex align-items-center gap-1"
+									title={intl.formatMessage({ id: "host.geo-filter.badge.title" })}
+								>
+									<IconWorld size={14} />
+									<T id="host.geo-filter.badge" />
 								</span>
 							) : null}
 						</span>

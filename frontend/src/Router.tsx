@@ -7,6 +7,7 @@ import {
 	LoadingPage,
 	Page,
 	SiteContainer,
+	CertProblemsBanner,
 	SiteFooter,
 	SiteHeader,
 	Unhealthy,
@@ -98,6 +99,7 @@ function Router() {
 		<BrowserRouter>
 			<Page>
 				<SiteHeader />
+				<CertProblemsBanner />
 				{health.isError && (
 					<div className="alert alert-warning rounded-0 mb-0 py-2 text-center small" role="status">
 						{intl.formatMessage({ id: "health.refetch-error" })}

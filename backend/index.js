@@ -3,6 +3,7 @@
 import app from "./app.js";
 import internalAgent from "./internal/agent.js";
 import internalCertificate from "./internal/certificate.js";
+import internalGeoFilter from "./internal/geo-filter.js";
 import internalIpRanges from "./internal/ip_ranges.js";
 import internalSiteIsolation from "./internal/site-isolation.js";
 import internalWireGuard from "./internal/wireguard.js";
@@ -24,6 +25,10 @@ async function appStart() {
 		.then(setup)
 		.then(getCompiledSchema)
 		.then(() => {
+			// Laender-Filter: Datei muss vor jedem nginx -t existieren (), Liste laedt im Hintergrund
+			internalGeoFilter.ensureConf();
+		})
+		.then(() => {
 			if (!IP_RANGES_FETCH_ENABLED) {
 				logger.info("IP Ranges fetch is disabled by environment variable");
 				return;
@@ -37,6 +42,8 @@ async function appStart() {
 			startAttempt = 0;
 			internalCertificate.initTimer();
 			internalIpRanges.initTimer();
+			internalGeoFilter.refresh().catch(() => {});
+			internalGeoFilter.initTimer();
 			internalAgent.startBackgroundTasks();
 			// Hub-side site-to-site isolation (own nft table). Applies once now and
 			// re-applies whenever syncAgentConfigs runs (link/network changes, the

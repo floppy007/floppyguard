@@ -5,6 +5,46 @@ This project diverges from upstream nginx-proxy-manager starting at v1.0.0.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.6.0] - 2026-11-01
+
+Country filter per proxy host with a world map, email notifications with certificate warnings, a sortable dashboard.
+
+### English
+
+#### Added
+
+- **Country filter ("Only reachable from allowed countries")** – switch per proxy host (Details). Filtered hosts answer requests from other countries with 403; private networks (LAN, VPN) are always allowed, Let's Encrypt HTTP-01 challenges stay open. The check sits at server level, so custom locations are covered too. The proxy host list shows a "Country filter" badge.
+- **Settings → Country filter** with three tabs: *Overview* – world map of blocked requests of the last 30 days (one colour, light → dark, allowed countries tinted), KPIs, blocked countries with requests (all on demand), blocks per day, top IPs and hosts; *Countries* – presets (EU, EU + Switzerland, EU + EEA + CH + UK, DACH), chips with flags, search for any country, quick pick Europe, list state and manual refresh, save bar only when something changed; *Hosts* – filtered hosts with their block count. Default: EU-27 + Switzerland. Changes are audit-logged.
+- Data source **DB-IP "IP to Country Lite"** (CC BY 4.0, location based; registry-based lists put e.g. Zurich hosting ranges outside CH). Adjacent ranges are merged before CIDR conversion. Reloaded every 7 days and immediately after a change of countries or of the file format; a failed download keeps the previous list, without any list a fail-closed emergency file keeps nginx valid. Statistics: nginx logs only country blocks (`/data/logs/fg-geo-blocked.log`), evaluated every 5 minutes (offset + inode, survives logrotate), 30 days kept.
+- **Settings → Notifications** – SMTP server (SSL/TLS, STARTTLS or none), sender, app address for links, recipients, events, test email. Sent with nodemailer directly to the configured mail server; the password never leaves the backend (`/data/notifications.json`, 0600).
+- **Certificate warnings** – a failed automatic renewal no longer disappears in the log: the state is kept in `/data/cert-renewal-state.json` (survives restarts, also restores the retry backoff), an email goes out on the first failure, then at most once a day, plus an all-clear when it works again; a daily email lists expired or soon-expiring certificates (warning period configurable). Admins see a warning bar below the header and a badge in the certificate list.
+- **Dashboard** – new "Country filter" block (world map + top countries); "Customize dashboard": reorder blocks by drag & drop or arrows, hide/show them, reset. Saved per user in the browser.
+- Emails in a modern layout (status, details card, button to the right page, dark mode).
+- `install.sh` now writes the logrotate config for `/data/logs` (was only documented).
+- New dependencies (yarn): backend nodemailer 10.1.7; frontend d3-geo 3.1.1, topojson-client 3.1.0, world-atlas 2.0.2.
+
+#### Fixed
+
+- Background timers of certificate warnings and country-filter statistics are `unref()`ed so they never keep a process (tests, scripts) alive on their own.
+
+### Deutsch
+
+#### Neu
+
+- **Länder-Filter („Nur aus erlaubten Ländern erreichbar“)** – Schalter je Proxy-Host (Details). Gefilterte Hosts beantworten Anfragen aus anderen Ländern mit 403; eigene Netze (LAN, VPN) sind immer erlaubt, Let's-Encrypt-Prüfungen (HTTP-01) bleiben offen. Die Prüfung sitzt auf server-Ebene und gilt auch für eigene Locations. Die Proxy-Host-Liste zeigt das Kennzeichen „Länder-Filter“.
+- **Einstellungen → Länder-Filter** mit drei Reitern: *Übersicht* – Weltkarte der gesperrten Zugriffe der letzten 30 Tage (eine Farbe hell → dunkel, erlaubte Länder getönt), Kennzahlen, gesperrte Länder mit Anfragen (auf Wunsch alle), Sperren pro Tag, häufigste IPs und Hosts; *Länder* – Vorlagen (EU, EU + Schweiz, EU + EWR + CH + UK, DACH), Chips mit Flaggen, Suche nach jedem Land, Schnellauswahl Europa, Stand der Liste und Aktualisieren, Speichern-Leiste nur bei Änderungen; *Hosts* – gefilterte Hosts mit Anzahl Sperren. Standard: EU-27 + Schweiz. Änderungen stehen im Audit-Log.
+- Datenquelle **DB-IP „IP to Country Lite“** (CC BY 4.0, nach Standort; Listen nach RIR-Registrierung führten z. B. Zürcher Hosting-Netze nicht als CH). Angrenzende Bereiche werden vor der CIDR-Umrechnung zusammengefasst. Neu geladen alle 7 Tage und sofort nach geänderter Länderauswahl oder neuem Dateiformat; ein fehlgeschlagener Abruf lässt die vorige Liste stehen, ohne jede Liste hält eine Notfassung (fail-closed) nginx gültig. Statistik: nginx protokolliert nur Länder-Sperren (`/data/logs/fg-geo-blocked.log`), Auswertung alle 5 Minuten (Offset + Inode, übersteht logrotate), 30 Tage.
+- **Einstellungen → Benachrichtigungen** – SMTP-Server (SSL/TLS, STARTTLS oder ohne), Absender, App-Adresse für Links, Empfänger, Ereignisse, Testmail. Versand per nodemailer direkt an den eingestellten Mailserver; das Passwort verlässt das Backend nie (`/data/notifications.json`, 0600).
+- **Zertifikats-Warnungen** – eine fehlgeschlagene automatische Erneuerung verschwindet nicht mehr still im Log: Der Zustand liegt in `/data/cert-renewal-state.json` (übersteht Neustarts, stellt auch das Backoff wieder her), eine Mail geht beim ersten Fehlschlag raus, danach höchstens einmal täglich, dazu eine Entwarnung, sobald es wieder klappt; täglich eine Mail mit abgelaufenen oder bald ablaufenden Zertifikaten (Vorwarnzeit einstellbar). Admins sehen eine Warnleiste unter der Kopfzeile und ein Kennzeichen in der Zertifikatsliste.
+- **Dashboard** – neuer Block „Länder-Filter“ (Weltkarte + Top-Länder); „Dashboard anpassen“: Blöcke per Ziehen oder Pfeilen sortieren, aus- und einblenden, zurücksetzen. Gespeichert je Benutzer im Browser.
+- Mails im modernen Layout (Status, Detailkarte, Knopf zur passenden Seite, Dunkelmodus).
+- `install.sh` schreibt jetzt die logrotate-Konfiguration für `/data/logs` (stand bisher nur in der Doku).
+- Neue Abhängigkeiten (yarn): Backend nodemailer 10.1.7; Frontend d3-geo 3.1.1, topojson-client 3.1.0, world-atlas 2.0.2.
+
+#### Behoben
+
+- Hintergrund-Timer der Zertifikats-Warnungen und der Länder-Statistik laufen mit `unref()` und halten keinen Prozess (Tests, Skripte) allein am Leben.
+
 ## [2.5.2] - 2026-10-25
 
 Audit fixes for direct links. **Agent script 1.6.1:** every agent self-updates once.

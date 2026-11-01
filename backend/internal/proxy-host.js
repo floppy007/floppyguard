@@ -6,6 +6,7 @@ import proxyHostModel from "../models/proxy_host.js";
 import internalAuditLog from "./audit-log.js";
 import internalCertificate from "./certificate.js";
 import cloudflareDns from "./cloudflare-dns.js";
+import { sanitizeGeoMeta } from "./geo-filter.js";
 import internalHost from "./host.js";
 import internalNginx from "./nginx.js";
 
@@ -28,7 +29,7 @@ const internalProxyHost = {
 		}
 
 		if (thisData.meta !== undefined) {
-			thisData.meta = cloudflareDns.sanitizeMeta(thisData.meta, undefined);
+			thisData.meta = sanitizeGeoMeta(cloudflareDns.sanitizeMeta(thisData.meta, undefined));
 		}
 
 		return access
@@ -128,7 +129,7 @@ const internalProxyHost = {
 				}
 
 				if (data.meta !== undefined) {
-					data.meta = cloudflareDns.sanitizeMeta(data.meta, row.meta);
+					data.meta = sanitizeGeoMeta(cloudflareDns.sanitizeMeta(data.meta, row.meta));
 				}
 
 				if (createCertificate) {

@@ -3,7 +3,8 @@ import { useCallback, useState } from "react";
 import Alert from "react-bootstrap/Alert";
 import { deleteCertificate, downloadCertificate } from "src/api/backend";
 import { Button, HasPermission, LoadingPage } from "src/components";
-import { useCertificates } from "src/hooks";
+import { useCertProblems, useCertificates, useUser } from "src/hooks";
+import { isAdmin } from "src/modules/Permissions";
 import { T } from "src/locale";
 import { showDeleteConfirmModal, showHelpModal, showRenewCertificateModal } from "src/modals";
 import { CERTIFICATES, MANAGE } from "src/modules/Permissions";
@@ -13,6 +14,9 @@ import Table from "./Table";
 
 export default function TableWrapper() {
 	const [search, setSearch] = useState("");
+	const { data: me } = useUser("me");
+	const { data: problemData } = useCertProblems(isAdmin(me?.roles));
+	const problems = Object.fromEntries((problemData?.certificates || []).map((p) => [p.id, p]));
 	const { isFetching, isLoading, isError, error, data } = useCertificates([
 		"owner",
 		"dead_hosts",
@@ -99,6 +103,7 @@ export default function TableWrapper() {
 					</div>
 				</div>
 				<Table
+					problems={problems}
 					data={filtered ?? data ?? []}
 					isFiltered={!!search}
 					isFetching={isFetching}

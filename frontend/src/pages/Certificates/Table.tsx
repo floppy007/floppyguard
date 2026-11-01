@@ -1,7 +1,7 @@
 import { IconDotsVertical, IconDownload, IconRefresh, IconTrash } from "@tabler/icons-react";
 import { createColumnHelper, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import { useMemo } from "react";
-import type { Certificate } from "src/api/backend";
+import type { Certificate, CertProblem } from "src/api/backend";
 import {
 	CertificateInUseFormatter,
 	DateFormatter,
@@ -25,8 +25,10 @@ interface Props {
 	onDelete?: (id: number) => void;
 	onRenew?: (id: number) => void;
 	onDownload?: (id: number) => void;
+	/** Zertifikats-Warnungen je id (nur für Admins befüllt) */
+	problems?: Record<number, CertProblem>;
 }
-export default function Table({ data, isFetching, onDelete, onRenew, onDownload, isFiltered }: Props) {
+export default function Table({ data, isFetching, onDelete, onRenew, onDownload, isFiltered, problems }: Props) {
 	const columns = useMemo(
 		() => [
 			columnHelper.accessor((row: any) => row.owner, {
@@ -79,7 +81,23 @@ export default function Table({ data, isFetching, onDelete, onRenew, onDownload,
 				id: "expiresOn",
 				header: intl.formatMessage({ id: "column.expires" }),
 				cell: (info: any) => {
-					return <DateFormatter value={info.getValue()} highlightPast />;
+					const p = problems?.[info.row.original.id];
+					return (
+						<span className="d-inline-flex align-items-center flex-wrap">
+							<DateFormatter value={info.getValue()} highlightPast />
+							{p ? (
+								<span
+									className={`badge fg-cert-flag ${p.kind === "expiring" ? "bg-orange-lt" : "bg-red-lt"}`}
+									title={p.error || undefined}
+								>
+									{intl.formatMessage(
+										{ id: `cert-problems.badge.${p.kind}` },
+										{ days: p.daysLeft ?? 0 },
+									)}
+								</span>
+							) : null}
+						</span>
+					);
 				},
 			}),
 			columnHelper.accessor((row: any) => row, {
@@ -164,7 +182,7 @@ export default function Table({ data, isFetching, onDelete, onRenew, onDownload,
 				},
 			}),
 		],
-		[onDelete, onRenew, onDownload],
+		[onDelete, onRenew, onDownload, problems],
 	);
 
 	const tableInstance = useReactTable<Certificate>({

@@ -1,4 +1,6 @@
 export * from "./agentIngress";
+export * from "./geoFilter";
+export * from "./notifications";
 export * from "./agents";
 export * from "./applyWireGuardMetadata";
 export { saveBlob } from "./base";

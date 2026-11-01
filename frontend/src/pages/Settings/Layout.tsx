@@ -2,13 +2,15 @@ import { useState } from "react";
 import { T } from "src/locale";
 import ApplicationUpdate from "./ApplicationUpdate";
 import DefaultSite from "./DefaultSite";
+import GeoFilter from "./GeoFilter";
+import Notifications from "./Notifications";
 import SsoSettings from "./SsoSettings";
 
-type Tab = "default-site" | "sso" | "application-update";
+type Tab = "default-site" | "sso" | "geo-filter" | "notifications" | "application-update";
 
 const initialTab = (): Tab => {
 	const hash = window.location.hash.replace("#", "");
-	return hash === "sso" || hash === "application-update" ? hash : "default-site";
+	return ["sso", "geo-filter", "notifications", "application-update"].includes(hash) ? (hash as Tab) : "default-site";
 };
 
 export default function Layout() {
@@ -52,6 +54,26 @@ export default function Layout() {
 									<T id="settings.sso" />
 								</a>
 								<a
+									href="#geo-filter"
+									className={`list-group-item list-group-item-action d-flex align-items-center ${activeTab === "geo-filter" ? "active" : ""}`}
+									onClick={(e) => {
+										e.preventDefault();
+										setActiveTab("geo-filter");
+									}}
+								>
+									<T id="settings.geo-filter" />
+								</a>
+								<a
+									href="#notifications"
+									className={`list-group-item list-group-item-action d-flex align-items-center ${activeTab === "notifications" ? "active" : ""}`}
+									onClick={(e) => {
+										e.preventDefault();
+										setActiveTab("notifications");
+									}}
+								>
+									<T id="settings.notifications" />
+								</a>
+								<a
 									href="#application-update"
 									className={`list-group-item list-group-item-action d-flex align-items-center ${activeTab === "application-update" ? "active" : ""}`}
 									onClick={(e) => {
@@ -69,6 +91,10 @@ export default function Layout() {
 							<DefaultSite />
 						) : activeTab === "sso" ? (
 							<SsoSettings />
+						) : activeTab === "geo-filter" ? (
+							<GeoFilter />
+						) : activeTab === "notifications" ? (
+							<Notifications />
 						) : (
 							<ApplicationUpdate />
 						)}

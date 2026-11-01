@@ -8,6 +8,8 @@ import agentRoutes from "./agent.js";
 import auditLogRoutes from "./audit-log.js";
 import accessListsRoutes from "./nginx/access_lists.js";
 import oidcRoutes from "./oidc.js";
+import geoFilterRoutes from "./geo-filter.js";
+import notificationsRoutes from "./notifications.js";
 import oidcSettingsRoutes from "./oidc-settings.js";
 import certificatesHostsRoutes from "./nginx/certificates.js";
 import deadHostsRoutes from "./nginx/dead_hosts.js";
@@ -56,6 +58,8 @@ router.get(["", "/"], async (_, res /*, next*/) => {
 
 router.use("/schema", schemaRoutes);
 router.use("/tokens", tokensRoutes);
+router.use("/geo-filter", geoFilterRoutes);
+router.use("/notifications", notificationsRoutes);
 router.use("/oidc/settings", oidcSettingsRoutes);
 router.use("/oidc", oidcRoutes);
 router.use("/users", usersRoutes);

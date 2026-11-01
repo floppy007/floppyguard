@@ -18,6 +18,7 @@ import certificateModel from "../models/certificate.js";
 import tokenModel from "../models/token.js";
 import userModel from "../models/user.js";
 import internalAuditLog from "./audit-log.js";
+import internalCertAlerts from "./cert-alerts.js";
 import internalHost from "./host.js";
 import internalNginx from "./nginx.js";
 
@@ -314,7 +315,8 @@ const internalCertificate = {
 	interval: null,
 	intervalProcessing: false,
 	renewBeforeExpirationBy: [30, "days"],
-	// certificate id → { failures, nextAttempt } (automatic renewals only)
+	// certificate id → { failures, nextAttempt } (automatic renewals only); beim Start aus
+	// /data/cert-renewal-state.json wiederhergestellt (cert-alerts.js), damit Fehlschläge einen Neustart überstehen
 	renewFailures: new Map(),
 	// A renewal wrote the new cert (expires_on already updated) but nginx could
 	// not be reloaded: nginx still serves the OLD certificate from memory and the
@@ -341,6 +343,12 @@ const internalCertificate = {
 		// A renewal interrupted by a crash/restart leaves the only copy of the
 		// still-valid certificate in its .renewal-backup-npm-<id> dir: put it back.
 		internalCertificate.recoverAllStaleRenewalBackups();
+		try {
+			internalCertificate.renewFailures = internalCertAlerts.restoreFailures();
+		} catch (err) {
+			logger.warn(`Zustand der Zertifikats-Erneuerung nicht lesbar: ${err.message}`);
+		}
+		internalCertAlerts.initTimer();
 		internalCertificate.interval = setInterval(
 			internalCertificate.processExpiringHosts,
 			internalCertificate.intervalTimeout,
@@ -414,6 +422,10 @@ const internalCertificate = {
 									logger.error(
 										`Renewal of certificate #${certificate.id} failed (${failures}x), next attempt ${new Date(nextAttempt).toISOString()}: ${err.message}`,
 									);
+									// Warnung in der App + Mail (Einstellungen → Benachrichtigungen); darf den Lauf nie stoppen
+									return internalCertAlerts
+										.onFailure(certificate, err, failures, nextAttempt)
+										.catch((alertErr) => logger.error(`Zertifikats-Warnung fehlgeschlagen: ${alertErr.message}`));
 								}),
 						);
 					});
@@ -1225,6 +1237,12 @@ const internalCertificate = {
 					expires_on: moment(certInfo.dates.to, "X").format("YYYY-MM-DD HH:mm:ss"),
 				})
 				.then(utils.omitRow(omissions()));
+
+			// Fehlerzustand löschen, ggf. Entwarnung mailen (gilt auch für manuelles Erneuern)
+			internalCertificate.renewFailures.delete(certificate.id);
+			await internalCertAlerts
+				.onSuccess(updatedCertificate)
+				.catch((alertErr) => logger.error(`Zertifikats-Entwarnung fehlgeschlagen: ${alertErr.message}`));
 
 			// Add to audit log
 			await internalAuditLog.add(access, {

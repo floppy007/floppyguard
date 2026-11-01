@@ -30,6 +30,8 @@ const getEventValue = (event: AuditLog) => {
 			return event.meta?.name || event.meta?.agent || "N/A";
 		case "certificate":
 			return event.meta?.domainNames?.join(", ") || event.meta?.niceName || "N/A";
+		case "geo-filter":
+			return Array.isArray(event.meta?.countries) ? event.meta.countries.join(", ") : "Länder-Filter";
 		case "oidc-settings":
 			// Only field names are logged, never values (client secret)
 			return (Array.isArray(event.meta?.changed) ? event.meta.changed.join(", ") : "") || "SSO";
@@ -89,6 +91,7 @@ const getIcon = (row: AuditLog) => {
 		case "agent-ingress":
 			ico = <IconShieldLock size={16} className={c} />;
 			break;
+		case "geo-filter":
 		case "oidc-settings":
 			ico = <IconKey size={16} className={c} />;
 			break;
