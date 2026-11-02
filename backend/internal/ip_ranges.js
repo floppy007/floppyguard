@@ -39,6 +39,7 @@ const keepValid = (candidates, source) =>
 	});
 
 const FETCH_TIMEOUT_MS = 15000;
+const CLOUDFLARE_CONF = "/etc/nginx/conf.d/include/ip_ranges_cloudflare.conf";
 
 const internalIpRanges = {
 	interval_timeout: 1000 * 60 * 60 * 6, // 6 hours
@@ -93,6 +94,7 @@ const internalIpRanges = {
 			logger.info("Fetching IP Ranges from online services...");
 
 			let ip_ranges = [];
+			const cloudflare_ranges = [];
 
 			return internalIpRanges
 				.fetchUrl(CLOUDFRONT_URL)
@@ -120,6 +122,7 @@ const internalIpRanges = {
 					// An error/captive-portal body yields no matches: keep the previous conf
 					if (!items.length) throw new Error(`No IPv4 ranges found in ${CLOUDFARE_V4_URL}`);
 					ip_ranges = [...ip_ranges, ...items];
+					cloudflare_ranges.push(...items);
 				})
 				.then(() => {
 					return internalIpRanges.fetchUrl(CLOUDFARE_V6_URL);
@@ -131,6 +134,7 @@ const internalIpRanges = {
 					);
 					if (!items.length) throw new Error(`No IPv6 ranges found in ${CLOUDFARE_V6_URL}`);
 					ip_ranges = [...ip_ranges, ...items];
+					cloudflare_ranges.push(...items);
 				})
 				.then(() => {
 					const clean_ip_ranges = ip_ranges.filter(isCidr);
@@ -138,7 +142,13 @@ const internalIpRanges = {
 						throw new Error("No valid IP ranges fetched; keeping previous ip_ranges.conf");
 					}
 
-					return internalIpRanges.generateConfig(clean_ip_ranges).then((changed) => {
+					// Nur Cloudflare: Proxy-Hosts hinter dem Cloudflare-Proxy vertrauen ausschließlich diesen Adressen
+					// für CF-Connecting-IP (templates/_cloudflare_real_ip.conf)
+					return Promise.all([
+						internalIpRanges.generateConfig(clean_ip_ranges),
+						internalIpRanges.generateConfig(cloudflare_ranges.filter(isCidr), CLOUDFLARE_CONF),
+					]).then(([changedAll, changedCf]) => {
+						const changed = changedAll || changedCf;
 						// Only reload when the ranges actually changed: every reload
 						// leaves the old workers running until their long-lived
 						// (websocket) connections close.
@@ -163,11 +173,10 @@ const internalIpRanges = {
 	 * @param   {Array}  ip_ranges
 	 * @returns {Promise<boolean>}  true when the file was (re)written, false when unchanged
 	 */
-	generateConfig: (ip_ranges) => {
+	generateConfig: (ip_ranges, filename = "/etc/nginx/conf.d/include/ip_ranges.conf") => {
 		const renderEngine = utils.getRenderEngine();
 		return new Promise((resolve, reject) => {
 			let template = null;
-			const filename = "/etc/nginx/conf.d/include/ip_ranges.conf";
 			try {
 				template = fs.readFileSync(`${__dirname}/../templates/ip_ranges.conf`, { encoding: "utf8" });
 			} catch (err) {

@@ -293,6 +293,9 @@
 	"certificates.request.title": {
 		"defaultMessage": "Demander un nouveau certificat"
 	},
+	"cloudflare": {
+		"defaultMessage": "Cloudflare"
+	},
 	"column.access": {
 		"defaultMessage": "Accès"
 	},
@@ -794,11 +797,41 @@
 	"health.refetch-error": {
 		"defaultMessage": "L'API est momentanément injoignable — nouvelle tentative automatique."
 	},
+	"host.cloudflare.dns": {
+		"defaultMessage": "Cloudflare DNS"
+	},
+	"host.cloudflare.dns.title": {
+		"defaultMessage": "Synchronisation DNS Cloudflare active"
+	},
+	"host.cloudflare.proxied": {
+		"defaultMessage": "Proxy Cloudflare"
+	},
+	"host.cloudflare.proxied.title": {
+		"defaultMessage": "Via le proxy Cloudflare (nuage orange)"
+	},
 	"host.flags.block-exploits": {
 		"defaultMessage": "Bloquer les exploits courants"
 	},
 	"host.flags.cache-assets": {
 		"defaultMessage": "Ressources du cache"
+	},
+	"host.flags.cloudflare-dns": {
+		"defaultMessage": "Créer le DNS chez Cloudflare"
+	},
+	"host.flags.cloudflare-dns.hint": {
+		"defaultMessage": "Créer et tenir à jour les enregistrements A/AAAA des domaines"
+	},
+	"host.flags.cloudflare-dns.no-token": {
+		"defaultMessage": "Aucun jeton principal disponible : utilise le jeton du certificat DNS Cloudflare de cet hôte"
+	},
+	"host.flags.cloudflare-dns.synced": {
+		"defaultMessage": "Enregistré chez Cloudflare"
+	},
+	"host.flags.cloudflare-proxied": {
+		"defaultMessage": "Proxy Cloudflare"
+	},
+	"host.flags.cloudflare-proxied.hint": {
+		"defaultMessage": "Le trafic passe par Cloudflare (nuage orange) ; le filtre pays voit toujours la véritable IP du visiteur"
 	},
 	"host.flags.geo-filter": {
 		"defaultMessage": "Accessible uniquement depuis les pays autorisés"
@@ -1135,6 +1168,147 @@
 	},
 	"settings": {
 		"defaultMessage": "Paramètres"
+	},
+	"settings.cloudflare": {
+		"defaultMessage": "Cloudflare"
+	},
+	"settings.cloudflare.addresses": {
+		"defaultMessage": "Adresses publiques"
+	},
+	"settings.cloudflare.addresses.detected": {
+		"defaultMessage": "Laisser vide pour l'adresse détectée : {address}"
+	},
+	"settings.cloudflare.addresses.effective": {
+		"defaultMessage": "Les enregistrements pointeront vers : {addresses}. Dès qu'une adresse est saisie, seules les adresses saisies sont utilisées (p. ex. IPv4 seule = pas d'enregistrement AAAA)."
+	},
+	"settings.cloudflare.addresses.hint": {
+		"defaultMessage": "Cible des enregistrements A et AAAA"
+	},
+	"settings.cloudflare.addresses.ipv4": {
+		"defaultMessage": "IPv4 (enregistrement A)"
+	},
+	"settings.cloudflare.addresses.ipv6": {
+		"defaultMessage": "IPv6 (enregistrement AAAA)"
+	},
+	"settings.cloudflare.addresses.missing": {
+		"defaultMessage": "Aucune adresse publique connue : rien ne peut être créé sans adresse."
+	},
+	"settings.cloudflare.addresses.none-detected": {
+		"defaultMessage": "Aucune adresse détectée sur les interfaces (p. ex. derrière un NAT) : veuillez la saisir."
+	},
+	"settings.cloudflare.defaults": {
+		"defaultMessage": "Nouveaux hôtes proxy"
+	},
+	"settings.cloudflare.defaults.all-users": {
+		"defaultMessage": "Aussi pour les utilisateurs non administrateurs"
+	},
+	"settings.cloudflare.defaults.all-users.hint": {
+		"defaultMessage": "Sinon, seuls les administrateurs utilisent ce jeton ; les autres utilisateurs ont besoin de leur propre certificat DNS Cloudflare. Les enregistrements existants d'autrui ne sont jamais écrasés."
+	},
+	"settings.cloudflare.defaults.auto": {
+		"defaultMessage": "Créer les enregistrements DNS automatiquement"
+	},
+	"settings.cloudflare.defaults.auto.hint": {
+		"defaultMessage": "« Créer le DNS chez Cloudflare » est préréglé pour les nouveaux hôtes ; les enregistrements sont créés à l'enregistrement."
+	},
+	"settings.cloudflare.defaults.proxied": {
+		"defaultMessage": "Précocher le proxy Cloudflare"
+	},
+	"settings.cloudflare.defaults.proxied.hint": {
+		"defaultMessage": "Les nouveaux hôtes passent par Cloudflare (nuage orange). Le filtre pays et les journaux voient toujours la véritable IP du visiteur."
+	},
+	"settings.cloudflare.description": {
+		"defaultMessage": "Ajoutez une fois un jeton API : FloppyGuard crée ensuite les enregistrements A et AAAA chez Cloudflare pour chaque hôte proxy, active le proxy Cloudflare si vous le souhaitez et supprime les enregistrements lorsqu'un domaine ou un hôte est retiré."
+	},
+	"settings.cloudflare.how": {
+		"defaultMessage": "Comment FloppyGuard travaille avec Cloudflare"
+	},
+	"settings.cloudflare.how.1": {
+		"defaultMessage": "Les enregistrements créés par FloppyGuard portent le commentaire « Managed by FloppyGuard ». Seuls ceux-ci sont modifiés ou supprimés."
+	},
+	"settings.cloudflare.how.2": {
+		"defaultMessage": "Un enregistrement existant pointant déjà vers ce serveur est repris. S'il pointe ailleurs, il n'est pas touché et l'hôte affiche un avertissement."
+	},
+	"settings.cloudflare.how.3": {
+		"defaultMessage": "Domaine retiré de l'hôte, option désactivée ou hôte supprimé : les enregistrements correspondants sont supprimés chez Cloudflare. Les domaines génériques (*.…) sont ignorés."
+	},
+	"settings.cloudflare.how.4": {
+		"defaultMessage": "Avec le proxy Cloudflare, FloppyGuard reprend l'IP du visiteur depuis CF-Connecting-IP, mais uniquement pour les requêtes venant d'adresses Cloudflare : les en-têtes falsifiés d'ailleurs ne comptent pas."
+	},
+	"settings.cloudflare.kicker": {
+		"defaultMessage": "DNS automatique"
+	},
+	"settings.cloudflare.manual": {
+		"defaultMessage": "Le lien ne fonctionne pas ? À la main"
+	},
+	"settings.cloudflare.manual.1": {
+		"defaultMessage": "Tableau de bord Cloudflare → profil (en haut à droite) → « Jetons API » → « Créer un jeton »."
+	},
+	"settings.cloudflare.manual.2": {
+		"defaultMessage": "Utilisez le modèle « Modifier la zone DNS » (Edit zone DNS)."
+	},
+	"settings.cloudflare.manual.3": {
+		"defaultMessage": "Ajoutez l'autorisation Zone · Zone · Lecture. Sous « Ressources de zone » : Inclure · Toutes les zones (ou des zones précises)."
+	},
+	"settings.cloudflare.manual.4": {
+		"defaultMessage": "« Continuer vers le résumé » → « Créer le jeton » et copiez le jeton affiché (il n'est affiché qu'une fois)."
+	},
+	"settings.cloudflare.state.off": {
+		"defaultMessage": "Non connecté"
+	},
+	"settings.cloudflare.state.on": {
+		"defaultMessage": "Connecté"
+	},
+	"settings.cloudflare.step1": {
+		"defaultMessage": "Créer un jeton chez Cloudflare"
+	},
+	"settings.cloudflare.step1.button": {
+		"defaultMessage": "Ouvrir le formulaire de jeton chez Cloudflare"
+	},
+	"settings.cloudflare.step1.hint": {
+		"defaultMessage": "Ouvre Cloudflare avec toutes les autorisations nécessaires préremplies (modifier DNS, lire la zone, toutes les zones, nom « FloppyGuard »). Connectez-vous, cliquez sur « Continuer vers le résumé » puis « Créer le jeton ». Pour n'autoriser que certains domaines, choisissez-les sous « Ressources de zone »."
+	},
+	"settings.cloudflare.step2": {
+		"defaultMessage": "Coller et vérifier le jeton"
+	},
+	"settings.cloudflare.step3": {
+		"defaultMessage": "Enregistrer : terminé"
+	},
+	"settings.cloudflare.step3.hint": {
+		"defaultMessage": "Désormais, les options Cloudflare sont préréglées pour les nouveaux hôtes proxy. Pour les hôtes existants, activez-les dans la boîte de dialogue de l'hôte sous « Détails »."
+	},
+	"settings.cloudflare.test": {
+		"defaultMessage": "Vérifier"
+	},
+	"settings.cloudflare.test.ok": {
+		"defaultMessage": "Le jeton fonctionne. FloppyGuard peut gérer ces zones :"
+	},
+	"settings.cloudflare.token": {
+		"defaultMessage": "Connecter Cloudflare"
+	},
+	"settings.cloudflare.token.clear": {
+		"defaultMessage": "Supprimer"
+	},
+	"settings.cloudflare.token.cleared": {
+		"defaultMessage": "Le jeton sera supprimé à l'enregistrement."
+	},
+	"settings.cloudflare.token.env": {
+		"defaultMessage": "Un jeton est défini via la variable d'environnement CLOUDFLARE_API_TOKEN. Un jeton enregistré ici est prioritaire."
+	},
+	"settings.cloudflare.token.hint": {
+		"defaultMessage": "Trois étapes, environ une minute"
+	},
+	"settings.cloudflare.token.keep": {
+		"defaultMessage": "Enregistré (…{hint}) : laisser vide pour le conserver"
+	},
+	"settings.cloudflare.token.placeholder": {
+		"defaultMessage": "Collez le jeton API ici"
+	},
+	"settings.cloudflare.token.stored": {
+		"defaultMessage": "Jeton enregistré (se termine par {hint})."
+	},
+	"settings.cloudflare.token.undo": {
+		"defaultMessage": "Annuler"
 	},
 	"settings.default-site": {
 		"defaultMessage": "Site par défaut"

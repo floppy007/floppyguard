@@ -1,6 +1,8 @@
 // Regression tests for the nginx-hosts findings of audit pass 3: DNS credentials
 // in renew() responses, access-list passwords via proxy hosts, htpasswd build,
 // a failed reload after issuance, ip_ranges validation and create(certificate "new").
+// Nie die echte /data/cloudflare.json lesen
+process.env.FG_CLOUDFLARE_CONFIG = "/nonexistent/fg-cloudflare.json";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";

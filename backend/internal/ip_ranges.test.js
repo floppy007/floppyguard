@@ -8,9 +8,12 @@ const { default: internalIpRanges } = await import("./ip_ranges.js");
 const { default: internalNginx } = await import("./nginx.js");
 
 const CONF = "/etc/nginx/conf.d/include/ip_ranges.conf";
+const CF_CONF = "/etc/nginx/conf.d/include/ip_ranges_cloudflare.conf";
+// Stand der Cloudflare-Datei; null = fehlt. Wird nach dem ersten Lauf auf die gerenderte Fassung gesetzt.
+let currentCf = null;
 
 function setup(t, currentConf) {
-	const state = { written: null, reloads: 0 };
+	const state = { written: null, writtenCf: null, reloads: 0 };
 	t.mock.method(internalIpRanges, "fetchUrl", async (url) => {
 		if (url.includes("amazonaws")) {
 			return JSON.stringify({
@@ -25,15 +28,17 @@ function setup(t, currentConf) {
 	});
 	const realRead = fs.readFileSync;
 	t.mock.method(fs, "readFileSync", (file, ...rest) => {
-		if (file === CONF) {
-			if (currentConf === null) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
-			return currentConf;
+		if (file === CONF || file === CF_CONF) {
+			const current = file === CONF ? currentConf : currentCf;
+			if (current === null) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+			return current;
 		}
 		return realRead(file, ...rest);
 	});
 	t.mock.method(fs, "writeFileSync", (file, text) => {
-		assert.equal(file, CONF);
-		state.written = text;
+		assert.ok(file === CONF || file === CF_CONF, file);
+		if (file === CONF) state.written = text;
+		else state.writtenCf = text;
 	});
 	internalIpRanges.iteration_count = 1;
 	internalIpRanges.interval_processing = false;
@@ -50,13 +55,24 @@ describe("ip_ranges fetch", () => {
 		assert.match(state.written, /2600:9000::\/28/);
 		assert.equal(state.reloads, 1);
 		rendered = state.written;
+		// Cloudflare-Datei: nur Cloudflare, kein CloudFront (die setzen kein CF-Connecting-IP)
+		assert.match(state.writtenCf, /173\.245\.48\.0\/20/);
+		assert.match(state.writtenCf, /2400:cb00::\/32/);
+		assert.doesNotMatch(state.writtenCf, /13\.32\.0\.0|2600:9000/);
+		currentCf = state.writtenCf;
 	});
 
 	it("writes (no reload on first iteration) when the file is missing", async (t) => {
+		const savedCf = currentCf;
+		currentCf = null;
 		const state = setup(t, null);
+		t.after(() => {
+			currentCf = savedCf;
+		});
 		internalIpRanges.iteration_count = 0;
 		await internalIpRanges.fetch();
 		assert.equal(state.written, rendered);
+		assert.equal(state.writtenCf, savedCf);
 		assert.equal(state.reloads, 0);
 	});
 

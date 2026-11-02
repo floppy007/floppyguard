@@ -293,17 +293,8 @@
 	"certificates.request.title": {
 		"defaultMessage": "Anfordern eines neuen Zertifikates"
 	},
-	"cloudflare.description": {
-		"defaultMessage": "Synchronisiert explizite A/AAAA-Einträge beim Speichern dieses Proxy Hosts."
-	},
-	"cloudflare.enabled": {
-		"defaultMessage": "DNS-Einträge automatisch verwalten"
-	},
-	"cloudflare.proxied": {
-		"defaultMessage": "Über Cloudflare proxyen"
-	},
-	"cloudflare.title": {
-		"defaultMessage": "Cloudflare DNS"
+	"cloudflare": {
+		"defaultMessage": "Cloudflare"
 	},
 	"column.access": {
 		"defaultMessage": "Zugriff"
@@ -806,11 +797,41 @@
 	"health.refetch-error": {
 		"defaultMessage": "Die API ist gerade nicht erreichbar – es wird automatisch erneut versucht."
 	},
+	"host.cloudflare.dns": {
+		"defaultMessage": "Cloudflare DNS"
+	},
+	"host.cloudflare.dns.title": {
+		"defaultMessage": "Cloudflare-DNS-Sync aktiv"
+	},
+	"host.cloudflare.proxied": {
+		"defaultMessage": "Cloudflare Proxy"
+	},
+	"host.cloudflare.proxied.title": {
+		"defaultMessage": "Über Cloudflare-Proxy (orange Wolke)"
+	},
 	"host.flags.block-exploits": {
 		"defaultMessage": "Gängige Exploits blockieren"
 	},
 	"host.flags.cache-assets": {
 		"defaultMessage": "Assets cachen"
+	},
+	"host.flags.cloudflare-dns": {
+		"defaultMessage": "DNS bei Cloudflare eintragen"
+	},
+	"host.flags.cloudflare-dns.hint": {
+		"defaultMessage": "A/AAAA-Records für die Domains automatisch anlegen und aktuell halten"
+	},
+	"host.flags.cloudflare-dns.no-token": {
+		"defaultMessage": "Kein Hauptschlüssel freigegeben: nutzt den Token des Cloudflare-DNS-Zertifikats dieses Hosts"
+	},
+	"host.flags.cloudflare-dns.synced": {
+		"defaultMessage": "Bei Cloudflare eingetragen"
+	},
+	"host.flags.cloudflare-proxied": {
+		"defaultMessage": "Cloudflare-Proxy"
+	},
+	"host.flags.cloudflare-proxied.hint": {
+		"defaultMessage": "Verkehr läuft über Cloudflare (orange Wolke); Länder-Filter sieht weiter die echte Besucher-IP"
 	},
 	"host.flags.geo-filter": {
 		"defaultMessage": "Nur aus erlaubten Ländern erreichbar"
@@ -1162,6 +1183,147 @@
 	},
 	"settings.application-update": {
 		"defaultMessage": "Anwendungsupdate"
+	},
+	"settings.cloudflare": {
+		"defaultMessage": "Cloudflare"
+	},
+	"settings.cloudflare.addresses": {
+		"defaultMessage": "Öffentliche Adressen"
+	},
+	"settings.cloudflare.addresses.detected": {
+		"defaultMessage": "Leer lassen = automatisch erkannt: {address}"
+	},
+	"settings.cloudflare.addresses.effective": {
+		"defaultMessage": "Eingetragen wird: {addresses}. Sobald eine Adresse eingetragen ist, gelten nur die eingetragenen (z. B. nur IPv4 eintragen = kein AAAA-Record)."
+	},
+	"settings.cloudflare.addresses.hint": {
+		"defaultMessage": "Ziel der A- und AAAA-Records"
+	},
+	"settings.cloudflare.addresses.ipv4": {
+		"defaultMessage": "IPv4 (A-Record)"
+	},
+	"settings.cloudflare.addresses.ipv6": {
+		"defaultMessage": "IPv6 (AAAA-Record)"
+	},
+	"settings.cloudflare.addresses.missing": {
+		"defaultMessage": "Keine öffentliche Adresse bekannt: ohne Adresse kann nichts eingetragen werden."
+	},
+	"settings.cloudflare.addresses.none-detected": {
+		"defaultMessage": "Keine Adresse an den Netzwerkkarten erkannt (z. B. hinter NAT): bitte eintragen."
+	},
+	"settings.cloudflare.defaults": {
+		"defaultMessage": "Neue Proxy-Hosts"
+	},
+	"settings.cloudflare.defaults.all-users": {
+		"defaultMessage": "Auch für Benutzer ohne Admin-Rechte"
+	},
+	"settings.cloudflare.defaults.all-users.hint": {
+		"defaultMessage": "Sonst nutzt nur ein Admin diesen Token; andere Benutzer brauchen ein eigenes Cloudflare-DNS-Zertifikat. Bestehende fremde Records werden nie überschrieben."
+	},
+	"settings.cloudflare.defaults.auto": {
+		"defaultMessage": "DNS automatisch eintragen"
+	},
+	"settings.cloudflare.defaults.auto.hint": {
+		"defaultMessage": "Bei neuen Hosts ist „DNS bei Cloudflare eintragen“ vorbelegt; die Records entstehen beim Speichern."
+	},
+	"settings.cloudflare.defaults.proxied": {
+		"defaultMessage": "Cloudflare-Proxy vorbelegen"
+	},
+	"settings.cloudflare.defaults.proxied.hint": {
+		"defaultMessage": "Neue Hosts laufen über Cloudflare (orange Wolke). Länder-Filter und Logs sehen trotzdem die echte Besucher-IP."
+	},
+	"settings.cloudflare.description": {
+		"defaultMessage": "Einmal ein API-Token hinterlegen: danach trägt FloppyGuard für jeden Proxy-Host die A- und AAAA-Records bei Cloudflare selbst ein, schaltet auf Wunsch den Cloudflare-Proxy zu und räumt die Einträge wieder ab, wenn eine Domain oder ein Host entfernt wird."
+	},
+	"settings.cloudflare.how": {
+		"defaultMessage": "So arbeitet FloppyGuard mit Cloudflare"
+	},
+	"settings.cloudflare.how.1": {
+		"defaultMessage": "Records, die FloppyGuard anlegt, tragen den Kommentar „Managed by FloppyGuard“. Nur diese werden geändert oder gelöscht."
+	},
+	"settings.cloudflare.how.2": {
+		"defaultMessage": "Gibt es schon einen Record, der auf diesen Server zeigt, wird er übernommen. Zeigt er woandershin, bleibt er unangetastet und der Host meldet einen Hinweis."
+	},
+	"settings.cloudflare.how.3": {
+		"defaultMessage": "Domain aus dem Host entfernt, Schalter aus oder Host gelöscht: die zugehörigen Records werden bei Cloudflare gelöscht. Wildcard-Domains (*.…) werden übersprungen."
+	},
+	"settings.cloudflare.how.4": {
+		"defaultMessage": "Mit Cloudflare-Proxy übernimmt FloppyGuard die Besucher-IP aus CF-Connecting-IP, aber nur bei Anfragen von Cloudflare-Adressen: gefälschte Header von anderswo zählen nicht."
+	},
+	"settings.cloudflare.kicker": {
+		"defaultMessage": "DNS automatisch"
+	},
+	"settings.cloudflare.manual": {
+		"defaultMessage": "Link funktioniert nicht? So geht es von Hand"
+	},
+	"settings.cloudflare.manual.1": {
+		"defaultMessage": "Cloudflare-Dashboard → oben rechts Profil → „API-Token“ → „Token erstellen“."
+	},
+	"settings.cloudflare.manual.2": {
+		"defaultMessage": "Vorlage „DNS-Zone bearbeiten“ (Edit zone DNS) wählen."
+	},
+	"settings.cloudflare.manual.3": {
+		"defaultMessage": "Berechtigung ergänzen: Zone · Zone · Lesen. Unter „Zonenressourcen“: Einschließen · Alle Zonen (oder einzelne Zonen)."
+	},
+	"settings.cloudflare.manual.4": {
+		"defaultMessage": "„Weiter zur Zusammenfassung“ → „Token erstellen“ und den angezeigten Token kopieren (er wird nur einmal angezeigt)."
+	},
+	"settings.cloudflare.state.off": {
+		"defaultMessage": "Nicht verbunden"
+	},
+	"settings.cloudflare.state.on": {
+		"defaultMessage": "Verbunden"
+	},
+	"settings.cloudflare.step1": {
+		"defaultMessage": "Token bei Cloudflare erstellen"
+	},
+	"settings.cloudflare.step1.button": {
+		"defaultMessage": "Token-Formular bei Cloudflare öffnen"
+	},
+	"settings.cloudflare.step1.hint": {
+		"defaultMessage": "Öffnet Cloudflare mit allen nötigen Rechten vorausgefüllt (DNS bearbeiten, Zone lesen, alle Zonen, Name „FloppyGuard“). Dort anmelden, unten auf „Weiter zur Zusammenfassung“ und dann „Token erstellen“ klicken. Wer nur bestimmte Domains freigeben will, stellt unter „Zonenressourcen“ die gewünschten Zonen ein."
+	},
+	"settings.cloudflare.step2": {
+		"defaultMessage": "Token einfügen und prüfen"
+	},
+	"settings.cloudflare.step3": {
+		"defaultMessage": "Speichern: fertig"
+	},
+	"settings.cloudflare.step3.hint": {
+		"defaultMessage": "Ab jetzt sind die Cloudflare-Schalter bei neuen Proxy-Hosts vorbelegt. Bestehende Hosts schaltest du im Host-Dialog unter „Details“ ein."
+	},
+	"settings.cloudflare.test": {
+		"defaultMessage": "Prüfen"
+	},
+	"settings.cloudflare.test.ok": {
+		"defaultMessage": "Token funktioniert. Diese Zonen kann FloppyGuard verwalten:"
+	},
+	"settings.cloudflare.token": {
+		"defaultMessage": "Mit Cloudflare verbinden"
+	},
+	"settings.cloudflare.token.clear": {
+		"defaultMessage": "Entfernen"
+	},
+	"settings.cloudflare.token.cleared": {
+		"defaultMessage": "Token wird beim Speichern entfernt."
+	},
+	"settings.cloudflare.token.env": {
+		"defaultMessage": "Ein Token ist über die Umgebungsvariable CLOUDFLARE_API_TOKEN gesetzt. Ein hier gespeicherter Token hat Vorrang."
+	},
+	"settings.cloudflare.token.hint": {
+		"defaultMessage": "In drei Schritten, ca. 1 Minute"
+	},
+	"settings.cloudflare.token.keep": {
+		"defaultMessage": "Gespeichert (…{hint}): leer lassen zum Behalten"
+	},
+	"settings.cloudflare.token.placeholder": {
+		"defaultMessage": "API-Token hier einfügen"
+	},
+	"settings.cloudflare.token.stored": {
+		"defaultMessage": "Token gespeichert (endet auf {hint})."
+	},
+	"settings.cloudflare.token.undo": {
+		"defaultMessage": "Rückgängig"
 	},
 	"settings.default-site": {
 		"defaultMessage": "Standardseite"

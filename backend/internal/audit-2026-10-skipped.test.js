@@ -1,6 +1,8 @@
 // Regression tests for four audit findings that were implemented late:
 // stale renewal backups, renew() vs. a failing nginx reload, and request
 // timeouts for the Cloudflare API and the remote-version check.
+// Nie die echte /data/cloudflare.json lesen
+process.env.FG_CLOUDFLARE_CONFIG = "/nonexistent/fg-cloudflare.json";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import net from "node:net";

@@ -1,3 +1,5 @@
+// Nie die echte /data/cloudflare.json lesen
+process.env.FG_CLOUDFLARE_CONFIG = "/nonexistent/fg-cloudflare.json";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import cloudflareDns from "./cloudflare-dns.js";

@@ -9,6 +9,8 @@ interface Props {
 	niceName?: string;
 	provider?: string;
 	color?: string;
+	// Status-Pills (z. B. Cloudflare, Länder-Filter) – feste Zeile unter den Domains statt daneben
+	badges?: ReactNode[];
 }
 
 const DomainLink = ({ domain, color }: { domain?: string; color?: string }) => {
@@ -38,7 +40,7 @@ const DomainLink = ({ domain, color }: { domain?: string; color?: string }) => {
 	}
 };
 
-export function DomainsFormatter({ domains, createdOn, niceName, provider, color }: Props) {
+export function DomainsFormatter({ domains, createdOn, niceName, provider, color, badges }: Props) {
 	const { locale } = useLocaleState();
 	const elms: ReactNode[] = [];
 
@@ -64,9 +66,10 @@ export function DomainsFormatter({ domains, createdOn, niceName, provider, color
 	return (
 		<div className="flex-fill">
 			<div className="font-weight-medium">{...elms}</div>
-			{createdOn ? (
-				<div className="text-secondary mt-1">
-					<T id="created-on" data={{ date: formatDateTime(createdOn, locale) }} />
+			{createdOn || badges?.length ? (
+				<div className="text-secondary mt-1 d-flex flex-wrap align-items-center gap-2">
+					{createdOn ? <T id="created-on" data={{ date: formatDateTime(createdOn, locale) }} /> : null}
+					{badges}
 				</div>
 			) : null}
 		</div>

@@ -17,7 +17,7 @@ import {
 	SSLCertificateField,
 	SSLOptionsFields,
 } from "src/components";
-import { useProxyHost, useSetProxyHost, useUser } from "src/hooks";
+import { useCloudflareStatus, useProxyHost, useSetProxyHost, useUser } from "src/hooks";
 import { T } from "src/locale";
 import { MANAGE, PROXY_HOSTS } from "src/modules/Permissions";
 import { validateNumber, validateString } from "src/modules/Validations";
@@ -33,6 +33,7 @@ interface Props extends InnerModalProps {
 const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 	const { data: currentUser, isLoading: userIsLoading, error: userError } = useUser("me");
 	const { data, isLoading, error } = useProxyHost(id);
+	const { data: cloudflare, isLoading: cloudflareLoading } = useCloudflareStatus();
 	const { mutate: setProxyHost } = useSetProxyHost();
 	const [errorMsg, setErrorMsg] = useState<ReactNode | null>(null);
 	const [isSubmitting, setIsSubmitting] = useState(false);
@@ -67,8 +68,8 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 					{error?.message || userError?.message || "Unknown error"}
 				</Alert>
 			)}
-			{(isLoading || userIsLoading) && <Loading noLogo />}
-			{!isLoading && !userIsLoading && data && currentUser && (
+			{(isLoading || userIsLoading || cloudflareLoading) && <Loading noLogo />}
+			{!isLoading && !userIsLoading && !cloudflareLoading && data && currentUser && (
 				<Formik
 					initialValues={
 						{
@@ -93,7 +94,21 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 							// Advanced tab
 							advancedConfig: data?.advancedConfig || "",
 							// geoFilter immer als true/false starten: fehlt der Wert, macht Formik aus der Checkbox eine Liste (["on"])
-							meta: { ...(data?.meta || {}), geoFilter: data?.meta?.geoFilter === true },
+							meta: {
+								...(data?.meta || {}),
+								geoFilter: data?.meta?.geoFilter === true,
+								// Neue Hosts: Vorgaben aus Einstellungen → Cloudflare (DNS eintragen / Proxy)
+								cloudflareDns: data?.id
+									? {
+											...(data?.meta?.cloudflareDns || {}),
+											enabled: data?.meta?.cloudflareDns?.enabled === true,
+											proxied: data?.meta?.cloudflareDns?.proxied === true,
+										}
+									: {
+											enabled: cloudflare?.autoNewHosts === true,
+											proxied: cloudflare?.autoNewHosts === true && cloudflare?.proxiedDefault === true,
+										},
+							},
 						} as any
 					}
 					onSubmit={onSubmit}
@@ -335,6 +350,7 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 																</span>
 															</label>
 														</div>
+														<CloudflareDnsFields available={cloudflare?.available} />
 														<div>
 															<label className="row" htmlFor="allowWebsocketUpgrade">
 																<span className="col">
@@ -374,7 +390,6 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 											</div>
 											<div className="tab-pane" id="tab-advanced" role="tabpanel">
 												<NginxConfigField />
-												<CloudflareDnsFields />
 											</div>
 										</div>
 									</div>

@@ -1,16 +1,17 @@
 import { useState } from "react";
 import { T } from "src/locale";
 import ApplicationUpdate from "./ApplicationUpdate";
+import Cloudflare from "./Cloudflare";
 import DefaultSite from "./DefaultSite";
 import GeoFilter from "./GeoFilter";
 import Notifications from "./Notifications";
 import SsoSettings from "./SsoSettings";
 
-type Tab = "default-site" | "sso" | "geo-filter" | "notifications" | "application-update";
+type Tab = "default-site" | "sso" | "geo-filter" | "cloudflare" | "notifications" | "application-update";
 
 const initialTab = (): Tab => {
 	const hash = window.location.hash.replace("#", "");
-	return ["sso", "geo-filter", "notifications", "application-update"].includes(hash) ? (hash as Tab) : "default-site";
+	return ["sso", "geo-filter", "cloudflare", "notifications", "application-update"].includes(hash) ? (hash as Tab) : "default-site";
 };
 
 export default function Layout() {
@@ -64,6 +65,16 @@ export default function Layout() {
 									<T id="settings.geo-filter" />
 								</a>
 								<a
+									href="#cloudflare"
+									className={`list-group-item list-group-item-action d-flex align-items-center ${activeTab === "cloudflare" ? "active" : ""}`}
+									onClick={(e) => {
+										e.preventDefault();
+										setActiveTab("cloudflare");
+									}}
+								>
+									<T id="settings.cloudflare" />
+								</a>
+								<a
 									href="#notifications"
 									className={`list-group-item list-group-item-action d-flex align-items-center ${activeTab === "notifications" ? "active" : ""}`}
 									onClick={(e) => {
@@ -93,6 +104,8 @@ export default function Layout() {
 							<SsoSettings />
 						) : activeTab === "geo-filter" ? (
 							<GeoFilter />
+						) : activeTab === "cloudflare" ? (
+							<Cloudflare />
 						) : activeTab === "notifications" ? (
 							<Notifications />
 						) : (

@@ -35,6 +35,9 @@ const getEventValue = (event: AuditLog) => {
 		case "oidc-settings":
 			// Only field names are logged, never values (client secret)
 			return (Array.isArray(event.meta?.changed) ? event.meta.changed.join(", ") : "") || "SSO";
+		case "cloudflare":
+			// Nur Feldnamen, nie der Token
+			return (Array.isArray(event.meta?.changed) ? event.meta.changed.join(", ") : "") || "Cloudflare";
 		case "floppyguard":
 			return "FloppyGuard";
 		default:
@@ -93,6 +96,7 @@ const getIcon = (row: AuditLog) => {
 			break;
 		case "geo-filter":
 		case "oidc-settings":
+		case "cloudflare":
 			ico = <IconKey size={16} className={c} />;
 			break;
 		case "floppyguard":

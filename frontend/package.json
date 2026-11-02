@@ -1,6 +1,6 @@
 {
   "name": "floppyguard",
-	"version": "2.6.1",
+	"version": "2.7.0",
 	"packageManager": "yarn@1.22.22",
   "type": "module",
   "author": "Florian Hesse <f.hesse@comnic.de>",
@@ -61,7 +61,7 @@
     "@types/react-table": "^7.7.20",
     "@types/topojson-client": "3.1.5",
     "@vitejs/plugin-react": "^5.1.4",
-		"happy-dom": "^20.14.6",
+		"happy-dom": "^21.0.4",
     "playwright": "^1.59.1",
 		"postcss": "^8.5.31",
     "postcss-simple-vars": "^7.0.1",

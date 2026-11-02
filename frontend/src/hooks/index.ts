@@ -15,6 +15,7 @@ export * from "./useDnsProviders";
 export * from "./useFail2Ban";
 export * from "./useHealth";
 export * from "./useHostReport";
+export * from "./useCloudflare";
 export * from "./useGeoFilter";
 export * from "./useNotifications";
 export * from "./useOidcSettings";

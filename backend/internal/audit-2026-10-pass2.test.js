@@ -1,5 +1,7 @@
 // Regression tests for the second 2026-10 audit pass (SSO expiry units,
 // Cloudflare DNS meta, Route53 credentials, hostname regex, live bandwidth).
+// Nie die echte /data/cloudflare.json lesen
+process.env.FG_CLOUDFLARE_CONFIG = "/nonexistent/fg-cloudflare.json";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";

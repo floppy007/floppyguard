@@ -7,7 +7,7 @@
 > Nginx reverse proxy manager with integrated WireGuard VPN management, a visual topology map, remote agent support and a hardened host-based runtime.
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.6.1-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.7.0-blue.svg)](CHANGELOG.md)
 [![CI](https://github.com/floppy007/floppyguard/actions/workflows/ci.yml/badge.svg)](https://github.com/floppy007/floppyguard/actions/workflows/ci.yml)
 
 ---
@@ -45,7 +45,7 @@ Use it when you want one operational interface to publish services securely, man
 - Multilanguage UI - English, German, French
 - Dark mode with compact glassmorphism header and theme toggle
 - Proxy Host advanced-config editor with visible input, line numbers and accessible label focus
-- Optional Cloudflare DNS sync for Proxy Hosts: targeted A/AAAA records, per-host proxy mode, and safe coexistence with manual or wildcard records
+- Cloudflare connection under Settings: one API token (pre-filled token link), then A/AAAA records are created, kept up to date and removed automatically per Proxy Host, per-host proxy mode with the real visitor IP, safe coexistence with manual or wildcard records
 
 ---
 
@@ -140,9 +140,9 @@ Set these in the systemd unit file (`/etc/systemd/system/floppyguard-backend.ser
 | `WG_CONF_DIR` | `/etc/wireguard` | WireGuard config directory |
 | `WG_HUB_HOST` | OS hostname | Public domain or IP (IPv4, or bracketed/bare IPv6) for the WireGuard endpoint baked into peer and agent configs. The hub is authoritative: changing it re-propagates the endpoint to every agent on its next poll. |
 | `WG_DNS` | - | Default DNS for peer configs (comma-separated) |
-| `CLOUDFLARE_API_TOKEN` | - | Optional global Cloudflare token (`Zone:Read` + `DNS:Edit`) for Proxy Host DNS synchronization; a Cloudflare DNS-challenge certificate token takes precedence. |
-| `CLOUDFLARE_DNS_IPV4` | detected public IPv4 | Optional explicit A-record target for Proxy Host DNS synchronization. |
-| `CLOUDFLARE_DNS_IPV6` | detected public IPv6 | Optional explicit AAAA-record target for Proxy Host DNS synchronization. |
+| `CLOUDFLARE_API_TOKEN` | - | Optional fallback for the token under **Settings -> Cloudflare** (`Zone:Read` + `DNS:Edit`); a token saved there and a Cloudflare DNS-challenge certificate token take precedence. |
+| `CLOUDFLARE_DNS_IPV4` | detected public IPv4 | Optional A-record target; addresses entered under **Settings -> Cloudflare** take precedence. |
+| `CLOUDFLARE_DNS_IPV6` | detected public IPv6 | Optional AAAA-record target; addresses entered under **Settings -> Cloudflare** take precedence. |
 | `PORT` | `3300` | Backend listen port |
 | `SITE_ISOLATION_NFT_FILE` | `/etc/nftables.d/floppyguard-sites.nft` | Boot copy of the site isolation table ("Standorte untereinander"), rewritten after every apply |
 | `SITE_ISOLATION_BOOT_CONF` | `/etc/nftables.conf` | nftables boot config checked for the include of that file (warning `boot-include-missing`) |
@@ -150,15 +150,20 @@ Set these in the systemd unit file (`/etc/systemd/system/floppyguard-backend.ser
 
 ### Cloudflare DNS synchronization
 
-For a domain-specific Cloudflare token, create a **Let's Encrypt via DNS** certificate in **Certificates**, select **Cloudflare**, and enter the token in **Credentials**:
+**Settings -> Cloudflare** connects FloppyGuard to Cloudflare in three steps:
 
-```ini
-dns_cloudflare_api_token = YOUR_CLOUDFLARE_TOKEN
-```
+1. **Open the token form at Cloudflare:** the button opens Cloudflare's "Create API token" page with everything pre-filled (`DNS: Edit` and `Zone: Read` for all zones, name "FloppyGuard"). Click "Continue to summary" and "Create Token". To allow only some domains, choose them under "Zone Resources". A manual walkthrough is shown below the button.
+2. **Paste the token and click Check:** FloppyGuard verifies it and lists the zones it can manage. The token is stored in `/data/cloudflare.json` (0600) and never sent back to the browser.
+3. **Save.** New Proxy Hosts now have **Create DNS at Cloudflare** preset (Details tab), and optionally **Cloudflare proxy**.
 
-Select that certificate in the Proxy Host's **SSL** tab, then enable **Manage DNS records automatically** in its **Advanced** tab. The selected certificate's token is used for that host, so separate DNS certificates provide separate permissions per domain or certificate group. The token needs `Zone:Read` and `DNS:Edit` for the relevant Cloudflare zone. `CLOUDFLARE_API_TOKEN` is only the optional server-wide fallback.
+From then on everything is automatic: saving a host creates or updates its A and AAAA records (comment "Managed by FloppyGuard"), removing a domain, switching the option off or deleting the host removes them again. An existing record that already points to this server is taken over; one pointing elsewhere is never touched and the host shows a notice. Wildcard domains are skipped.
 
-FloppyGuard creates exact A and AAAA records from the host's public addresses (or `CLOUDFLARE_DNS_IPV4` / `CLOUDFLARE_DNS_IPV6`) and never overwrites wildcard or manually managed records. Enable **Proxy through Cloudflare** to use Cloudflare's orange-cloud proxy. In the Proxy Hosts table, a green Cloudflare icon means DNS sync is active without the proxy; an orange icon means the Cloudflare proxy is enabled.
+- **Addresses:** empty = the public addresses detected on the network interfaces. Once an address is entered, only the entered ones are used (enter only IPv4 to skip AAAA records). Behind NAT, enter the public address.
+- **Who may use the token:** admins by default; "Also for users without admin rights" opens it for everyone.
+- **Per-domain tokens:** a **Let's Encrypt via DNS** certificate with provider **Cloudflare** (`dns_cloudflare_api_token = ...` in **Credentials**) selected in a host's **SSL** tab takes precedence for that host, so separate certificates keep separate permissions.
+- **Cloudflare proxy and real visitor IP:** hosts with the Cloudflare proxy take the visitor IP from `CF-Connecting-IP`, and only for requests from Cloudflare's address ranges (`conf.d/include/ip_ranges_cloudflare.conf`, refreshed every 6 hours). The country filter, access lists and logs therefore see the visitor, and a forged header from elsewhere does not count. Do not trust the CDN ranges globally for `X-Real-IP` in your own nginx config: anyone can send traffic through their own Cloudflare account with a forged `X-Real-IP`.
+
+In the Proxy Hosts list a green "Cloudflare DNS" pill means the records are managed without the proxy; an orange "Cloudflare Proxy" pill means traffic goes through Cloudflare.
 
 ---
 

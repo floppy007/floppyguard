@@ -1,15 +1,11 @@
-import os from "node:os";
 import certificateModel from "../models/certificate.js";
 import proxyHostModel from "../models/proxy_host.js";
 import userModel from "../models/user.js";
+import { global as logger } from "../logger.js";
+import { readRaw as readSettings, recordAddresses, settingsToken } from "./cloudflare-settings.js";
 
 const API_ROOT = "https://api.cloudflare.com/client/v4";
 const MANAGED_COMMENT = "Managed by FloppyGuard";
-
-const isPublicAddress = (address) => {
-	if (address.includes(":")) return !/^(?:fc|fd|fe80:)/i.test(address);
-	return !/^(?:10\.|127\.|169\.254\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/.test(address);
-};
 
 // Felder, die nur der Server setzt. Aus Client-Daten werden sie entfernt,
 // sonst könnte ein Host-Besitzer fremde Record-IDs unterschieben.
@@ -38,14 +34,24 @@ const tokenFromCertificate = (certificate) => {
 	return credentials.match(/^\s*dns_cloudflare_api_token\s*=\s*(.+?)\s*$/m)?.[1] || null;
 };
 
+/**
+ * Reihenfolge: erst der Token des Cloudflare-DNS-Zertifikats des Hosts (spezifischer, trennt Rechte je Domain;
+ * fremde Zertifikate nur für Admins), dann der Hauptschlüssel aus Einstellungen → Cloudflare bzw.
+ * CLOUDFLARE_API_TOKEN – für Admins und, wenn dort freigegeben, für alle Benutzer.
+ */
 const getToken = async (host, actor) => {
 	if (!actor) return null;
-	if (actor.isAdmin && process.env.CLOUDFLARE_API_TOKEN) return process.env.CLOUDFLARE_API_TOKEN;
-	if (!host.certificate_id) return null;
-	const certificate = await certificateModel.query().findById(host.certificate_id);
-	if (!certificate || certificate.is_deleted) return null;
-	if (!actor.isAdmin && certificate.owner_user_id !== actor.userId) return null;
-	return tokenFromCertificate(certificate);
+	if (host.certificate_id) {
+		const certificate = await certificateModel.query().findById(host.certificate_id);
+		if (certificate && !certificate.is_deleted && (actor.isAdmin || certificate.owner_user_id === actor.userId)) {
+			const token = tokenFromCertificate(certificate);
+			if (token) return token;
+		}
+	}
+	const settings = readSettings();
+	const main = settingsToken(settings);
+	if (main && (actor.isAdmin || settings.allow_all_users)) return main;
+	return null;
 };
 
 // A hanging Cloudflare API call must not hold a proxy-host save open forever.
@@ -73,15 +79,7 @@ const api = async (token, path, options = {}) => {
 	return payload.result;
 };
 
-const publicAddresses = () => {
-	const configured = [process.env.CLOUDFLARE_DNS_IPV4, process.env.CLOUDFLARE_DNS_IPV6].filter(Boolean);
-	if (configured.length) return configured;
-	return Object.values(os.networkInterfaces())
-		.flat()
-		.filter((address) => address && !address.internal && isPublicAddress(address.address))
-		.map((address) => address.address)
-		.filter((address, index, all) => all.indexOf(address) === index);
-};
+const publicAddresses = () => recordAddresses();
 
 const recordType = (address) => (address.includes(":") ? "AAAA" : "A");
 
@@ -142,9 +140,72 @@ const syncRecord = async ({ token, zone, domain, type, content, proxied, recordI
 	const records = await api(token, `/zones/${zone.id}/dns_records?type=${type}&name=${encodeURIComponent(domain)}`);
 	const matching = records.find((record) => record.content === content && record.proxied === proxied);
 	if (matching) return matching;
-	if (records.length) throw new Error(`${domain} already has an unmanaged ${type} record`);
+	// Ein von Hand angelegter Record, der schon auf diesen Server zeigt, wird übernommen (Proxy-Status + Kommentar);
+	// einer, der woandershin zeigt, bleibt unangetastet.
+	const ours = records.length === 1 && records[0].content === content ? records[0] : null;
+	if (ours && RECORD_ID_RE.test(String(ours.id))) {
+		return await api(token, `/zones/${zone.id}/dns_records/${encodeURIComponent(ours.id)}`, {
+			method: "PUT",
+			body: JSON.stringify(body),
+		});
+	}
+	if (records.length) {
+		throw new Error(
+			`${domain} already has a ${type} record pointing elsewhere (${records.map((r) => r.content).join(", ")}): remove it in Cloudflare or change it to ${content}`,
+		);
+	}
 	return await api(token, `/zones/${zone.id}/dns_records`, { method: "POST", body: JSON.stringify(body) });
 };
+
+/** Zone über ihren Namen (aus records[*].zone) – zum Löschen braucht es die Zonen-ID. */
+const zoneByName = async (token, name, cache) => {
+	if (!cache.has(name)) {
+		const zones = await api(token, `/zones?name=${encodeURIComponent(name)}&status=active`);
+		cache.set(name, zones[0] ?? null);
+	}
+	return cache.get(name);
+};
+
+/**
+ * Löscht von FloppyGuard angelegte Records, deren ID nicht in `keepIds` steht. Gelöscht wird nur, was Cloudflare
+ * selbst als unseren Record ausweist (Kommentar, Name nicht in `keepNames`). Gibt die Einträge zurück, die stehen
+ * bleiben mussten (Fehler → beim nächsten Speichern erneut versuchen).
+ */
+const removeRecords = async (token, records, keepIds = new Set(), keepNames = new Set()) => {
+	const failed = {};
+	const done = new Set(keepIds);
+	const zoneCache = new Map();
+	for (const [key, entry] of Object.entries(records || {})) {
+		const id = entry?.id;
+		if (typeof id !== "string" || !RECORD_ID_RE.test(id) || done.has(id)) continue;
+		done.add(id);
+		try {
+			const zone = entry.zone ? await zoneByName(token, String(entry.zone), zoneCache) : null;
+			if (!zone || !RECORD_ID_RE.test(String(zone.id))) continue;
+			const url = `/zones/${encodeURIComponent(zone.id)}/dns_records/${encodeURIComponent(id)}`;
+			let existing = null;
+			try {
+				existing = await api(token, url);
+			} catch {
+				continue; // schon weg
+			}
+			const name = String(existing?.name || "").toLowerCase();
+			if (existing?.id !== id || existing.comment !== MANAGED_COMMENT || keepNames.has(name)) continue;
+			await api(token, url, { method: "DELETE" });
+		} catch (error) {
+			logger.warn(`Cloudflare record ${key} could not be removed: ${error.message}`);
+			failed[key] = entry;
+		}
+	}
+	return failed;
+};
+
+const configOf = (host) => {
+	const configKey = host.meta?.cloudflareDns ? "cloudflareDns" : "cloudflare_dns";
+	return { configKey, config: host.meta?.[configKey] };
+};
+
+const hasRecords = (config) => Boolean(config?.records && Object.keys(config.records).length);
 
 const cloudflareDns = {
 	/**
@@ -180,15 +241,36 @@ const cloudflareDns = {
 	_getToken: getToken,
 	_api: api,
 	_findZone: findZone,
+	_removeRecords: removeRecords,
 
 	/**
 	 * @param {Object} host
 	 * @param {{userId: number, isAdmin: boolean}} actor  wer die Änderung auslöst
 	 */
 	syncProxyHost: async (host, actor) => {
-		const configKey = host.meta?.cloudflareDns ? "cloudflareDns" : "cloudflare_dns";
-		const config = host.meta?.[configKey];
-		if (!config?.enabled) return host;
+		const { configKey, config } = configOf(host);
+		if (!config) return host;
+		if (!config.enabled) {
+			// Abgeschaltet: unsere Records wieder entfernen
+			if (!hasRecords(config)) return host;
+			const meta = { ...(host.meta || {}), [configKey]: { ...config } };
+			try {
+				const token = await getToken(host, actor);
+				if (!token) throw new Error("No Cloudflare API token available to remove the records");
+				const failed = await removeRecords(token, config.records);
+				meta[configKey] = {
+					...config,
+					records: failed,
+					status: Object.keys(failed).length ? "error" : null,
+					error: Object.keys(failed).length ? "Some Cloudflare records could not be removed" : null,
+					syncedAt: new Date().toISOString(),
+				};
+			} catch (error) {
+				meta[configKey] = { ...config, status: "error", error: error.message, syncedAt: new Date().toISOString() };
+			}
+			await proxyHostModel.query().where({ id: host.id }).patch({ meta });
+			return { ...host, meta };
+		}
 
 		const meta = { ...(host.meta || {}), [configKey]: { ...config } };
 		try {
@@ -196,15 +278,21 @@ const cloudflareDns = {
 			if (!token) {
 				throw new Error(
 					actor?.isAdmin
-						? "No Cloudflare API token is configured for this host or its certificate"
+						? "No Cloudflare API token: add one under Settings -> Cloudflare or use a Cloudflare DNS certificate"
 						: "No Cloudflare API token is available: use a Cloudflare DNS certificate you own",
 				);
 			}
-			const records = { ...(config.records || {}) };
+			const addresses = publicAddresses();
+			if (!addresses.length) {
+				throw new Error("No public IP address found: enter it under Settings -> Cloudflare");
+			}
+			const previous = config.records || {};
+			const records = {};
 			const zoneCache = new Map();
-			for (const domain of host.domain_names.filter((name) => !name.includes("*"))) {
+			const domains = host.domain_names.filter((name) => !name.includes("*"));
+			for (const domain of domains) {
 				const zone = await findZone(token, domain, zoneCache);
-				for (const address of publicAddresses()) {
+				for (const address of addresses) {
 					const type = recordType(address);
 					const key = `${domain}|${type}`;
 					const record = await syncRecord({
@@ -214,17 +302,58 @@ const cloudflareDns = {
 						type,
 						content: address,
 						proxied: Boolean(config.proxied),
-						recordId: records[key]?.id,
+						recordId: previous[key]?.id,
 					});
 					records[key] = { id: record.id, zone: zone.name };
 				}
 			}
-			meta[configKey] = { ...config, records, status: "synced", error: null, syncedAt: new Date().toISOString() };
+			// Domains/Adressfamilien, die weggefallen sind, wieder abräumen
+			const keepIds = new Set(Object.values(records).map((r) => r.id));
+			const keepNames = new Set(domains.map((d) => d.toLowerCase()));
+			const failed = await removeRecords(token, previous, keepIds, keepNames);
+			meta[configKey] = {
+				...config,
+				records: { ...failed, ...records },
+				status: "synced",
+				error: null,
+				syncedAt: new Date().toISOString(),
+			};
 		} catch (error) {
 			meta[configKey] = { ...config, status: "error", error: error.message, syncedAt: new Date().toISOString() };
 		}
 		await proxyHostModel.query().where({ id: host.id }).patch({ meta });
 		return { ...host, meta };
+	},
+
+	/** Beim Löschen eines Hosts: dessen Records bei Cloudflare entfernen. Fehler blockieren das Löschen nicht. */
+	removeProxyHost: async (host, actor) => {
+		const { config } = configOf(host);
+		if (!config?.enabled || !hasRecords(config)) return;
+		try {
+			const token = await getToken(host, actor);
+			if (token) await removeRecords(token, config.records);
+		} catch (error) {
+			logger.warn(`Cloudflare records of proxy host ${host.id} could not be removed: ${error.message}`);
+		}
+	},
+
+	/**
+	 * Token prüfen (Einstellungen → Cloudflare → Testen): gültig, Zonen sichtbar, DNS lesbar.
+	 * @param {string} [token]  eingegebener, noch nicht gespeicherter Token; sonst der gespeicherte
+	 */
+	testToken: async (token) => {
+		const use = (typeof token === "string" && token.trim()) || settingsToken();
+		if (!use) return { ok: false, message: "No API token entered", zones: [] };
+		try {
+			const verify = await api(use, "/user/tokens/verify");
+			if (verify?.status !== "active") return { ok: false, message: `Token status: ${verify?.status}`, zones: [] };
+			const zones = await api(use, "/zones?per_page=50&status=active");
+			if (!zones.length) return { ok: false, message: "Token is valid but sees no zone (Zone:Read missing?)", zones: [] };
+			await api(use, `/zones/${encodeURIComponent(zones[0].id)}/dns_records?per_page=1`);
+			return { ok: true, message: "Token works", zones: zones.map((z) => z.name).sort() };
+		} catch (error) {
+			return { ok: false, message: error.message, zones: [] };
+		}
 	},
 };
 

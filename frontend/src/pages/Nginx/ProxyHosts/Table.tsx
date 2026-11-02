@@ -47,34 +47,34 @@ export default function Table({ data, isFetching, onEdit, onDelete, onDisableTog
 					const value = info.getValue();
 					const cloudflareDns = value.meta?.cloudflareDns || value.meta?.cloudflare_dns;
 					const geoFilter = value.meta?.geoFilter === true || value.meta?.geo_filter === true;
-					return (
-						<span className="d-inline-flex align-items-center gap-2">
-							<DomainsFormatter domains={value.domainNames} createdOn={value.createdOn} />
-							{cloudflareDns?.enabled ? (
-								<span
-									title={
-										cloudflareDns.proxied
-											? "Cloudflare proxy enabled"
-											: "Cloudflare DNS sync enabled"
-									}
-								>
-									<IconBrandCloudflare
-										size={19}
-										className={cloudflareDns.proxied ? "text-orange" : "text-green"}
-									/>
-								</span>
-							) : null}
-							{geoFilter ? (
-								<span
-									className="badge bg-blue-lt d-inline-flex align-items-center gap-1"
-									title={intl.formatMessage({ id: "host.geo-filter.badge.title" })}
-								>
-									<IconWorld size={14} />
-									<T id="host.geo-filter.badge" />
-								</span>
-							) : null}
-						</span>
-					);
+					const badges = [];
+					if (cloudflareDns?.enabled) {
+						badges.push(
+							<span
+								key="cloudflare"
+								className={`badge ${cloudflareDns.proxied ? "bg-orange-lt" : "bg-green-lt"} d-inline-flex align-items-center gap-1`}
+								title={intl.formatMessage({
+									id: cloudflareDns.proxied ? "host.cloudflare.proxied.title" : "host.cloudflare.dns.title",
+								})}
+							>
+								<IconBrandCloudflare size={14} />
+								<T id={cloudflareDns.proxied ? "host.cloudflare.proxied" : "host.cloudflare.dns"} />
+							</span>,
+						);
+					}
+					if (geoFilter) {
+						badges.push(
+							<span
+								key="geo-filter"
+								className="badge bg-blue-lt d-inline-flex align-items-center gap-1"
+								title={intl.formatMessage({ id: "host.geo-filter.badge.title" })}
+							>
+								<IconWorld size={14} />
+								<T id="host.geo-filter.badge" />
+							</span>,
+						);
+					}
+					return <DomainsFormatter domains={value.domainNames} createdOn={value.createdOn} badges={badges} />;
 				},
 			}),
 			columnHelper.accessor((row: any) => row, {

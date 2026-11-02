@@ -277,6 +277,11 @@ const internalProxyHost = {
 							return internalNginx.reload();
 						});
 					})
+					.then(async () => {
+						// Von FloppyGuard angelegte Cloudflare-Records mit entfernen
+						const actor = await cloudflareDns.resolveActor(access);
+						return cloudflareDns.removeProxyHost(row, actor);
+					})
 					.then(() => {
 						// Add to audit log
 						return internalAuditLog.add(access, {

@@ -5,6 +5,54 @@ This project diverges from upstream nginx-proxy-manager starting at v1.0.0.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.7.0] - 2026-11-02
+
+Cloudflare connection under Settings: one API token, then DNS records are created, kept up to date and removed automatically. Cloudflare proxy switch next to the country filter, and the real visitor IP behind the Cloudflare proxy.
+
+### English
+
+#### Added
+
+- **Settings -> Cloudflare:** connect in three steps. A button opens Cloudflare's "Create API token" page pre-filled with `DNS: Edit` and `Zone: Read` for all zones (manual walkthrough below it); paste the token, **Check** verifies it and lists the zones it can manage; save. The token lives in `/data/cloudflare.json` (0600) and never goes back to the browser (only the last four characters). Also on the page: public IPv4/IPv6 for the records (empty = detected, entered ones replace detection), presets for new hosts (create DNS, Cloudflare proxy), "Also for users without admin rights", and how FloppyGuard works with Cloudflare. Changes are audit-logged (field names only).
+- **Fully automatic records:** new Proxy Hosts have "Create DNS at Cloudflare" preset. Removing a domain, switching the option off or deleting the host now deletes the records FloppyGuard created (only records with the comment "Managed by FloppyGuard" whose name no longer belongs to the host). A manual record that already points to this server is taken over instead of failing with "unmanaged record"; one pointing elsewhere stays untouched and the host shows which address it points to.
+- **Proxy host dialog:** "Create DNS at Cloudflare" and "Cloudflare proxy" are now switches in the Details tab next to the country filter (were hidden in Advanced), with sync status and errors right there. Proxy on also turns DNS on, DNS off also turns the proxy off.
+
+#### Changed
+
+- **Proxy host list:** the Cloudflare and country filter pills sit in a fixed row below the domains instead of shifting next to them. Cloudflare is a pill too: orange "Cloudflare Proxy" or green "Cloudflare DNS", tooltips translated.
+- Token order per host: the token of the host's own Cloudflare DNS certificate first (per-domain permissions), then the token from Settings -> Cloudflare, then `CLOUDFLARE_API_TOKEN`.
+- Stale record keys from older versions (mangled by the key case conversion) are dropped on the next save.
+
+#### Security
+
+- **Real visitor IP behind the Cloudflare proxy:** hosts with the Cloudflare proxy take the visitor IP from `CF-Connecting-IP`, and only from Cloudflare's address ranges (new `conf.d/include/ip_ranges_cloudflare.conf`, refreshed with the other ranges). Before, such hosts saw the Cloudflare edge address, so the country filter judged the edge location. Trusting the CDN ranges globally for `X-Real-IP` let anyone forge the visitor IP through their own Cloudflare account and bypass the country filter; the README now warns against it.
+- `/api/cloudflare/status` requires a signed-in user.
+- Dependencies: `happy-dom` 21.0.4 (frontend tests), `fast-uri` 3.1.9, `js-yaml` 4.3.2 and `qs` 6.17.1 (Cypress tooling), `source-map-js` 1.2.2 (docs). All open Dependabot advisories are now covered by the lockfiles; backend and frontend runtime packages were already on patched versions.
+
+`AGENT_SCRIPT_VERSION` stays at 1.6.1 on purpose: the agent script did not change.
+
+### Deutsch
+
+#### Neu
+
+- **Einstellungen -> Cloudflare:** Verbinden in drei Schritten. Ein Knopf öffnet bei Cloudflare „API-Token erstellen“, vorausgefüllt mit `DNS: Bearbeiten` und `Zone: Lesen` für alle Zonen (Anleitung von Hand darunter); Token einfügen, **Prüfen** testet ihn und zeigt die verwaltbaren Zonen; speichern. Der Token liegt in `/data/cloudflare.json` (0600) und geht nie zurück an den Browser (nur die letzten vier Zeichen). Außerdem: öffentliche IPv4/IPv6 für die Records (leer = erkannt, eingetragene ersetzen die Erkennung), Vorgaben für neue Hosts (DNS eintragen, Cloudflare-Proxy), „Auch für Benutzer ohne Admin-Rechte“ und eine Erklärung, wie FloppyGuard mit Cloudflare arbeitet. Änderungen landen im Audit-Log (nur Feldnamen).
+- **Records voll automatisch:** Neue Proxy-Hosts haben „DNS bei Cloudflare eintragen“ vorbelegt. Domain entfernt, Schalter aus oder Host gelöscht: die von FloppyGuard angelegten Records werden gelöscht (nur mit Kommentar „Managed by FloppyGuard“ und nur, wenn der Name nicht mehr zum Host gehört). Ein von Hand angelegter Record, der schon auf diesen Server zeigt, wird übernommen statt mit „unmanaged record“ abzubrechen; einer, der woandershin zeigt, bleibt unangetastet und der Host zeigt, wohin er zeigt.
+- **Proxy-Host-Dialog:** „DNS bei Cloudflare eintragen“ und „Cloudflare-Proxy“ sind jetzt Schalter im Tab Details neben dem Länder-Filter (waren unter Erweitert versteckt), mit Sync-Status und Fehlern direkt dort. Proxy an schaltet DNS mit ein, DNS aus schaltet den Proxy mit aus.
+
+#### Geändert
+
+- **Proxy-Host-Liste:** Cloudflare- und Länder-Filter-Pille stehen in einer festen Zeile unter den Domains, statt daneben zu verrutschen. Cloudflare ist ebenfalls eine Pille: orange „Cloudflare Proxy“ oder grün „Cloudflare DNS“, Tooltips übersetzt.
+- Token-Reihenfolge je Host: zuerst der Token des eigenen Cloudflare-DNS-Zertifikats (Rechte je Domain), dann der Token aus Einstellungen -> Cloudflare, dann `CLOUDFLARE_API_TOKEN`.
+- Veraltete Record-Schlüssel älterer Versionen (durch die Umwandlung der Schreibweise verstümmelt) fallen beim nächsten Speichern weg.
+
+#### Sicherheit
+
+- **Echte Besucher-IP hinter dem Cloudflare-Proxy:** Hosts mit Cloudflare-Proxy übernehmen die Besucher-IP aus `CF-Connecting-IP`, und nur von Cloudflare-Adressen (neue `conf.d/include/ip_ranges_cloudflare.conf`, wird mit den anderen Bereichen aktualisiert). Vorher sahen solche Hosts die Adresse des Cloudflare-Knotens, der Länder-Filter bewertete also dessen Standort. Wer den CDN-Bereichen global für `X-Real-IP` vertraut, lässt sich über ein eigenes Cloudflare-Konto die Besucher-IP fälschen und den Länder-Filter umgehen; die README warnt jetzt davor.
+- `/api/cloudflare/status` verlangt einen angemeldeten Benutzer.
+- Abhängigkeiten: `happy-dom` 21.0.4 (Frontend-Tests), `fast-uri` 3.1.9, `js-yaml` 4.3.2 und `qs` 6.17.1 (Cypress-Werkzeuge), `source-map-js` 1.2.2 (Doku). Alle offenen Dependabot-Hinweise sind damit durch die Lockdateien abgedeckt; die Laufzeit-Pakete von Backend und Frontend waren bereits auf gepatchten Versionen.
+
+`AGENT_SCRIPT_VERSION` bleibt absichtlich bei 1.6.1: das Agent-Skript hat sich nicht geändert.
+
 ## [2.6.1] - 2026-11-01
 
 Fresh installs following the README work again (found by installing on a clean Debian 13 container).
