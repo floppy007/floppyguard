@@ -29,6 +29,14 @@ journalctl -u floppyguard-backend -n 20 --no-pager
 nginx -t && nginx -s reload
 ```
 
+## nginx-Basiskonfiguration (Hub, nicht im Repo)
+
+`/etc/nginx/conf.d/floppyguard.conf` ist auf dem Hub von Hand gepflegt (Neuinstallationen schreiben stattdessen die Site-Datei aus `scripts/install.sh`). Stand seit v2.7.1 (F-42):
+
+- **Echte Client-IP:** `set_real_ip_from` nur `127.0.0.1` und `::1` mit `real_ip_header X-Real-IP`. Die Admin-Oberfläche (Port 81) liegt hinter dem Proxy-Host `proxy.comnic.de` (127.0.0.1) und bekommt so die echte IP – nötig für Login-Limit, fail2ban (`admin_access.log`) und Audit-Log. Keine ganzen Privatnetze eintragen: sonst kann jedes VPN-/Standortgerät per `X-Real-IP` eine beliebige IP vortäuschen (IP-Freigaben, Länder-Filter, Limits). Hosts hinter dem Cloudflare-Proxy regeln das im eigenen Server-Block (`templates/_cloudflare_real_ip.conf`).
+- **Security-Header der Oberfläche:** In `location /` und `location = /index.html` (nginx erbt `add_header` nicht in Locations mit eigenem `add_header`) dieselbe CSP wie die API: `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'`, dazu `X-Frame-Options DENY`, `nosniff`, `Referrer-Policy strict-origin-when-cross-origin`. Darum keine Inline-Skripte in `frontend/index.html` – das Start-Skript liegt in `frontend/public/boot.js`.
+- Prüfen: `curl -sI https://proxy.comnic.de/ | grep -i content-security` und in `/data/logs/admin_access.log` stehen echte IPs statt `127.0.0.1`.
+
 ## View Logs
 
 ```bash
@@ -191,7 +199,7 @@ Agents are managed via `/wireguard` — open a link card and click "Agent".
 
 **Install on a new host:**
 ```bash
-curl -fsSL "<publicUrl>/api/agent/install?reg_token=TOKEN&public_url=URL&tunnel_url=URL" | bash
+curl -fsSL -H "X-Reg-Token: TOKEN" "<publicUrl>/api/agent/install?public_url=URL&tunnel_url=URL" | bash
 ```
 
 **Agent logs on remote hosts:**

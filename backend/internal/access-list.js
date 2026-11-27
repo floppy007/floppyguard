@@ -97,7 +97,7 @@ const internalAccessList = {
 			meta: internalAccessList.maskItems(data),
 		});
 
-		return internalAccessList.maskItems(freshRow);
+		return internalAccessList.toPublic(freshRow);
 	},
 
 	/**
@@ -187,7 +187,7 @@ const internalAccessList = {
 			await internalNginx.bulkGenerateConfigs("proxy_host", freshRow.proxy_hosts);
 		}
 		await internalNginx.reload();
-		return internalAccessList.maskItems(freshRow);
+		return internalAccessList.toPublic(freshRow);
 	},
 
 	/**
@@ -228,8 +228,12 @@ const internalAccessList = {
 		if (!row?.id) {
 			throw new errs.ItemNotFoundError(thisData.id);
 		}
-		if (!skipMasking && typeof row.items !== "undefined" && row.items) {
-			row = internalAccessList.maskItems(row);
+		// F-42: mask on every read, not only when the top-level items were expanded:
+		// expand=proxy_hosts.access_list.items alone carried the plaintext passwords,
+		// and expand=proxy_hosts.certificate the certificate meta (private key of a
+		// custom certificate, DNS API credentials).
+		if (!skipMasking) {
+			row = internalAccessList.toPublic(row);
 		}
 		// Custom omissions
 		if (typeof data.omit !== "undefined" && data.omit !== null) {
@@ -370,6 +374,20 @@ const internalAccessList = {
 	 * @param   {Object}  list
 	 * @returns {Object}
 	 */
+	/**
+	 * F-42: API view – passwords masked and certificate meta (private key, DNS
+	 * credentials) of expanded proxy hosts removed. Mutates and returns `list`.
+	 * @param {Object} list
+	 * @returns {Object}
+	 */
+	toPublic: (list) => {
+		const out = internalAccessList.maskItems(list);
+		if (out && Array.isArray(out.proxy_hosts)) {
+			for (const host of out.proxy_hosts) internalHost.cleanRowCertificateMeta(host);
+		}
+		return out;
+	},
+
 	maskItems: (list) => {
 		if (list && typeof list.items !== "undefined") {
 			list.items.forEach((_val, idx) => {

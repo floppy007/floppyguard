@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import _ from "lodash";
 import errs from "../lib/error.js";
 import { castJsonIfNeed } from "../lib/helpers.js";
@@ -237,8 +239,75 @@ const internalHost = {
 	 * @param   {Integer}  [ignoreId]     Must be supplied if type was also supplied
 	 * @returns {Promise}
 	 */
+	/**
+	 * server_name entries of the hand-written nginx server blocks (conf.d/zz-*.conf).
+	 * @param {string} [dir]
+	 * @returns {Set<string>}
+	 */
+	handConfigServerNames: (dir = process.env.FG_NGINX_CONF_DIR || "/etc/nginx/conf.d") => {
+		const names = new Set();
+		let files = [];
+		try {
+			files = fs.readdirSync(dir).filter((f) => /^zz-.*\.conf$/.test(f));
+		} catch {
+			return names;
+		}
+		for (const file of files) {
+			let text = "";
+			try {
+				text = fs.readFileSync(path.join(dir, file), "utf8");
+			} catch {
+				continue;
+			}
+			for (const line of text.split("\n")) {
+				const m = line.replace(/#.*$/, "").match(/^\s*server_name\s+([^;]+);/);
+				if (!m) continue;
+				for (const name of m[1].trim().split(/\s+/)) {
+					if (name && name !== "_" && !name.startsWith("~")) names.add(name.toLowerCase());
+				}
+			}
+		}
+		return names;
+	},
+
+	/**
+	 * F-42: custom nginx directives (advanced_config, per-location advanced_config)
+	 * run inside the hub's nginx; only administrators may add or change them.
+	 * Clearing them is always allowed.
+	 * @param {Access} access
+	 * @param {Object} data   incoming create/update payload
+	 * @param {Object} [row]  current row (update)
+	 */
+	assertAdvancedConfigAllowed: async (access, data, row) => {
+		const norm = (v) => (typeof v === "string" ? v.trim() : "");
+		let changed = false;
+		if (data.advanced_config !== undefined) {
+			const next = norm(data.advanced_config);
+			if (next !== "" && next !== norm(row?.advanced_config)) changed = true;
+		}
+		if (!changed && Array.isArray(data.locations)) {
+			const old = new Set((Array.isArray(row?.locations) ? row.locations : []).map((l) => norm(l?.advanced_config)));
+			changed = data.locations.some((l) => {
+				const v = norm(l?.advanced_config);
+				return v !== "" && !old.has(v);
+			});
+		}
+		if (!changed) return;
+		try {
+			await access.can("auditlog:list");
+		} catch {
+			throw new errs.PermissionError("Only administrators may set custom nginx configuration");
+		}
+	},
+
 	assertHostnamesFree: async (domainNames, ignoreType, ignoreId) => {
 		if (!Array.isArray(domainNames) || domainNames.length === 0) return;
+		// F-42: names served by hand-written server blocks (conf.d/zz-*.conf, e.g. SSO,
+		// webmail) are taken too. Generated host confs load first, so a host with such
+		// a name would silently take over that service (and its ACME challenges).
+		const handNames = internalHost.handConfigServerNames();
+		const handHit = domainNames.find((d) => handNames.has(String(d).toLowerCase()));
+		if (handHit) throw new errs.ValidationError(`${handHit} is already in use`);
 		const load = (model) => internalHost._loadHostsUsingDomains(model, domainNames);
 		const [proxy, redirection, dead] = await Promise.all([
 			load(proxyHostModel),

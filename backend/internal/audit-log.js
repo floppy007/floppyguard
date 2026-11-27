@@ -1,6 +1,7 @@
 import errs from "../lib/error.js";
 import { castJsonIfNeed } from "../lib/helpers.js";
 import auditLogModel from "../models/audit-log.js";
+import { redactSecrets } from "../lib/redact-secrets.js";
 
 const internalAuditLog = {
 	/**
@@ -89,7 +90,8 @@ const internalAuditLog = {
 			action: data.action,
 			object_type: data.object_type || "",
 			object_id: data.object_id || 0,
-			meta: data.meta || {},
+			// F-42: never persist DNS tokens, private keys or passwords in the audit log
+			meta: redactSecrets(data.meta || {}),
 		});
 	},
 };

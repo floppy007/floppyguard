@@ -237,7 +237,32 @@ const internal2fa = {
 			const result = await verifyTotp(secret, token);
 
 			if (result.valid) {
-				return true;
+				// F-42: a TOTP code is single-use. Remember the matched time step under a row
+				// lock and reject the same (or an older) step, so a code read over the
+				// shoulder or replayed from a proxy log cannot be used a second time.
+				const step = Number.isFinite(result.timeStep)
+					? result.timeStep
+					: Math.floor(Number(result.epoch) / 30) + Number(result.delta || 0);
+				return authModel.transaction(async (trx) => {
+					const fresh = await authModel
+						.query(trx)
+						.where("id", auth.id)
+						.andWhere("user_id", userId)
+						.andWhere("type", "password")
+						.forUpdate()
+						.first();
+					const last = Number(fresh?.meta?.totp_last_step);
+					if (Number.isFinite(step) && Number.isFinite(last) && step <= last) {
+						return false;
+					}
+					if (Number.isFinite(step)) {
+						await authModel
+							.query(trx)
+							.where("id", auth.id)
+							.patch({ meta: { ...fresh.meta, totp_last_step: step } });
+					}
+					return true;
+				});
 			}
 		}
 

@@ -186,7 +186,9 @@ export const ssoLinkRefusal = ({ storedSub, hasPassword, claims }) => {
 	if (hasPassword) {
 		return "Konto hat ein lokales Passwort und ist nicht mit dem Anbieter verknüpft";
 	}
-	if (claims?.email_verified === false) {
+	// F-42: only an explicitly confirmed address may take over an existing account;
+	// a provider that omits the claim is treated as "not confirmed".
+	if (claims?.email_verified !== true) {
 		return "E-Mail-Adresse ist beim Anbieter nicht bestätigt";
 	}
 	return null;

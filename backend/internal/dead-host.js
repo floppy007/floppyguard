@@ -26,6 +26,7 @@ const internalDeadHost = {
 		}
 
 		await access.can("dead_hosts:create", data);
+		await internalHost.assertAdvancedConfigAllowed(access, data, null);
 		internalNginx.assertSafeHostFields("dead_host", data);
 		await internalHost.assertCertificateAccess(access, data.certificate_id);
 
@@ -92,6 +93,7 @@ const internalDeadHost = {
 
 		await internalHost.assertHostnamesFree(data.domain_names, "dead", data.id);
 		const row = await internalDeadHost.get(access, { id: data.id });
+		await internalHost.assertAdvancedConfigAllowed(access, data, row);
 
 		if (row.id !== data.id) {
 			// Sanity check that something crazy hasn't happened

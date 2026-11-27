@@ -34,6 +34,7 @@ const internalProxyHost = {
 
 		return access
 			.can("proxy_hosts:create", thisData)
+			.then(() => internalHost.assertAdvancedConfigAllowed(access, thisData, null))
 			.then(() => internalNginx.assertSafeHostFields("proxy_host", thisData))
 			.then(() => internalHost.assertCertificateAccess(access, thisData.certificate_id))
 			.then(() => internalHost.assertAccessListAccess(access, thisData.access_list_id))
@@ -119,6 +120,10 @@ const internalProxyHost = {
 			.then(() => internalHost.assertHostnamesFree(thisData.domain_names, "proxy", thisData.id))
 			.then(() => {
 				return internalProxyHost.get(access, { id: thisData.id });
+			})
+			.then(async (row) => {
+				await internalHost.assertAdvancedConfigAllowed(access, thisData, row);
+				return row;
 			})
 			.then((row) => {
 				if (row.id !== thisData.id) {

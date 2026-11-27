@@ -201,7 +201,10 @@ route(
 	"/agent/install",
 	{
 		get: (req) => {
-			const { reg_token, public_url, tunnel_url } = req.query;
+			const { public_url, tunnel_url } = req.query;
+			// F-42: preferred via header (stays out of access logs); ?reg_token= kept for old snippets
+			const headerToken = req.get("x-reg-token");
+			const reg_token = typeof headerToken === "string" && headerToken !== "" ? headerToken : req.query.reg_token;
 			if (!reg_token) throw new error.ValidationError("reg_token is required");
 			if (!public_url) throw new error.ValidationError("public_url is required");
 			return internalAgent.getInstallScriptByToken(reg_token, public_url, tunnel_url || public_url);

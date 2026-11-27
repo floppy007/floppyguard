@@ -53,7 +53,9 @@ export function resetAgentToken(id: number): Promise<Agent> {
 	return post({ url: `agents/${id}/reset-token`, data: {} }) as Promise<Agent>;
 }
 
+// F-42: the registration token travels in a header, not in the URL, so it does not
+// end up in nginx/proxy access logs. The hub still accepts ?reg_token= for old snippets.
 export function buildInstallOneliner(regToken: string, publicUrl: string, tunnelUrl: string): string {
-	const url = `${publicUrl}/api/agent/install?reg_token=${encodeURIComponent(regToken)}&public_url=${encodeURIComponent(publicUrl)}&tunnel_url=${encodeURIComponent(tunnelUrl)}`;
-	return `curl -fsSL "${url}" | bash`;
+	const url = `${publicUrl}/api/agent/install?public_url=${encodeURIComponent(publicUrl)}&tunnel_url=${encodeURIComponent(tunnelUrl)}`;
+	return `curl -fsSL -H "X-Reg-Token: ${regToken}" "${url}" | bash`;
 }

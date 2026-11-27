@@ -7,16 +7,11 @@ import { useHealth } from "src/hooks/useHealth";
 import { intl } from "src/locale/IntlProvider";
 import AuthStore from "src/modules/AuthStore";
 import styles from "./index.module.css";
+import { safeReturnTarget } from "./returnTarget";
 
 const t = (id: string) => intl.formatMessage({ id });
 
-// Nach Session-Ablauf rendert der Router <Login/> an Ort und Stelle, die URL
-// zeigt noch die zuletzt besuchte Seite. Dorthin zurueck; "/login" ist nur die
-// SSO-Ruecksprungadresse ohne Route und faellt auf das Dashboard zurueck.
-const returnTarget = () => {
-	const { pathname, search } = window.location;
-	return pathname === "/login" ? "/" : `${pathname}${search}`;
-};
+const returnTarget = () => safeReturnTarget(window.location.pathname, window.location.search);
 
 // Feste Fehlercodes vom Backend (routes/oidc.js). Alles andere wird ignoriert.
 const SSO_ERRORS = ["unconfigured", "denied", "invalid", "failed", "expired", "rejected"];

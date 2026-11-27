@@ -1,6 +1,6 @@
 {
   "name": "floppyguard",
-	"version": "2.7.0",
+	"version": "2.7.1",
 	"packageManager": "yarn@1.22.22",
   "description": "WireGuard VPN management + nginx reverse proxy in one platform",
   "author": "Florian Hesse <f.hesse@comnic.de>",
@@ -48,13 +48,16 @@
     "temp-write": "^6.0.1"
   },
   "resolutions": {
+    "basic-ftp": "6.2.6",
     "body-parser": "2.4.0",
     "fast-uri": "3.1.9",
     "ip-address": "10.7.4",
     "js-yaml": "4.3.2",
     "lodash": "4.18.1",
+    "minimatch": "11.0.9",
     "path-to-regexp": "8.4.2",
-    "qs": "6.16.1"
+    "qs": "6.16.1",
+    "undici": "6.29.1"
   },
   "devDependencies": {
     "@apidevtools/swagger-parser": "^12.1.0",

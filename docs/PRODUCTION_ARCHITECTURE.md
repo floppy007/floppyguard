@@ -22,7 +22,7 @@ Key settings:
 - `WorkingDirectory`: `/var/www/floppyguard/backend`
 - `ExecStart`: `/bin/node index.js`
 - `PORT=3300`, `NODE_ENV=production`
-- `DB_MYSQL_HOST=localhost`, `DB_MYSQL_USER=npm`, `DB_MYSQL_PASSWORD=npm`, `DB_MYSQL_NAME=npm`
+- `DB_MYSQL_HOST=localhost`, `DB_MYSQL_USER`, `DB_MYSQL_PASSWORD` (secret, see the unit on the host), `DB_MYSQL_NAME`
 - `NPM_LETSENCRYPT_ROOT=/opt/npm/letsencrypt`
 - `NPM_CUSTOM_SSL_ROOT=/opt/npm/data/custom_ssl`
 - `Restart=on-failure`, `RestartSec=5`

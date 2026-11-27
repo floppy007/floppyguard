@@ -21,8 +21,10 @@ describe("ssoLinkRefusal", () => {
 			/bestätigt/,
 		);
 	});
-	it("links an unbound SSO-only account", () => {
-		assert.equal(ssoLinkRefusal({ storedSub: "", hasPassword: false, claims: { sub: "x" } }), null);
+	it("refuses linking when the provider omits email_verified (F-42)", () => {
+		assert.match(ssoLinkRefusal({ storedSub: "", hasPassword: false, claims: { sub: "x" } }), /bestätigt/);
+	});
+	it("links an unbound SSO-only account with a confirmed e-mail", () => {
 		assert.equal(
 			ssoLinkRefusal({ storedSub: "", hasPassword: false, claims: { sub: "x", email_verified: true } }),
 			null,

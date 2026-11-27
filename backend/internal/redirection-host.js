@@ -28,6 +28,7 @@ const internalRedirectionHost = {
 
 		return access
 			.can("redirection_hosts:create", thisData)
+			.then(() => internalHost.assertAdvancedConfigAllowed(access, thisData, null))
 			.then(() => internalNginx.assertSafeHostFields("redirection_host", thisData))
 			.then(() => internalHost.assertCertificateAccess(access, thisData.certificate_id))
 			.then(() => internalHost.assertHostnamesFree(thisData.domain_names))
@@ -112,6 +113,10 @@ const internalRedirectionHost = {
 			.then(() => internalHost.assertHostnamesFree(thisData.domain_names, "redirection", thisData.id))
 			.then(() => {
 				return internalRedirectionHost.get(access, { id: thisData.id });
+			})
+			.then(async (row) => {
+				await internalHost.assertAdvancedConfigAllowed(access, thisData, row);
+				return row;
 			})
 			.then((row) => {
 				if (row.id !== thisData.id) {

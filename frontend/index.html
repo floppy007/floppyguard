@@ -37,16 +37,6 @@
 		</div>
 		<div id="root"></div>
 		<script type="module" src="/src/main.tsx"></script>
-		<script>
-			if (typeof window.global === "undefined") {
-				window.global = window;
-			}
-			window.__hideBootSplash = function () {
-				const el = document.getElementById("boot-splash");
-				if (!el) return;
-				el.classList.add("boot-hidden");
-				window.setTimeout(() => el.remove(), 320);
-			};
-		</script>
+		<script src="/boot.js"></script>
 	</body>
 </html>

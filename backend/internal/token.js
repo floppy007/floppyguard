@@ -7,6 +7,46 @@ import TokenModel from "../models/token.js";
 import userModel from "../models/user.js";
 import twoFactor from "./2fa.js";
 
+// F-42: in-process failure counters for 2FA (single backend process). A challenge token
+// is worthless after MAX_2FA_FAILS_PER_CHALLENGE wrong codes (log in again with the
+// password); an account gets at most MAX_2FA_FAILS_PER_ACCOUNT wrong codes per window,
+// whatever the source IPs are.
+const MAX_2FA_FAILS_PER_CHALLENGE = 5;
+const MAX_2FA_FAILS_PER_ACCOUNT = 10;
+const TWO_FA_CHALLENGE_WINDOW_MS = 5 * 60 * 1000;
+const TWO_FA_ACCOUNT_WINDOW_MS = 15 * 60 * 1000;
+export const twoFactorFailures = (() => {
+	const map = new Map();
+	const live = (key) => {
+		const e = map.get(key);
+		if (e && e.until <= Date.now()) {
+			map.delete(key);
+			return null;
+		}
+		return e || null;
+	};
+	return {
+		hit(key, windowMs) {
+			const e = live(key);
+			if (e) e.count += 1;
+			else map.set(key, { count: 1, until: Date.now() + windowMs });
+			if (map.size > 10000) {
+				for (const k of map.keys()) live(k);
+			}
+		},
+		blocked(key, max) {
+			const e = live(key);
+			return !!e && e.count >= max;
+		},
+		clear(key) {
+			map.delete(key);
+		},
+		reset() {
+			map.clear();
+		},
+	};
+})();
+
 const ERROR_MESSAGE_INVALID_AUTH = "Invalid email or password";
 const ERROR_MESSAGE_INVALID_AUTH_I18N = "error.invalid-auth";
 const ERROR_MESSAGE_INVALID_2FA = "Invalid verification code";
@@ -220,11 +260,25 @@ export default {
 			throw err;
 		}
 
+		// F-42: bounded guessing per challenge and per account (on top of the per-IP limiter)
+		const challengeKey = `c:${tokenData.jti || challengeToken.slice(-24)}`;
+		const accountKey = `u:${userId}`;
+		if (
+			twoFactorFailures.blocked(challengeKey, MAX_2FA_FAILS_PER_CHALLENGE) ||
+			twoFactorFailures.blocked(accountKey, MAX_2FA_FAILS_PER_ACCOUNT)
+		) {
+			throw new errs.AuthError("Invalid or expired challenge token");
+		}
+
 		// Verify 2FA code
 		const valid = await twoFactor.verifyForLogin(userId, code);
 		if (!valid) {
+			twoFactorFailures.hit(challengeKey, TWO_FA_CHALLENGE_WINDOW_MS);
+			twoFactorFailures.hit(accountKey, TWO_FA_ACCOUNT_WINDOW_MS);
 			throw new errs.AuthError(ERROR_MESSAGE_INVALID_2FA, ERROR_MESSAGE_INVALID_2FA_I18N);
 		}
+		twoFactorFailures.clear(challengeKey);
+		twoFactorFailures.clear(accountKey);
 
 		// Create full token
 		const expiryDate = parseDatePeriod(tokenExpiry);

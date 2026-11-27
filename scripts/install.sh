@@ -356,13 +356,16 @@ server {
     gzip_comp_level 6;
     gzip_types text/css application/javascript text/javascript application/json image/svg+xml;
 
-    # Clickjacking: the admin UI must never be framed. Set per location (not on
+    # Clickjacking + strict CSP (F-42): the admin UI must never be framed and runs
+    # only its own scripts (boot.js instead of an inline script). Set per location (not on
     # the server) so /api/ keeps only the backend's own headers; repeated in
     # every location that has its own add_header (nginx does not inherit then).
     location = /index.html {
         add_header Cache-Control "no-store, no-cache, must-revalidate";
         add_header X-Frame-Options DENY always;
-        add_header Content-Security-Policy "frame-ancestors 'none'" always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'" always;
+        add_header X-Content-Type-Options nosniff always;
+        add_header Referrer-Policy strict-origin-when-cross-origin always;
         expires 0;
     }
 
@@ -372,13 +375,17 @@ server {
     location /assets/ {
         add_header Cache-Control "public, max-age=31536000, immutable";
         add_header X-Frame-Options DENY always;
-        add_header Content-Security-Policy "frame-ancestors 'none'" always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'" always;
+        add_header X-Content-Type-Options nosniff always;
+        add_header Referrer-Policy strict-origin-when-cross-origin always;
         try_files \$uri =404;
     }
 
     location / {
         add_header X-Frame-Options DENY always;
-        add_header Content-Security-Policy "frame-ancestors 'none'" always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'" always;
+        add_header X-Content-Type-Options nosniff always;
+        add_header Referrer-Policy strict-origin-when-cross-origin always;
         try_files \$uri \$uri/ /index.html;
     }
 

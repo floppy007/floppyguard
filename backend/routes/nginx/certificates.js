@@ -55,7 +55,7 @@ router
 				},
 			);
 			const rows = await internalCertificate.getAll(res.locals.access, data.expand, data.query);
-			res.status(200).send(rows);
+			res.status(200).send(internalCertificate.toPublic(rows));
 		} catch (err) {
 			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
 			next(err);
@@ -72,7 +72,7 @@ router
 			const payload = await apiValidator(getValidationSchema("/nginx/certificates", "post"), req.body);
 			req.setTimeout(900000); // 15 minutes timeout
 			const result = await internalCertificate.create(res.locals.access, payload);
-			res.status(201).send(result);
+			res.status(201).send(internalCertificate.toPublic(result));
 		} catch (err) {
 			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
 			next(err);
@@ -231,7 +231,7 @@ router
 				id: Number.parseInt(data.certificate_id, 10),
 				expand: data.expand,
 			});
-			res.status(200).send(row);
+			res.status(200).send(internalCertificate.toPublic(row));
 		} catch (err) {
 			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
 			next(err);
@@ -293,7 +293,9 @@ router
 					id: Number.parseInt(req.params.certificate_id, 10),
 					files: req.files,
 				});
-				res.status(200).send(result);
+				// F-42: never echo the (stored) private key back
+				const { certificate_key: _key, ...publicResult } = result || {};
+				res.status(200).send(publicResult);
 			} catch (err) {
 				debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
 				next(err);
@@ -324,7 +326,7 @@ router
 			const result = await internalCertificate.renew(res.locals.access, {
 				id: Number.parseInt(req.params.certificate_id, 10),
 			});
-			res.status(200).send(result);
+			res.status(200).send(internalCertificate.toPublic(result));
 		} catch (err) {
 			debug(logger, `${req.method.toUpperCase()} ${req.path}: ${err}`);
 			next(err);

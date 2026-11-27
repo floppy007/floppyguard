@@ -5,6 +5,44 @@ This project diverges from upstream nginx-proxy-manager starting at v1.0.0.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.7.1] - 2026-11-27
+
+Security baseline (F-42): real client IPs for the admin UI, no more forgeable visitor IPs from internal networks, no secrets in host data or the audit log, single-use 2FA codes, strict CSP for the admin UI, patched dependencies. Agent script stays at 1.6.1 (unchanged, no fleet re-download).
+
+### English
+
+#### Security
+
+- **Admin UI saw every visitor as 127.0.0.1:** behind `proxy.comnic.de` the admin server on port 81 did not take over the real client IP, so the login rate limit was one shared counter (anyone could lock all admins out with a few wrong logins), fail2ban never matched and the audit log had no client IPs. nginx now trusts `X-Real-IP` only from the host itself (127.0.0.1/::1).
+- **Forgeable visitor IP from internal networks:** `X-Real-IP` used to be trusted from all of 10/8, 172.16/12 and 192.168/16, so any VPN peer or site device could pretend to be any IP (IP allowlists, country filter, rate limits). Limited to the host itself.
+- **DNS API credentials** (e.g. the Cloudflare token of a DNS-challenge certificate) are no longer stored in proxy/redirection/404 host data; the certificate keeps its own copy for renewals. Audit-log entries no longer carry DNS credentials, private keys or Basic-Auth passwords. A migration removes/redacts existing copies.
+- **Single-use TOTP codes:** a code is accepted once (time step remembered); at most 5 wrong codes per login challenge and 10 per account in 15 minutes, independent of the source IP.
+- **Admin UI headers:** full Content-Security-Policy (`script-src 'self'`, `frame-ancestors 'none'`), X-Frame-Options, nosniff and Referrer-Policy also for the UI itself, not only for `/api`. The boot script moved from an inline script to `/boot.js`. Fresh installs (`install.sh`) get the same headers.
+- **Login redirect** only returns to own paths (`//other.host` or `/\other.host` go to the dashboard).
+- **Certificates:** API responses never contain the private key of a custom certificate; downloading certificate files (zip with private key) needs manage rights, reading is not enough.
+- **Access lists:** passwords and certificate data stay masked for every `expand` combination.
+- **Custom nginx configuration** (`advanced_config`, also per location) can only be added or changed by administrators. Host names served by hand-written `conf.d/zz-*.conf` blocks count as taken.
+- **Agent install command** sends the registration token as `X-Reg-Token` header instead of in the URL (no longer in access logs); `?reg_token=` still works for old snippets.
+- **SSO:** linking an existing account requires `email_verified: true` from the provider (a missing claim counts as not confirmed).
+- **Dependencies:** `undici` 6.29.1, `basic-ftp` 6.2.6, `minimatch` 11.0.9 (yarn audit: 0 findings).
+
+### Deutsch
+
+#### Sicherheit
+
+- **Admin-Oberfläche sah jeden Besucher als 127.0.0.1:** Hinter `proxy.comnic.de` übernahm der Admin-Server auf Port 81 die echte Client-IP nicht. Das Login-Limit war dadurch ein gemeinsamer Zähler (ein Fremder konnte mit wenigen Fehlversuchen alle Admins aussperren), fail2ban griff nie, im Audit-Log fehlten die IPs. nginx vertraut `X-Real-IP` jetzt nur noch vom Server selbst (127.0.0.1/::1).
+- **Fälschbare Besucher-IP aus internen Netzen:** `X-Real-IP` galt bisher aus ganz 10/8, 172.16/12 und 192.168/16, jedes VPN- oder Standortgerät konnte sich so jede IP geben (IP-Freigaben, Länder-Filter, Limits). Jetzt nur noch vom Server selbst.
+- **DNS-API-Zugangsdaten** (z. B. Cloudflare-Token eines DNS-Challenge-Zertifikats) werden nicht mehr in Proxy-/Weiterleitungs-/404-Hosts gespeichert; das Zertifikat behält seine eigene Kopie für die Verlängerung. Audit-Log-Einträge enthalten keine DNS-Zugangsdaten, privaten Schlüssel oder Basic-Auth-Passwörter mehr. Eine Migration entfernt bzw. schwärzt vorhandene Kopien.
+- **2FA-Codes nur einmal gültig:** Jeder Code wird einmal angenommen; höchstens 5 Fehlversuche pro Anmelde-Challenge und 10 pro Konto in 15 Minuten, unabhängig von der IP.
+- **Header der Oberfläche:** vollständige Content-Security-Policy, X-Frame-Options, nosniff und Referrer-Policy auch für die Oberfläche selbst, nicht nur für `/api`. Das Start-Skript liegt jetzt in `/boot.js` statt inline. Neuinstallationen bekommen dieselben Header.
+- **Weiterleitung nach dem Login** nur noch auf eigene Pfade.
+- **Zertifikate:** API-Antworten enthalten nie den privaten Schlüssel eines eigenen Zertifikats; der Download (ZIP mit Schlüssel) braucht Verwalten-Rechte.
+- **Zugriffslisten:** Passwörter und Zertifikatsdaten bleiben bei jeder `expand`-Kombination maskiert.
+- **Eigene nginx-Konfiguration** (`advanced_config`, auch pro Location) dürfen nur Admins anlegen oder ändern. Namen aus den handgeschriebenen `conf.d/zz-*.conf` gelten als belegt.
+- **Agent-Installationsbefehl** übergibt das Registrierungs-Token als Header `X-Reg-Token` statt in der URL; `?reg_token=` funktioniert weiter.
+- **SSO:** Verknüpfen eines bestehenden Kontos nur mit `email_verified: true` vom Anbieter.
+- **Abhängigkeiten:** `undici` 6.29.1, `basic-ftp` 6.2.6, `minimatch` 11.0.9 (yarn audit: 0 Funde).
+
 ## [2.7.0] - 2026-11-02
 
 Cloudflare connection under Settings: one API token, then DNS records are created, kept up to date and removed automatically. Cloudflare proxy switch next to the country filter, and the real visitor IP behind the Cloudflare proxy.

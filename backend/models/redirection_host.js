@@ -7,6 +7,7 @@ import { castJsonIfNeed, convertBoolFieldsToInt, convertIntFieldsToBool } from "
 import Certificate from "./certificate.js";
 import now from "./now_helper.js";
 import User from "./user.js";
+import { stripHostMetaSecrets } from "../lib/redact-secrets.js";
 
 Model.knex(db());
 
@@ -23,6 +24,8 @@ const boolFields = [
 
 class RedirectionHost extends Model {
 	$beforeInsert() {
+		// F-42: DNS credentials belong to the certificate, never to host.meta
+		if (this.meta !== undefined) this.meta = stripHostMetaSecrets(this.meta);
 		this.created_on = now();
 		this.modified_on = now();
 
@@ -40,6 +43,8 @@ class RedirectionHost extends Model {
 	}
 
 	$beforeUpdate() {
+		// F-42: DNS credentials belong to the certificate, never to host.meta
+		if (this.meta !== undefined) this.meta = stripHostMetaSecrets(this.meta);
 		this.modified_on = now();
 
 		// Sort domain_names

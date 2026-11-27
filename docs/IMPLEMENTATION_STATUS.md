@@ -68,7 +68,7 @@ Remote agent management built and live:
 - `POST /api/agents/:id/reset-token` — generate new reg_token (sets status back to pending)
 
 **Public Agent API (no JWT):**
-- `GET /api/agent/install?reg_token=...&public_url=...&tunnel_url=...` — serves install script
+- `GET /api/agent/install?public_url=...&tunnel_url=...` with header `X-Reg-Token` (legacy `?reg_token=` still accepted) — serves install script
 - `POST /api/agent/register` — agent exchanges reg_token for permanent agent_token
 - `GET /api/agent/config` — agent polls for WireGuard config (Bearer agent_token)
 - `GET /api/agent/loop-script` — serves current loop script for self-update (Bearer agent_token)
@@ -84,7 +84,7 @@ Agent features:
 
 Install one-liner:
 ```bash
-curl -fsSL "<publicUrl>/api/agent/install?reg_token=TOKEN&public_url=URL&tunnel_url=URL" | bash
+curl -fsSL -H "X-Reg-Token: TOKEN" "<publicUrl>/api/agent/install?public_url=URL&tunnel_url=URL" | bash
 ```
 Installs as `floppyguard-agent` systemd service, polls hub every 30s.
 

@@ -658,6 +658,21 @@ const internalCertificate = {
 		return internalCertificate.cleanExpansions(row);
 	},
 
+	/**
+	 * F-42: API view of a certificate row. The private key of a custom certificate
+	 * stays in the DB (needed for re-uploads and config writes) but never leaves the
+	 * API; DNS credentials are already omitted by get()/getAll().
+	 * @param {Object} row
+	 * @returns {Object}
+	 */
+	toPublic: (row) => {
+		if (!row || typeof row !== "object") return row;
+		if (Array.isArray(row)) return row.map((r) => internalCertificate.toPublic(r));
+		if (!row.meta || typeof row.meta !== "object") return row;
+		const { certificate_key: _key, dns_provider_credentials: _creds, ...meta } = row.meta;
+		return { ...row, meta };
+	},
+
 	cleanExpansions: (row) => {
 		if (typeof row.proxy_hosts !== "undefined") {
 			row.proxy_hosts = utils.omitRows(["is_deleted"])(row.proxy_hosts);
@@ -682,6 +697,8 @@ const internalCertificate = {
 	 */
 	download: async (access, data) => {
 		await access.can("certificates:get", data);
+		// F-42: the zip carries the private key; reading a certificate is not enough
+		await access.can("certificates:update", data.id);
 		const certificate = await internalCertificate.get(access, data);
 		if (certificate.provider === "letsencrypt") {
 			const zipDirectory = internalCertificate.getLiveCertPath(data.id);
